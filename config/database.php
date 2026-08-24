@@ -44,6 +44,21 @@ return [
             'transaction_mode' => 'DEFERRED',
         ],
 
+        // Read-only source for the one-time identity import. Deliberately unconfigured
+        // by default: the import command refuses to run rather than guessing at a source.
+        'legacy_identity' => [
+            'driver' => 'mysql',
+            'host' => env('LEGACY_IDENTITY_DB_HOST'),
+            'port' => env('LEGACY_IDENTITY_DB_PORT', '3306'),
+            'database' => env('LEGACY_IDENTITY_DB_DATABASE'),
+            'username' => env('LEGACY_IDENTITY_DB_USERNAME'),
+            'password' => env('LEGACY_IDENTITY_DB_PASSWORD'),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'strict' => true,
+        ],
+
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),
