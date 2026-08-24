@@ -12,8 +12,15 @@
                 Use a passkey or an emailed sign-in code — no password needed.
             </p>
 
-            {{-- Passkey login (primary) --}}
-            <div id="passkey-login-mount"></div>
+            {{-- Passkey login (primary).
+
+                 The placeholder is sized to match what mounts here. The bundle is deferred to
+                 the end of the document, so an empty container would paint at zero height and
+                 then shove the rest of the card down once it hydrates. It is aria-hidden
+                 because it conveys nothing; the real control replaces it entirely. --}}
+            <div id="passkey-login-mount">
+                <div class="bg-muted h-10 w-full animate-pulse rounded-md" aria-hidden="true"></div>
+            </div>
 
             {{-- Passwordless email code (primary) --}}
             <div class="mt-6">
@@ -25,7 +32,13 @@
                         <span class="bg-card text-muted-foreground px-2">OR</span>
                     </div>
                 </div>
-                <div id="passwordless-login-mount"></div>
+                <div id="passwordless-login-mount">
+                    <div class="space-y-3" aria-hidden="true">
+                        <div class="bg-muted h-4 w-24 animate-pulse rounded"></div>
+                        <div class="bg-muted h-10 w-full animate-pulse rounded-md"></div>
+                        <div class="bg-muted h-10 w-full animate-pulse rounded-md"></div>
+                    </div>
+                </div>
             </div>
 
             @if ($errors->has('email'))

@@ -105,12 +105,22 @@ jobs:
       #
       # The --exclude list is what --delete must not touch. Excluded paths are hidden from
       # the transfer entirely, so rsync also refuses to delete them on the receiver.
+      #
+      # Everything under storage/ that holds runtime state must be excluded. The repository
+      # ships those directories empty, so transferring them with --delete destroys whatever
+      # the running application has put there: signing keys, uploaded files, the log the
+      # last failure was written to, and any file-backed session. A session wiped mid-flow
+      # surfaces as an unrelated-looking error — a passkey ceremony, for instance, reports
+      # that it has no pending challenge — which is why this is worth being explicit about.
       - name: Deploy application with guarded rsync
         run: |
           rsync -av --delete \
             --exclude='.env' \
             --exclude='.db-credentials' \
-            --exclude='/storage/app/private/oauth/' \
+            --exclude='/storage/app/' \
+            --exclude='/storage/logs/' \
+            --exclude='/storage/framework/sessions/' \
+            --exclude='/storage/framework/cache/' \
             -e "ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes" \
             app \
             bootstrap \
