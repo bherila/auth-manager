@@ -59,6 +59,10 @@ return [
     'passkeys' => [
         'table' => 'webauthn_credentials',
         'rp_name' => env('WEBAUTHN_RP_NAME', env('APP_NAME', 'App')),
+        // Must be declared here, not only in the package default: mergeConfigFrom is a
+        // shallow merge, so this file's `passkeys` array replaces the package's entirely.
+        // A key present only upstream silently resolves to null.
+        'rp_id' => env('WEBAUTHN_RP_ID'),
         'allowed_origins' => array_filter(array_map('trim', explode(',', env('WEBAUTHN_ALLOWED_ORIGINS', '')))),
         'timeout' => 60000,
         'resident_key' => env('WEBAUTHN_RESIDENT_KEY', 'preferred'),
