@@ -24,6 +24,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Keys live under the private storage root, which the deploy excludes from its
+        // --delete transfer so they survive every release. Passport's default location is
+        // inside the transferred tree and would be wiped on the next deploy.
+        Passport::loadKeysFrom(storage_path('app/private/oauth'));
+
         Passport::useClientModel(PassportClient::class);
         Passport::authorizationView('oauth.authorize');
         Passport::tokensCan([
