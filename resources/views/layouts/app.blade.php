@@ -6,9 +6,11 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', config('app.name'))</title>
     @include('layouts.theme-init')
+    @stack('head')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="min-h-screen antialiased bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+<body class="bg-background text-foreground min-h-screen antialiased">
     @yield('content')
+    @stack('scripts')
 </body>
 </html>

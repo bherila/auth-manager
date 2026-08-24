@@ -1,9 +1,196 @@
 @import 'tailwindcss';
 
-@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
+/* The theme script drives dark mode via the `dark` class on <html> (mirroring the
+   OS preference when theme is "system"). Without this variant override, Tailwind v4
+   keys `dark:` utilities to the OS media query and they desync from the
+   class-driven CSS variables below. */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-hyperlegible: 'Atkinson Hyperlegible Next Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-currency: 'Atkinson Hyperlegible Mono', 'Atkinson Hyperlegible Next Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-navbar: hsl(var(--navbar));
+  --color-navbar-foreground: hsl(var(--navbar-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+
+  --color-gold: hsl(var(--gold));
+  --color-gold-foreground: hsl(var(--gold-foreground));
+
+  --color-table-border: hsl(var(--table-border));
 }
+
+/* ----------------------------- */
+/* Light Mode                    */
+/* ----------------------------- */
+
+:root {
+  --cost-chart-advisory: #2a78d6;
+  --cost-chart-transaction: #008300;
+  --cost-chart-commission: #e87ba4;
+  --cost-chart-margin: #eda100;
+  --cost-chart-grid: #737373;
+  --cost-chart-tooltip-background: #ffffff;
+  --cost-chart-tooltip-border: #d9d9d9;
+  --cost-chart-tooltip-foreground: #1a1a1a;
+
+  --background: 0 0% 96%;        /* #f5f5f5 */
+  --foreground: 0 0% 10%;        /* #1a1a1a */
+  --navbar: 0 0% 92%;
+  --navbar-foreground: 0 0% 10%; /* #1a1a1a - high-contrast for light navbar */
+
+  --primary: 39 40% 45%;         /* Darker Gold for contrast */
+  --primary-foreground: 0 0% 98%;
+
+  --secondary: 0 0% 90%;         /* #e5e5e5 */
+  --secondary-foreground: 0 0% 10%;
+
+  --muted: 0 0% 92%;             
+  --muted-foreground: 0 0% 40%;  /* #666666 */
+
+  --accent: 39 40% 92%;          /* Soft gold background */
+  --accent-foreground: 39 50% 30%;
+
+  --destructive: 0 65% 45%;      /* Darker Red */
+  --destructive-foreground: 0 0% 98%;
+
+  --success: 147 40% 38%;        /* Darker Green */
+  --success-foreground: 0 0% 98%;
+
+  --warning: 46 65% 40%;         /* Darker Yellow/Amber */
+  --warning-foreground: 0 0% 98%;
+
+  --info: 155 35% 40%;           /* Darker Teal */
+  --info-foreground: 0 0% 98%;
+
+  --gold: 39 40% 45%;            /* Brand gold, always available as `gold` */
+  --gold-foreground: 0 0% 98%;
+
+  --border: 0 0% 85%;
+  --input: 0 0% 85%;
+  --ring: 39 40% 45%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+
+  --table-border: 0 0% 85%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cost-chart-advisory: #3987e5;
+    --cost-chart-transaction: #008300;
+    --cost-chart-commission: #d55181;
+    --cost-chart-margin: #c98500;
+    --cost-chart-grid: #888888;
+    --cost-chart-tooltip-background: #171717;
+    --cost-chart-tooltip-border: #2a2a2a;
+    --cost-chart-tooltip-foreground: #e8e8e8;
+  }
+}
+
+:root[data-theme='dark'],
+:root.dark {
+  --cost-chart-advisory: #3987e5;
+  --cost-chart-transaction: #008300;
+  --cost-chart-commission: #d55181;
+  --cost-chart-margin: #c98500;
+  --cost-chart-grid: #888888;
+  --cost-chart-tooltip-background: #171717;
+  --cost-chart-tooltip-border: #2a2a2a;
+  --cost-chart-tooltip-foreground: #e8e8e8;
+}
+
+/* ----------------------------- */
+/* Dark Mode                     */
+/* ----------------------------- */
+
+.dark {
+  --background: 0 0% 6%;         /* #0f0f0f */
+  --foreground: 0 0% 91%;        /* #e8e8e8 */
+  --navbar: 0 0% 9%;             /* #171717 */
+  --navbar-foreground: 0 0% 91%; /* #e8e8e8 - high-contrast for dark navbar */
+
+  --primary: 39 45% 61%;         /* #c8a96e - The signature Gold */
+  --primary-foreground: 0 0% 10%;
+
+  --secondary: 0 0% 12%;         /* #1f1f1f */
+  --secondary-foreground: 0 0% 91%;
+
+  --muted: 0 0% 12%;
+  --muted-foreground: 0 0% 53%;  /* #888888 */
+
+  --accent: 39 45% 15%;          /* Faint gold background for active states */
+  --accent-foreground: 39 45% 61%;
+
+  --destructive: 0 67% 62%;      /* #e05a5a - Red */
+  --destructive-foreground: 0 0% 10%;
+
+  --success: 147 31% 51%;        /* #5aaa7e - Green */
+  --success-foreground: 0 0% 10%;
+
+  --warning: 46 62% 56%;         /* #d4b44a - Yellow */
+  --warning-foreground: 0 0% 10%;
+
+  --info: 155 31% 61%;           /* #7eb8a0 - Teal */
+  --info-foreground: 0 0% 10%;
+
+  --gold: 39 45% 61%;            /* #c8a96e - Brand gold, always available as `gold` */
+  --gold-foreground: 0 0% 10%;
+
+  --border: 0 0% 16%;            /* #2a2a2a */
+  --input: 0 0% 16%;
+  --ring: 39 45% 61%;
+
+  --card: 0 0% 9%;               /* #171717 */
+  --card-foreground: 0 0% 91%;
+
+  --popover: 0 0% 9%;
+  --popover-foreground: 0 0% 91%;
+
+  --table-border: 0 0% 16%;      /* #2a2a2a - match border for muted card/table chrome */
+}
+
+/* ----------------------------- */
+
