@@ -126,6 +126,25 @@ jobs:
             composer.lock \
             ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/auth-manager/
 
+      # Signing keys must persist across deploys: rotating them invalidates every
+      # issued token. Create them only when neither half exists, and refuse to act on a
+      # half-present pair rather than silently regenerating over a live key.
+      - name: Create or verify persistent OAuth signing keys
+        run: |
+          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "cd ~/auth-manager && \
+             install -d -m 700 storage/app/private/oauth && \
+             if [ -s storage/app/private/oauth/oauth-private.key ] && [ -s storage/app/private/oauth/oauth-public.key ]; then \
+               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
+             elif [ ! -e storage/app/private/oauth/oauth-private.key ] && [ ! -e storage/app/private/oauth/oauth-public.key ]; then \
+               /opt/cpanel/ea-php85/root/usr/bin/php artisan passport:keys --force && \
+               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
+             else \
+               echo 'OAuth signing key pair is incomplete; refusing to rotate it automatically.' >&2; \
+               exit 1; \
+             fi"
+
       # Schema changes are deliberately NOT applied here yet. There is no identity schema
       # to apply, and automatic schema application against the live database is decided
       # alongside the identity tables rather than inherited from this scaffold.
