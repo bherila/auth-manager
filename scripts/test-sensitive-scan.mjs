@@ -8,6 +8,10 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 const probeDirectory = 'client-data'
 const probeFile = `${probeDirectory}/privacy-probe.json`
 const contentProbeFile = 'sensitive-scan-probe.txt'
+const provenanceProbeFile = 'sensitive-scan-provenance-probe.md'
+const syntheticRepoReference = ['2025', 'website'].join('-')
+const syntheticProvenance = ['private', 'monorepo'].join(' ')
+const syntheticProvenanceContents = `Carved out of a ${syntheticProvenance} at ${syntheticRepoReference}.\n`
 const syntheticCredential = ['sk', 'live', 'SyntheticValue1234567890'].join('_')
 const syntheticEmail = ['billing', '@', 'customer', '.', 'com'].join('')
 const syntheticContents = JSON.stringify({ syntheticCredential, syntheticEmail })
@@ -15,6 +19,7 @@ const syntheticContents = JSON.stringify({ syntheticCredential, syntheticEmail }
 mkdirSync(probeDirectory, { recursive: true })
 writeFileSync(probeFile, syntheticContents)
 writeFileSync(contentProbeFile, syntheticContents)
+writeFileSync(provenanceProbeFile, syntheticProvenanceContents)
 
 try {
   execFileSync(process.execPath, ['scripts/scan-sensitive.mjs'], {
@@ -38,10 +43,17 @@ try {
   } else if (output.includes(syntheticCredential) || output.includes(syntheticEmail)) {
     console.error('sensitive-scan test: finding output disclosed a matched value')
     process.exitCode = 1
+  } else if (!output.includes('[private-repo-reference]')) {
+    console.error('sensitive-scan test: private repository reference was not detected')
+    process.exitCode = 1
+  } else if (!output.includes('[repository-provenance]')) {
+    console.error('sensitive-scan test: repository provenance narration was not detected')
+    process.exitCode = 1
   } else {
     console.log('sensitive-scan test: disclosure probe rejected with redacted output')
   }
 } finally {
   rmSync(probeDirectory, { recursive: true, force: true })
   rmSync(contentProbeFile, { force: true })
+  rmSync(provenanceProbeFile, { force: true })
 }

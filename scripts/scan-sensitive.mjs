@@ -32,6 +32,30 @@ const FORBIDDEN_PATHS = [
 
 const RULES = [
   {
+    // A public repository must not map the private estate it shares
+    // infrastructure with. These strings are not secrets, but together they
+    // tell a reader which private repositories exist and how to find them.
+    //
+    // Only the GitHub path is forbidden, never a bare product name: a private
+    // repository and a public product can share a word, and forbidding the
+    // word would make the product's own name unwritable here.
+    //
+    // `mcp-laravel-bridge` is deliberately NOT matched yet. It is a private
+    // repository named in two public composer manifests as a hard `require`
+    // over SSH, which is a structural problem rather than a stray string:
+    // those repositories cannot be built by anyone outside the account. Add it
+    // to this pattern once the dependency is published, vendored, or removed.
+    name: 'private-repo-reference',
+    pattern: /\b2025-website\b|github\.com[/:]bherila\/(?:2025-website|planfina)\b/gi,
+  },
+  {
+    // Provenance narration. Phrased narrowly on purpose: a bare "extracted
+    // from" is ordinary English about parsed documents, so only the framings
+    // that describe this repository's own origin are matched.
+    name: 'repository-provenance',
+    pattern: /\bprivate monorepo\b|\bformerly part of\b|\bpredecessor repo(?:sitory)?\b|\bextracted from (?:a|the) (?:private|monorepo)\b|\bmoved out of the monorepo\b/gi,
+  },
+  {
     name: 'us-ssn',
     pattern: /\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b/g,
   },
