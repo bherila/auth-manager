@@ -1,0 +1,148 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.5.0 --activate
+
+      - name: Setup application
+        run: composer setup
+
+      - name: Run CI checks
+        run: composer ci:check
+
+      - name: Upload frontend build artifact
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-build
+          path: public/build/
+          retention-days: 2
+
+  deploy:
+    name: Deploy to web1
+    needs: ci
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
+    runs-on: ubuntu-24.04-arm
+    environment: web1
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Install production Composer dependencies
+        run: composer install --no-dev --no-interaction --optimize-autoloader
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: frontend-build
+          path: public/build/
+
+      # cPanel stores the vhost's PHP-version handler inside public/.htaccess, which the
+      # deploy overwrites. Re-append it so the vhost keeps resolving PHP 8.5.
+      - name: Append cPanel PHP handler to .htaccess
+        run: cat htaccess-append.txt >> public/.htaccess
+
+      - name: Set up pinned SSH credentials
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ecdsa
+          chmod 600 ~/.ssh/id_ecdsa
+          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # The destination is intentionally hard-coded. This hosting account serves several
+      # independent applications from sibling directories, and --delete makes an
+      # interpolated, empty, or broad destination catastrophic. Never target the account
+      # home or a shared webroot.
+      #
+      # The --exclude list is what --delete must not touch. Excluded paths are hidden from
+      # the transfer entirely, so rsync also refuses to delete them on the receiver.
+      - name: Deploy application with guarded rsync
+        run: |
+          rsync -av --delete \
+            --exclude='.env' \
+            --exclude='.db-credentials' \
+            --exclude='/storage/app/private/oauth/' \
+            -e "ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes" \
+            app \
+            bootstrap \
+            config \
+            database \
+            public \
+            resources \
+            routes \
+            storage \
+            vendor \
+            artisan \
+            composer.json \
+            composer.lock \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/auth-manager/
+
+      # Schema changes are deliberately NOT applied here yet. There is no identity schema
+      # to apply, and automatic schema application against the live database is decided
+      # alongside the identity tables rather than inherited from this scaffold.
+      - name: Install private configuration and refresh config cache
+        run: |
+          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "set -eu; \
+             test -f ~/.config/auth-manager/deployment.env; \
+             test -f ~/.config/auth-manager/database.env; \
+             install -m 600 ~/.config/auth-manager/deployment.env ~/auth-manager/.env; \
+             install -m 600 ~/.config/auth-manager/database.env ~/auth-manager/.db-credentials; \
+             cd ~/auth-manager; \
+             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear; \
+             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:cache"
+
+      - name: Verify public health
+        run: |
+          curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
+            https://id.bherila.net/up > /dev/null
