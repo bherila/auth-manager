@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\EndSessionController;
 use App\Http\Middleware\AuditOAuthAuthorization;
 use App\Http\Middleware\EnsureOAuthSessionIsFullyAuthenticated;
 use BWH\Auth\Http\Middleware\RequireActiveUser;
@@ -15,6 +16,12 @@ Route::prefix(config('passport.path', 'oauth'))
         Route::post('/token', [AccessTokenController::class, 'issueToken'])
             ->middleware('throttle')
             ->name('token');
+
+        // Relying-party initiated logout. On the `web` middleware so it can reach — and
+        // destroy — the session cookie this service owns.
+        Route::get('/end-session', EndSessionController::class)
+            ->middleware('web')
+            ->name('end-session');
 
         $authorizationMiddleware = [
             'web',
