@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class ImportLegacyIdentitiesTest extends TestCase
@@ -53,14 +54,17 @@ class ImportLegacyIdentitiesTest extends TestCase
         });
     }
 
-    private function seedLegacyUser(int $id, string $email = 'person@example.com'): void
-    {
+    private function seedLegacyUser(
+        int $id,
+        string $email = 'person@example.com',
+        string $role = 'user',
+    ): void {
         DB::connection('legacy_identity')->table('users')->insert([
             'id' => $id,
             'name' => 'Person',
             'email' => $email,
             'password' => 'hashed-secret',
-            'user_role' => 'user',
+            'user_role' => $role,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -116,6 +120,58 @@ class ImportLegacyIdentitiesTest extends TestCase
         $this->assertDatabaseCount('users', 1);
     }
 
+    public function test_an_active_user_imported_after_the_grant_migration_receives_current_client_grants(): void
+    {
+        $this->configureLegacySource();
+        $this->seedLegacyUser(42);
+        $currentClientId = $this->client();
+        $revokedClientId = $this->client(revoked: true);
+
+        $this->artisan('identity:import-legacy --apply')->assertSuccessful();
+
+        $this->assertDatabaseHas('oauth_client_grants', [
+            'subject' => 42,
+            'oauth_client_id' => $currentClientId,
+        ]);
+        $this->assertDatabaseMissing('oauth_client_grants', [
+            'subject' => 42,
+            'oauth_client_id' => $revokedClientId,
+        ]);
+    }
+
+    public function test_reimporting_an_existing_user_does_not_restore_a_removed_grant(): void
+    {
+        $this->configureLegacySource();
+        $this->seedLegacyUser(42);
+        $clientId = $this->client();
+        $this->artisan('identity:import-legacy --apply')->assertSuccessful();
+        DB::table('oauth_client_grants')
+            ->where('subject', 42)
+            ->where('oauth_client_id', $clientId)
+            ->delete();
+
+        $this->artisan('identity:import-legacy --apply')->assertSuccessful();
+
+        $this->assertDatabaseMissing('oauth_client_grants', [
+            'subject' => 42,
+            'oauth_client_id' => $clientId,
+        ]);
+    }
+
+    public function test_importing_an_inactive_user_does_not_create_client_grants(): void
+    {
+        $this->configureLegacySource();
+        $this->seedLegacyUser(42, role: 'pending');
+        $clientId = $this->client();
+
+        $this->artisan('identity:import-legacy --apply')->assertSuccessful();
+
+        $this->assertDatabaseMissing('oauth_client_grants', [
+            'subject' => 42,
+            'oauth_client_id' => $clientId,
+        ]);
+    }
+
     public function test_it_skips_a_row_whose_address_belongs_to_a_different_identifier(): void
     {
         $this->configureLegacySource();
@@ -160,5 +216,22 @@ class ImportLegacyIdentitiesTest extends TestCase
         $this->artisan('identity:import-legacy --apply')->assertSuccessful();
 
         $this->assertDatabaseHas('webauthn_credentials', ['credential_id' => 'credential-abc', 'counter' => 11]);
+    }
+
+    private function client(bool $revoked = false): string
+    {
+        $id = (string) Str::uuid();
+        DB::table('oauth_clients')->insert([
+            'id' => $id,
+            'name' => $revoked ? 'Retired Application' : 'Current Application',
+            'secret' => 'secret',
+            'redirect_uris' => json_encode(['https://app.example.test/oauth/callback']),
+            'grant_types' => json_encode(['authorization_code']),
+            'revoked' => $revoked,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return $id;
     }
 }

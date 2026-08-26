@@ -153,7 +153,13 @@ class ImportLegacyIdentities extends Command
 
             if ($existing === null) {
                 if ($apply) {
-                    DB::table('users')->insert(['id' => $row->id] + $attributes);
+                    DB::transaction(function () use ($row, $attributes): void {
+                        DB::table('users')->insert(['id' => $row->id] + $attributes);
+
+                        if ($this->roleMaySignIn((string) $row->user_role)) {
+                            $this->grantCurrentClients((int) $row->id);
+                        }
+                    });
                 }
                 $this->presentUserIds[(int) $row->id] = true;
                 $this->line(sprintf('  create users#%d', $row->id));
@@ -184,6 +190,35 @@ class ImportLegacyIdentities extends Command
         }
 
         return $counts;
+    }
+
+    private function roleMaySignIn(string $role): bool
+    {
+        $roles = array_filter(array_map(
+            static fn (string $value): string => strtolower(trim($value)),
+            explode(',', $role),
+        ));
+
+        return in_array('user', $roles, true) || in_array('admin', $roles, true);
+    }
+
+    private function grantCurrentClients(int $subject): void
+    {
+        $now = now();
+        $grants = DB::table('oauth_clients')
+            ->where('revoked', false)
+            ->pluck('id')
+            ->map(static fn (mixed $clientId): array => [
+                'oauth_client_id' => (string) $clientId,
+                'subject' => $subject,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])
+            ->all();
+
+        if ($grants !== []) {
+            DB::table('oauth_client_grants')->insert($grants);
+        }
     }
 
     private function userWillExist(int $userId): bool

@@ -18,17 +18,21 @@ class RelyingApplications
     /**
      * Applications the given subject may use, in display order.
      *
-     * The subject argument is the seam for per-client entitlement: today everyone who can
-     * sign in can reach everything, so the filter is a no-op, but the shape is already the
-     * one entitlement will need and callers will not have to change when it lands.
-     *
      * @return list<array{key: string, name: string, url: string}>
      */
     public function forSubject(string $subject): array
     {
         $apps = [];
 
-        foreach (DB::table('oauth_clients')->where('revoked', false)->orderBy('name')->get() as $client) {
+        $clients = DB::table('oauth_clients')
+            ->join('oauth_client_grants', 'oauth_client_grants.oauth_client_id', '=', 'oauth_clients.id')
+            ->where('oauth_client_grants.subject', $subject)
+            ->where('oauth_clients.revoked', false)
+            ->orderBy('oauth_clients.name')
+            ->select('oauth_clients.*')
+            ->get();
+
+        foreach ($clients as $client) {
             $url = $this->homeUrl($client->redirect_uris ?? null);
 
             if ($url === null) {

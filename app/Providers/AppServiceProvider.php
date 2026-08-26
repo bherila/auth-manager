@@ -3,7 +3,13 @@
 namespace App\Providers;
 
 use App\Models\PassportClient;
+use App\OAuth\GrantAwareAccessTokenRepository;
+use App\OAuth\GrantAwareAuthCodeRepository;
+use App\OAuth\GrantAwareRefreshTokenRepository;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Passport\Bridge\AccessTokenRepository;
+use Laravel\Passport\Bridge\AuthCodeRepository;
+use Laravel\Passport\Bridge\RefreshTokenRepository;
 use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
@@ -17,6 +23,10 @@ class AppServiceProvider extends ServiceProvider
         // authorization endpoints in the session and audit middleware this service
         // requires. Registering both would expose an unguarded second path.
         Passport::ignoreRoutes();
+
+        $this->app->bind(AuthCodeRepository::class, GrantAwareAuthCodeRepository::class);
+        $this->app->bind(AccessTokenRepository::class, GrantAwareAccessTokenRepository::class);
+        $this->app->bind(RefreshTokenRepository::class, GrantAwareRefreshTokenRepository::class);
     }
 
     /**
