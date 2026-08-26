@@ -14,10 +14,14 @@ class OAuthTokenRevocationService
             ->where('user_id', $subject)
             ->where('revoked', false)
             ->update(['revoked' => true]);
+        $deviceCodes = DB::table('oauth_device_codes')
+            ->where('user_id', $subject)
+            ->where('revoked', false)
+            ->update(['revoked' => true]);
 
         return $this->revoke(
             DB::table('oauth_access_tokens')->where('user_id', $subject),
-        ) || $authCodes > 0;
+        ) || $authCodes > 0 || $deviceCodes > 0;
     }
 
     public function forSubjectAndClient(string $subject, string $clientId): bool
@@ -27,12 +31,32 @@ class OAuthTokenRevocationService
             ->where('client_id', $clientId)
             ->where('revoked', false)
             ->update(['revoked' => true]);
+        $deviceCodes = DB::table('oauth_device_codes')
+            ->where('user_id', $subject)
+            ->where('client_id', $clientId)
+            ->where('revoked', false)
+            ->update(['revoked' => true]);
 
         return $this->revoke(
             DB::table('oauth_access_tokens')
                 ->where('user_id', $subject)
                 ->where('client_id', $clientId),
-        ) || $authCodes > 0;
+        ) || $authCodes > 0 || $deviceCodes > 0;
+    }
+
+    public function purgeSubjectCredentials(string $subject): void
+    {
+        DB::table('oauth_auth_codes')->where('user_id', $subject)->delete();
+        DB::table('oauth_device_codes')->where('user_id', $subject)->delete();
+
+        DB::table('oauth_access_tokens')
+            ->where('user_id', $subject)
+            ->select('id')
+            ->chunkById(500, function (Collection $tokens): void {
+                $ids = $tokens->pluck('id');
+                DB::table('oauth_refresh_tokens')->whereIn('access_token_id', $ids)->delete();
+                DB::table('oauth_access_tokens')->whereIn('id', $ids)->delete();
+            }, 'id');
     }
 
     private function revoke(Builder $accessTokens): bool

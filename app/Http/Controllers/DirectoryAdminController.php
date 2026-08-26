@@ -113,6 +113,21 @@ class DirectoryAdminController extends Controller
         return response()->json(['user' => $this->userPayload($updated)]);
     }
 
+    public function destroy(Request $request, User $user): JsonResponse
+    {
+        $tombstone = $this->directory->tombstone($request, $this->actor($request), $user);
+
+        return response()->json([
+            'tombstone' => [
+                'id' => $tombstone->public_id,
+                'subject' => (string) $tombstone->subject,
+                'tombstoned_at' => $tombstone->tombstoned_at->toISOString(),
+                'purge_after' => $tombstone->purge_after->toISOString(),
+                'expected_application_count' => $tombstone->clients->count(),
+            ],
+        ], 202);
+    }
+
     public function grantClient(Request $request, User $user, PassportClient $client): JsonResponse
     {
         $updated = $this->directory->grantClient(

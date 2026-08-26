@@ -2,8 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\IdentityTombstone;
+use App\Models\IdentityTombstoneClient;
 use App\Models\PassportClient;
 use App\Models\User;
+use App\Support\ReconciliationClientRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -26,10 +29,13 @@ class DirectoryAdminService
 
     public const EVENT_CLIENT_REVOKED = 'directory_client_revoked';
 
+    public const EVENT_USER_TOMBSTONED = 'directory_user_tombstoned';
+
     public function __construct(
         private readonly OAuthClientGrantService $grants,
         private readonly OAuthTokenRevocationService $tokens,
         private readonly DirectoryAdminAuditLogger $audit,
+        private readonly ReconciliationClientRegistry $reconciliationClients,
     ) {}
 
     /**
@@ -149,6 +155,68 @@ class DirectoryAdminService
             $this->audit->record($request, $actor, $locked, self::EVENT_PASSWORD_RESET);
 
             return $locked;
+        });
+    }
+
+    public function tombstone(Request $request, User $actor, User $target): IdentityTombstone
+    {
+        return DB::transaction(function () use ($request, $actor, $target): IdentityTombstone {
+            /** @var Collection<int, User> $users */
+            $users = User::query()->orderBy('id')->lockForUpdate()->get();
+            $locked = $users->first(
+                static fn (User $user): bool => $user->getKey() === $target->getKey(),
+            );
+
+            if (! $locked instanceof User) {
+                abort(404);
+            }
+
+            if ($locked->hasRole('admin') && $locked->canLogin() && $this->activeAdminCount($users) <= 1) {
+                throw ValidationException::withMessages([
+                    'user' => 'The last active provider administrator cannot be deleted.',
+                ]);
+            }
+
+            $now = now();
+            $retentionDays = max(1, (int) config('identity-deletion.retention_days', 30));
+            $clients = $this->reconciliationClients->all();
+            $tombstone = IdentityTombstone::query()->create([
+                'public_id' => (string) Str::uuid(),
+                'subject' => (int) $locked->getKey(),
+                'tombstoned_at' => $now,
+                'purge_after' => $now->copy()->addDays($retentionDays),
+            ]);
+
+            foreach ($clients as $client) {
+                IdentityTombstoneClient::query()->create([
+                    'identity_tombstone_id' => $tombstone->getKey(),
+                    'oauth_client_id' => (string) $client->getKey(),
+                    'oauth_client_name' => (string) $client->name,
+                ]);
+            }
+
+            $locked->forceFill([
+                'disabled_at' => $locked->disabled_at ?? $now,
+                'credential_version' => (int) $locked->credential_version + 1,
+                'remember_token' => null,
+            ])->save();
+
+            $this->tokens->forSubject((string) $locked->getKey());
+            DB::table('sessions')->where('user_id', $locked->getKey())->delete();
+            DB::table('password_reset_tokens')->where('email', $locked->email)->delete();
+            $this->audit->record($request, $actor, $locked, self::EVENT_USER_TOMBSTONED, [
+                'identity_tombstone_id' => $tombstone->public_id,
+                'purge_after' => $tombstone->purge_after->toISOString(),
+                'expected_oauth_clients' => $clients
+                    ->map(static fn (PassportClient $client): array => [
+                        'id' => (string) $client->getKey(),
+                        'name' => (string) $client->name,
+                    ])
+                    ->all(),
+            ]);
+            $locked->delete();
+
+            return $tombstone->load('clients');
         });
     }
 

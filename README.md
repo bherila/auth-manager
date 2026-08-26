@@ -19,12 +19,17 @@ does not model any application's feature vocabulary.
 
 Active provider administrators can use `/admin/users` to create people, change
 provider email addresses and passwords, disable or re-enable sign-in, and manage
-coarse OAuth client grants. Every successful mutation records the target and the
-acting provider administrator in the authentication audit log.
+coarse OAuth client grants. They can also delete a provider identity through the
+tombstone-and-reconcile lifecycle. Every successful mutation records the target
+and the acting provider administrator in the authentication audit log.
 
 Provider state deliberately stops at the OAuth boundary: creating a person or
 granting an OAuth client here never creates an account or permissions inside a
 connected application.
+
+The relying-application contract for deletion feeds, acknowledgements, and the
+30-day provider retention rule is documented in
+[`docs/identity-deletion.md`](docs/identity-deletion.md).
 
 ## Stack
 
@@ -54,3 +59,7 @@ fallback in local development, where that cookie cannot be set.
 Merges to `main` that pass CI deploy automatically. The deploy destination is
 hard-coded; runtime configuration and database credentials live on the server
 outside the repository and are never committed.
+
+The host invokes `php artisan schedule:run` every minute. The application
+scheduler runs identity-tombstone retention hourly and prevents overlapping
+runs.

@@ -218,6 +218,39 @@ class ImportLegacyIdentitiesTest extends TestCase
         $this->assertDatabaseHas('webauthn_credentials', ['credential_id' => 'credential-abc', 'counter' => 11]);
     }
 
+    public function test_it_never_resurrects_a_tombstoned_subject_or_its_passkeys(): void
+    {
+        $this->configureLegacySource();
+        $this->seedLegacyUser(42);
+        DB::connection('legacy_identity')->table('webauthn_credentials')->insert([
+            'user_id' => 42,
+            'credential_id' => 'deleted-subject-credential',
+            'public_key' => 'key-material',
+            'counter' => 1,
+            'name' => 'Passkey',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('identity_tombstones')->insert([
+            'public_id' => (string) Str::uuid(),
+            'subject' => 42,
+            'tombstoned_at' => now(),
+            'purge_after' => now()->addDays(30),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->artisan('identity:import-legacy --apply')
+            ->expectsOutputToContain('users#42 skipped: this OAuth subject has a provider deletion tombstone.')
+            ->expectsOutputToContain('passkey#1 skipped: its owner users#42 is not present.')
+            ->assertSuccessful();
+
+        $this->assertDatabaseMissing('users', ['id' => 42]);
+        $this->assertDatabaseMissing('webauthn_credentials', [
+            'credential_id' => 'deleted-subject-credential',
+        ]);
+    }
+
     private function client(bool $revoked = false): string
     {
         $id = (string) Str::uuid();

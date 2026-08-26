@@ -6,6 +6,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Passport\Contracts\OAuthenticatable;
@@ -16,7 +17,7 @@ use Laravel\Passport\HasApiTokens;
 class User extends Authenticatable implements OAuthenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     /**
      * Get the attributes that should be cast.
@@ -67,7 +68,8 @@ class User extends Authenticatable implements OAuthenticatable
      */
     public function canLogin(): bool
     {
-        return ($this->attributes['disabled_at'] ?? null) === null
+        return ($this->attributes['deleted_at'] ?? null) === null
+            && ($this->attributes['disabled_at'] ?? null) === null
             && ($this->hasRole('user') || $this->hasRole('admin'));
     }
 }

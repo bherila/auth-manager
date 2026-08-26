@@ -92,6 +92,21 @@ function UserCard({
     );
   }
 
+  async function deletePerson(): Promise<void> {
+    const confirmed = window.confirm(
+      `Delete ${user.name}? Sign-in and tokens stop immediately. Connected applications reconcile independently, and the provider record is retained temporarily. This cannot be undone from this screen.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    await run(
+      () => fetchWrapper.delete(`/api/admin/users/${user.id}`, {}),
+      `${user.name} was deleted at the provider and queued for application reconciliation.`,
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -212,6 +227,14 @@ function UserCard({
               Re-enable person
             </Button>
           )}
+        </div>
+        <div className="border-destructive/40 flex flex-wrap items-center justify-between gap-3 rounded-md border p-4">
+          <p className="text-muted-foreground max-w-2xl text-xs">
+            Deletion stops provider sign-in immediately. Connected applications remove their own local records through reconciliation.
+          </p>
+          <Button type="button" variant="destructive" disabled={busy} onClick={() => void deletePerson()}>
+            Delete person
+          </Button>
         </div>
       </CardContent>
     </Card>
