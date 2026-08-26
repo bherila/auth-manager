@@ -18,10 +18,12 @@ class IdentityReconciliationController extends Controller
     {
         $validated = $request->validate([
             'limit' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'cursor' => ['sometimes', 'string', 'max:512'],
         ]);
         $result = $this->reconciliation->pendingFor(
             $this->client($request),
             (int) ($validated['limit'] ?? 100),
+            $validated['cursor'] ?? null,
         );
 
         return response()->json([
@@ -32,6 +34,7 @@ class IdentityReconciliationController extends Controller
                 ))
                 ->all(),
             'has_more' => $result['has_more'],
+            'next_cursor' => $result['next_cursor'],
         ]);
     }
 
