@@ -198,10 +198,10 @@ jobs:
             set -eu
             existing="$(crontab -l 2>/dev/null || true)"
             scheduler_line='* * * * * cd "$HOME/auth-manager" && /opt/cpanel/ea-php85/root/usr/bin/php artisan schedule:run > /dev/null 2>&1'
-            if ! printf '%s\n' "$existing" | grep -F 'auth-manager" && /opt/cpanel/ea-php85/root/usr/bin/php artisan schedule:run' > /dev/null; then
+            if ! printf '%s\n' "$existing" | grep -Fqx "$scheduler_line"; then
               { printf '%s\n' "$existing"; printf '%s\n' "$scheduler_line"; } | crontab -
             fi
-            crontab -l | grep -F 'auth-manager" && /opt/cpanel/ea-php85/root/usr/bin/php artisan schedule:run' > /dev/null
+            crontab -l | grep -Fqx "$scheduler_line"
           REMOTE
 
       - name: Verify public health

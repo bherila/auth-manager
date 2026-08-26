@@ -30,6 +30,7 @@ class DeploymentWorkflowTest extends TestCase
         $this->assertStringContainsString('- name: Install and verify Laravel scheduler cron', $workflow);
         $this->assertStringContainsString('existing="$(crontab -l 2>/dev/null || true)"', $workflow);
         $this->assertStringContainsString('artisan schedule:run > /dev/null 2>&1', $workflow);
+        $this->assertSame(2, substr_count($workflow, 'grep -Fqx "$scheduler_line"'));
         $this->assertStringContainsString('{ printf', $workflow);
         $this->assertStringContainsString('| crontab -', $workflow);
         $this->assertGreaterThanOrEqual(2, substr_count($workflow, 'crontab -l'));
