@@ -21,4 +21,17 @@ class DeploymentWorkflowTest extends TestCase
         $this->assertLessThan($applicationDeployStep, $migrationStep);
         $this->assertLessThan($applicationDeployStep, $migrationCommand);
     }
+
+    public function test_deployment_installs_and_verifies_the_scheduler_without_replacing_other_cron_entries(): void
+    {
+        $workflow = file_get_contents(__DIR__.'/../../.github/workflows/ci.yml');
+        $this->assertIsString($workflow);
+
+        $this->assertStringContainsString('- name: Install and verify Laravel scheduler cron', $workflow);
+        $this->assertStringContainsString('existing="$(crontab -l 2>/dev/null || true)"', $workflow);
+        $this->assertStringContainsString('artisan schedule:run > /dev/null 2>&1', $workflow);
+        $this->assertStringContainsString('{ printf', $workflow);
+        $this->assertStringContainsString('| crontab -', $workflow);
+        $this->assertGreaterThanOrEqual(2, substr_count($workflow, 'crontab -l'));
+    }
 }

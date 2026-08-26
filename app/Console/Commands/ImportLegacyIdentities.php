@@ -125,6 +125,16 @@ class ImportLegacyIdentities extends Command
             // Identifiers are preserved deliberately. The OAuth subject claim is the user
             // key, and relying applications have already bound their local records to it;
             // reassigning identifiers here would silently detach every one of them.
+            if (DB::table('identity_tombstones')->where('subject', $row->id)->exists()) {
+                $this->warn(sprintf(
+                    'users#%d skipped: this OAuth subject has a provider deletion tombstone.',
+                    $row->id,
+                ));
+                $counts['skipped']++;
+
+                continue;
+            }
+
             $existing = DB::table('users')->where('id', $row->id)->first();
 
             $attributes = [
@@ -223,8 +233,9 @@ class ImportLegacyIdentities extends Command
 
     private function userWillExist(int $userId): bool
     {
-        return isset($this->presentUserIds[$userId])
-            || DB::table('users')->where('id', $userId)->exists();
+        return ! DB::table('identity_tombstones')->where('subject', $userId)->exists()
+            && (isset($this->presentUserIds[$userId])
+                || DB::table('users')->where('id', $userId)->exists());
     }
 
     /**

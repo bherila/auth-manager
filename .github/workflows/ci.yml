@@ -189,6 +189,21 @@ jobs:
              /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear; \
              /opt/cpanel/ea-php85/root/usr/bin/php artisan config:cache"
 
+      # Keep the platform trigger declarative and deploy-owned. Existing crontab
+      # entries are preserved, and an already-installed scheduler is left alone.
+      - name: Install and verify Laravel scheduler cron
+        run: |
+          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} 'bash -s' <<'REMOTE'
+            set -eu
+            existing="$(crontab -l 2>/dev/null || true)"
+            scheduler_line='* * * * * cd "$HOME/auth-manager" && /opt/cpanel/ea-php85/root/usr/bin/php artisan schedule:run > /dev/null 2>&1'
+            if ! printf '%s\n' "$existing" | grep -F 'auth-manager" && /opt/cpanel/ea-php85/root/usr/bin/php artisan schedule:run' > /dev/null; then
+              { printf '%s\n' "$existing"; printf '%s\n' "$scheduler_line"; } | crontab -
+            fi
+            crontab -l | grep -F 'auth-manager" && /opt/cpanel/ea-php85/root/usr/bin/php artisan schedule:run' > /dev/null
+          REMOTE
+
       - name: Verify public health
         run: |
           curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
