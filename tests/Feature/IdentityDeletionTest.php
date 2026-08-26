@@ -173,6 +173,7 @@ class IdentityDeletionTest extends TestCase
                     'provider_purged_at' => null,
                 ]],
                 'has_more' => false,
+                'next_cursor' => null,
             ]);
         $this->assertStringNotContainsString($target->name, $response->getContent());
         $this->assertStringNotContainsString($target->email, $response->getContent());
@@ -235,7 +236,20 @@ class IdentityDeletionTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $firstId)
-            ->assertJsonPath('has_more', true);
+            ->assertJsonPath('has_more', true)
+            ->assertJsonPath('next_cursor', fn (mixed $cursor): bool => is_string($cursor) && $cursor !== '');
+
+        $cursor = $this->withBasicAuth((string) $client->getKey(), $secret)
+            ->getJson('/api/reconciliation/identity-tombstones?limit=1')
+            ->json('next_cursor');
+
+        $this->withBasicAuth((string) $client->getKey(), $secret)
+            ->getJson('/api/reconciliation/identity-tombstones?limit=1&cursor='.urlencode((string) $cursor))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', fn (string $id): bool => $id !== $firstId)
+            ->assertJsonPath('has_more', false)
+            ->assertJsonPath('next_cursor', null);
 
         $this->withBasicAuth((string) $client->getKey(), $secret)
             ->putJson("/api/reconciliation/identity-tombstones/{$firstId}/acknowledgement")
@@ -244,11 +258,31 @@ class IdentityDeletionTest extends TestCase
             ->getJson('/api/reconciliation/identity-tombstones?limit=1')
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('has_more', false);
+            ->assertJsonPath('has_more', false)
+            ->assertJsonPath('next_cursor', null);
 
         $this->withBasicAuth((string) $client->getKey(), $secret)
             ->getJson('/api/reconciliation/identity-tombstones?limit=101')
             ->assertUnprocessable();
+    }
+
+    public function test_feed_cursors_are_bound_to_the_reconciliation_client(): void
+    {
+        $admin = User::factory()->create(['user_role' => 'admin']);
+        [$firstClient, $firstSecret] = $this->authorizationCodeClient();
+        [$otherClient, $otherSecret] = $this->authorizationCodeClient();
+        $this->actingAs($admin)->deleteJson('/api/admin/users/'.User::factory()->create()->id)->assertAccepted();
+        $this->actingAs($admin)->deleteJson('/api/admin/users/'.User::factory()->create()->id)->assertAccepted();
+
+        $cursor = $this->withBasicAuth((string) $firstClient->getKey(), $firstSecret)
+            ->getJson('/api/reconciliation/identity-tombstones?limit=1')
+            ->assertOk()
+            ->json('next_cursor');
+
+        $this->withBasicAuth((string) $otherClient->getKey(), $otherSecret)
+            ->getJson('/api/reconciliation/identity-tombstones?limit=1&cursor='.urlencode((string) $cursor))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('cursor');
     }
 
     public function test_scheduled_purge_hard_deletes_after_every_acknowledgement(): void
