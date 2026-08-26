@@ -103,11 +103,11 @@ class DirectoryAdminService
 
             $locked->forceFill([
                 'disabled_at' => now(),
+                'credential_version' => (int) $locked->credential_version + 1,
                 'remember_token' => null,
             ])->save();
 
             $this->tokens->forSubject((string) $locked->getKey());
-            DB::table('sessions')->where('user_id', $locked->getKey())->delete();
             $this->audit->record($request, $actor, $locked, self::EVENT_USER_DISABLED);
 
             return $locked;
@@ -141,11 +141,11 @@ class DirectoryAdminService
             $locked = $this->lock($target);
             $locked->forceFill([
                 'password' => $password,
+                'credential_version' => (int) $locked->credential_version + 1,
                 'remember_token' => Str::random(60),
             ])->save();
 
             $this->tokens->forSubject((string) $locked->getKey());
-            DB::table('sessions')->where('user_id', $locked->getKey())->delete();
             $this->audit->record($request, $actor, $locked, self::EVENT_PASSWORD_RESET);
 
             return $locked;

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\EnsureCredentialVersion;
 use App\Models\User;
 use App\Services\DirectoryAdminService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -28,6 +29,23 @@ class DirectoryAdminTest extends TestCase
             'disabled_at' => now(),
         ]);
         $this->actingAs($disabledAdmin)->getJson('/api/admin/users')->assertForbidden();
+    }
+
+    public function test_a_new_login_binds_the_session_to_the_current_credential_version(): void
+    {
+        $user = User::factory()->create([
+            'user_role' => 'user',
+            'credential_version' => 3,
+            'password' => Hash::make('current-password'),
+        ]);
+
+        $this->post('/login', [
+            'email' => $user->email,
+            'password' => 'current-password',
+        ])->assertRedirect('/');
+
+        $this->assertAuthenticatedAs($user);
+        $this->assertSame(3, session(EnsureCredentialVersion::SESSION_KEY));
     }
 
     public function test_admin_page_and_list_explain_the_provider_and_application_boundary(): void
@@ -88,7 +106,7 @@ class DirectoryAdminTest extends TestCase
         ]);
     }
 
-    public function test_disabling_a_person_preserves_grants_and_revokes_sessions_and_tokens(): void
+    public function test_disabling_a_person_preserves_grants_and_revokes_oauth_credentials(): void
     {
         $admin = User::factory()->create(['user_role' => 'admin']);
         $target = User::factory()->create(['user_role' => 'user', 'remember_token' => 'remember-me']);
@@ -102,15 +120,6 @@ class DirectoryAdminTest extends TestCase
         $accessTokenId = $this->accessToken($target, $clientId);
         $refreshTokenId = $this->refreshToken($accessTokenId);
         $authorizationCodeId = $this->authorizationCode($target, $clientId);
-        DB::table('sessions')->insert([
-            'id' => 'target-session',
-            'user_id' => $target->id,
-            'ip_address' => null,
-            'user_agent' => null,
-            'payload' => '',
-            'last_activity' => now()->timestamp,
-        ]);
-
         $this->actingAs($admin)
             ->postJson("/api/admin/users/{$target->id}/disable")
             ->assertOk()
@@ -118,6 +127,7 @@ class DirectoryAdminTest extends TestCase
 
         $target->refresh();
         $this->assertFalse($target->canLogin());
+        $this->assertSame(1, $target->credential_version);
         $this->assertNull($target->remember_token);
         $this->assertDatabaseHas('oauth_client_grants', [
             'subject' => $target->id,
@@ -126,12 +136,27 @@ class DirectoryAdminTest extends TestCase
         $this->assertDatabaseHas('oauth_access_tokens', ['id' => $accessTokenId, 'revoked' => true]);
         $this->assertDatabaseHas('oauth_refresh_tokens', ['id' => $refreshTokenId, 'revoked' => true]);
         $this->assertDatabaseHas('oauth_auth_codes', ['id' => $authorizationCodeId, 'revoked' => true]);
-        $this->assertDatabaseMissing('sessions', ['id' => 'target-session']);
         $this->assertDatabaseHas('auth_audit_log', [
             'user_id' => $target->id,
             'acting_user_id' => $admin->id,
             'event' => DirectoryAdminService::EVENT_USER_DISABLED,
         ]);
+    }
+
+    public function test_disabling_a_person_invalidates_sessions_without_assuming_a_session_backend(): void
+    {
+        $admin = User::factory()->create(['user_role' => 'admin']);
+        $target = User::factory()->create(['user_role' => 'user']);
+
+        $this->actingAs($admin)
+            ->postJson("/api/admin/users/{$target->id}/disable")
+            ->assertOk();
+
+        $this->actingAs($target->refresh())
+            ->withSession([EnsureCredentialVersion::SESSION_KEY => 0])
+            ->get('/')
+            ->assertRedirect('/login');
+        $this->assertGuest();
     }
 
     public function test_the_last_active_provider_admin_cannot_be_disabled(): void
@@ -200,6 +225,7 @@ class DirectoryAdminTest extends TestCase
         $this->assertNull($target->email_verified_at);
         $this->assertTrue(Hash::check('replacement-password', $target->password));
         $this->assertFalse(Hash::check('old-password-value', $target->password));
+        $this->assertSame(1, $target->credential_version);
         $this->assertDatabaseHas('oauth_access_tokens', ['id' => $accessTokenId, 'revoked' => true]);
         $this->assertDatabaseHas('auth_audit_log', [
             'user_id' => $target->id,
@@ -211,6 +237,12 @@ class DirectoryAdminTest extends TestCase
             'acting_user_id' => $admin->id,
             'event' => DirectoryAdminService::EVENT_PASSWORD_RESET,
         ]);
+
+        $this->actingAs($target->refresh())
+            ->withSession([EnsureCredentialVersion::SESSION_KEY => 0])
+            ->get('/')
+            ->assertRedirect('/login');
+        $this->assertGuest();
     }
 
     public function test_grant_management_is_audited_and_revocation_invalidates_tokens(): void

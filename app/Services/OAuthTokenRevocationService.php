@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class OAuthTokenRevocationService
@@ -36,20 +37,25 @@ class OAuthTokenRevocationService
 
     private function revoke(Builder $accessTokens): bool
     {
-        $accessTokenIds = $accessTokens->pluck('id');
+        $changed = false;
 
-        if ($accessTokenIds->isEmpty()) {
-            return false;
-        }
+        $accessTokens
+            ->where('revoked', false)
+            ->select('id')
+            ->chunkById(500, function (Collection $tokens) use (&$changed): void {
+                $ids = $tokens->pluck('id');
+                $refreshTokens = DB::table('oauth_refresh_tokens')
+                    ->whereIn('access_token_id', $ids)
+                    ->where('revoked', false)
+                    ->update(['revoked' => true]);
+                $updatedAccessTokens = DB::table('oauth_access_tokens')
+                    ->whereIn('id', $ids)
+                    ->where('revoked', false)
+                    ->update(['revoked' => true]);
 
-        $refreshTokens = DB::table('oauth_refresh_tokens')
-            ->whereIn('access_token_id', $accessTokenIds)
-            ->update(['revoked' => true]);
+                $changed = $changed || $refreshTokens > 0 || $updatedAccessTokens > 0;
+            }, 'id');
 
-        $updatedAccessTokens = DB::table('oauth_access_tokens')
-            ->whereIn('id', $accessTokenIds)
-            ->update(['revoked' => true]);
-
-        return $refreshTokens > 0 || $updatedAccessTokens > 0;
+        return $changed;
     }
 }

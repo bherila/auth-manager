@@ -6,10 +6,12 @@ use App\Models\User;
 
 class UserAccountStatusService
 {
-    public function allowsSignIn(string $subject): bool
+    public function credentialVersionIfActive(string $subject): ?int
     {
         $user = User::query()->find($subject);
 
-        return $user instanceof User && $user->canLogin();
+        return $user instanceof User && $user->canLogin()
+            ? (int) $user->credential_version
+            : null;
     }
 }

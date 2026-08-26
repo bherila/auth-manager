@@ -29,6 +29,7 @@ class User extends Authenticatable implements OAuthenticatable
             'email_verified_at' => 'datetime',
             'last_login_date' => 'datetime',
             'disabled_at' => 'datetime',
+            'credential_version' => 'integer',
             'password' => 'hashed',
         ];
     }
