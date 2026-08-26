@@ -54,15 +54,29 @@ assignments for that client:
       "provider_purged_at": null
     }
   ],
-  "has_more": false
+  "has_more": false,
+  "next_cursor": null
 }
 ```
 
 The subject is a string because it is the exact OAuth `sub` value applications
 already store. The feed contains no name, email address, credentials, grants,
-or application-owned data. When `has_more` is true, reconcile and acknowledge
-the returned page before reading again; acknowledged items leave the pending
-feed.
+or application-owned data.
+
+When `has_more` is true, `next_cursor` is a non-null opaque string. The client
+must pass it unchanged on the next read:
+
+```text
+GET /api/reconciliation/identity-tombstones?limit=100&cursor={next_cursor}
+```
+
+Advance the cursor after recording every result from the current page, even if
+one of those tombstones cannot yet be acknowledged. This prevents one failing
+record from hiding later pages. Persisting the cursor makes a process restart
+safe; repeating a page is also safe. When `has_more` is false, `next_cursor` is
+null and the next polling cycle starts without a cursor. Cursors are bound to
+the authenticated reconciliation client and must not be parsed or reused by a
+different client. Acknowledged items leave the pending feed.
 
 ### Acknowledge a tombstone
 
