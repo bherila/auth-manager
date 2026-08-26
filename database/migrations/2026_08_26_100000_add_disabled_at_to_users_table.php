@@ -1,0 +1,39 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('users', function (Blueprint $table): void {
+            $table->timestamp('disabled_at')->nullable()->after('user_role')->index();
+            $table->unsignedBigInteger('credential_version')->default(0)->after('disabled_at');
+        });
+
+        Schema::table('oauth_auth_codes', function (Blueprint $table): void {
+            $table->unsignedBigInteger('credential_version')->default(0)->after('user_id');
+        });
+
+        Schema::table('oauth_access_tokens', function (Blueprint $table): void {
+            $table->unsignedBigInteger('credential_version')->default(0)->after('user_id');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('oauth_access_tokens', function (Blueprint $table): void {
+            $table->dropColumn('credential_version');
+        });
+
+        Schema::table('oauth_auth_codes', function (Blueprint $table): void {
+            $table->dropColumn('credential_version');
+        });
+
+        Schema::table('users', function (Blueprint $table): void {
+            $table->dropColumn(['disabled_at', 'credential_version']);
+        });
+    }
+};

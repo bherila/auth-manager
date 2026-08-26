@@ -8,13 +8,16 @@ use App\OAuth\GrantAwareAccessTokenRepository;
 use App\OAuth\GrantAwareAuthCodeRepository;
 use App\OAuth\GrantAwareRefreshTokenRepository;
 use App\Services\OAuthClientGrantService;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Laravel\Passport\Bridge\AccessTokenRepository;
 use Laravel\Passport\Bridge\AuthCodeRepository;
+use Laravel\Passport\Bridge\ClientRepository as BridgeClientRepository;
 use Laravel\Passport\Bridge\RefreshTokenRepository;
+use League\OAuth2\Server\Exception\OAuthServerException;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
@@ -77,6 +80,47 @@ class OAuthClientGrantTest extends TestCase
         $this->assertDatabaseHas('oauth_refresh_tokens', ['access_token_id' => $otherAccessTokenId, 'revoked' => false]);
     }
 
+    public function test_revocation_processes_a_large_token_history_in_bounded_chunks(): void
+    {
+        $user = User::factory()->create();
+        $clientId = $this->client('Example Application');
+        $grants = app(OAuthClientGrantService::class);
+        $grants->grant((string) $user->getKey(), $clientId);
+
+        foreach (array_chunk(range(1, 1205), 300) as $chunk) {
+            DB::table('oauth_access_tokens')->insert(array_map(
+                static fn (int $index): array => [
+                    'id' => str_pad((string) $index, 80, '0', STR_PAD_LEFT),
+                    'user_id' => $user->getKey(),
+                    'credential_version' => 0,
+                    'client_id' => $clientId,
+                    'name' => null,
+                    'scopes' => '[]',
+                    'revoked' => false,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                    'expires_at' => now()->addMinutes(5),
+                ],
+                $chunk,
+            ));
+        }
+
+        $accessTokenUpdates = 0;
+        DB::listen(static function (QueryExecuted $query) use (&$accessTokenUpdates): void {
+            if (preg_match('/^update .*oauth_access_tokens/i', $query->sql) === 1) {
+                $accessTokenUpdates++;
+            }
+        });
+
+        $grants->revoke((string) $user->getKey(), $clientId);
+
+        $this->assertSame(3, $accessTokenUpdates);
+        $this->assertSame(
+            1205,
+            DB::table('oauth_access_tokens')->where('client_id', $clientId)->where('revoked', true)->count(),
+        );
+    }
+
     public function test_code_exchange_and_refresh_repositories_recheck_the_current_grant(): void
     {
         $user = User::factory()->create();
@@ -113,6 +157,69 @@ class OAuthClientGrantTest extends TestCase
         $this->assertTrue($authCodes->isAuthCodeRevoked($authCodeId));
         $this->assertTrue($accessTokens->isAccessTokenRevoked($accessTokenId));
         $this->assertTrue($refreshTokens->isRefreshTokenRevoked($refreshTokenId));
+    }
+
+    public function test_oauth_credentials_are_rejected_when_the_provider_account_is_disabled(): void
+    {
+        $user = User::factory()->create(['user_role' => 'user']);
+        $clientId = $this->client('Example Application');
+        $grants = app(OAuthClientGrantService::class);
+        $grants->grant((string) $user->getKey(), $clientId);
+        $accessTokenId = $this->accessToken((int) $user->getKey(), $clientId);
+        $refreshTokenId = $this->refreshToken($accessTokenId);
+        $authCodeId = str_repeat('b', 80);
+        DB::table('oauth_auth_codes')->insert([
+            'id' => $authCodeId,
+            'user_id' => $user->getKey(),
+            'client_id' => $clientId,
+            'scopes' => '[]',
+            'revoked' => false,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $user->update(['disabled_at' => now()]);
+
+        $this->assertTrue(app(AuthCodeRepository::class)->isAuthCodeRevoked($authCodeId));
+        $this->assertTrue(app(AccessTokenRepository::class)->isAccessTokenRevoked($accessTokenId));
+        $this->assertTrue(app(RefreshTokenRepository::class)->isRefreshTokenRevoked($refreshTokenId));
+        $this->assertDatabaseHas('oauth_client_grants', [
+            'subject' => $user->getKey(),
+            'oauth_client_id' => $clientId,
+        ]);
+    }
+
+    public function test_password_change_between_code_validation_and_token_persistence_fails_closed(): void
+    {
+        $user = User::factory()->create(['user_role' => 'user']);
+        $clientId = $this->client('Example Application');
+        $grants = app(OAuthClientGrantService::class);
+        $grants->grant((string) $user->getKey(), $clientId);
+        $authCodeId = str_repeat('c', 80);
+        DB::table('oauth_auth_codes')->insert([
+            'id' => $authCodeId,
+            'user_id' => $user->getKey(),
+            'credential_version' => 0,
+            'client_id' => $clientId,
+            'scopes' => '[]',
+            'revoked' => false,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+        $authCodes = app(AuthCodeRepository::class);
+        $accessTokens = app(AccessTokenRepository::class);
+        $this->assertFalse($authCodes->isAuthCodeRevoked($authCodeId));
+        $user->forceFill(['credential_version' => 1])->save();
+        $client = app(BridgeClientRepository::class)->getClientEntity($clientId);
+        $this->assertNotNull($client);
+        $token = $accessTokens->getNewToken($client, [], (string) $user->getKey());
+        $token->setIdentifier($tokenId = Str::random(80));
+        $token->setExpiryDateTime(now()->addMinutes(5)->toDateTimeImmutable());
+
+        try {
+            $accessTokens->persistNewAccessToken($token);
+            $this->fail('Token persistence should refuse a stale credential generation.');
+        } catch (OAuthServerException) {
+            $this->assertDatabaseMissing('oauth_access_tokens', ['id' => $tokenId]);
+        }
     }
 
     public function test_deleting_a_client_invalidates_its_existing_subject_access_token(): void

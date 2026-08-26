@@ -40,4 +40,16 @@ class UserAccountStatusTest extends TestCase
         $this->assertFalse($this->userWithRole('pending')->canLogin());
         $this->assertFalse($this->userWithRole('')->canLogin());
     }
+
+    public function test_an_explicitly_disabled_account_cannot_authenticate_without_losing_its_roles(): void
+    {
+        $user = $this->userWithRole('admin');
+        $user->setRawAttributes([
+            'user_role' => 'admin',
+            'disabled_at' => now()->toDateTimeString(),
+        ]);
+
+        $this->assertTrue($user->hasRole('admin'));
+        $this->assertFalse($user->canLogin());
+    }
 }

@@ -60,6 +60,17 @@ class OAuthClientGrantEndpointTest extends TestCase
             ->assertJsonPath('error', 'invalid_grant');
     }
 
+    public function test_code_exchange_rechecks_account_status_changed_after_authorization(): void
+    {
+        [$user, $client, $secret] = $this->grantedClient();
+        $authorizationCode = $this->authorizationCode($user, $client);
+        $user->update(['disabled_at' => now()]);
+
+        $this->post('/oauth/token', $this->authorizationCodePayload($client, $secret, $authorizationCode))
+            ->assertStatus(400)
+            ->assertJsonPath('error', 'invalid_grant');
+    }
+
     public function test_removing_a_grant_invalidates_access_and_refresh_immediately(): void
     {
         [$user, $client, $secret] = $this->grantedClient();
@@ -74,6 +85,30 @@ class OAuthClientGrantEndpointTest extends TestCase
         $this->withToken($accessToken)->getJson('/api/oauth/user')->assertOk();
 
         app(OAuthClientGrantService::class)->revoke((string) $user->getKey(), (string) $client->getKey());
+        Auth::forgetGuards();
+
+        $this->withToken($accessToken)->getJson('/api/oauth/user')->assertUnauthorized();
+        $this->withoutHeader('Authorization');
+        Auth::forgetGuards();
+        $this->post('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => (string) $client->getKey(),
+            'client_secret' => $secret,
+            'refresh_token' => $refreshToken,
+        ])->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
+    }
+
+    public function test_disabled_account_cannot_use_existing_access_or_refresh_credentials(): void
+    {
+        [$user, $client, $secret] = $this->grantedClient();
+        $authorizationCode = $this->authorizationCode($user, $client);
+        $tokenResponse = $this->post(
+            '/oauth/token',
+            $this->authorizationCodePayload($client, $secret, $authorizationCode),
+        )->assertOk();
+        $accessToken = (string) $tokenResponse->json('access_token');
+        $refreshToken = (string) $tokenResponse->json('refresh_token');
+        $user->update(['disabled_at' => now()]);
         Auth::forgetGuards();
 
         $this->withToken($accessToken)->getJson('/api/oauth/user')->assertUnauthorized();

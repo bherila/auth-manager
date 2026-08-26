@@ -5,6 +5,7 @@
     "scripts": {
         "build": "vite build",
         "dev": "vite",
+        "type-check": "tsc --noEmit",
         "scan-sensitive": "node scripts/scan-sensitive.mjs",
         "scan-sensitive:test": "node scripts/test-sensitive-scan.mjs"
     },

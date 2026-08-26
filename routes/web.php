@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\DirectoryAdminController;
 use App\Http\Controllers\LoginController;
 use App\Http\Controllers\OAuthUserController;
+use App\Http\Middleware\RequireProviderAdmin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -23,6 +25,21 @@ Route::post('/logout', function (Request $request) {
 
     return redirect('/');
 })->name('logout');
+
+Route::middleware(['auth', RequireProviderAdmin::class])->group(function (): void {
+    Route::view('/admin/users', 'admin.users')->name('admin.users');
+
+    Route::prefix('/api/admin')->group(function (): void {
+        Route::get('/users', [DirectoryAdminController::class, 'index']);
+        Route::post('/users', [DirectoryAdminController::class, 'store']);
+        Route::patch('/users/{user}/email', [DirectoryAdminController::class, 'updateEmail']);
+        Route::post('/users/{user}/disable', [DirectoryAdminController::class, 'disable']);
+        Route::post('/users/{user}/enable', [DirectoryAdminController::class, 'enable']);
+        Route::put('/users/{user}/password', [DirectoryAdminController::class, 'resetPassword']);
+        Route::put('/users/{user}/clients/{client}', [DirectoryAdminController::class, 'grantClient']);
+        Route::delete('/users/{user}/clients/{client}', [DirectoryAdminController::class, 'revokeClient']);
+    });
+});
 
 // The identity claim relying applications read after exchanging their code.
 // Bound to the token's subject, never to a client-supplied identifier.
