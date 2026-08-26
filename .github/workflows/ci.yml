@@ -98,6 +98,27 @@ jobs:
           printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+      # Migrations must be backward-compatible and land before the application code that
+      # consumes them. Copying only the migration files first prevents a live request from
+      # reaching new code while its required table is still absent. A failed migration
+      # stops the deployment before the guarded application rsync begins.
+      - name: Apply backward-compatible database migrations
+        run: |
+          rsync -av \
+            -e "ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes" \
+            database/migrations/ \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/auth-manager/database/migrations/
+          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "set -eu; \
+             test -f ~/.config/auth-manager/deployment.env; \
+             test -f ~/.config/auth-manager/database.env; \
+             install -m 600 ~/.config/auth-manager/deployment.env ~/auth-manager/.env; \
+             install -m 600 ~/.config/auth-manager/database.env ~/auth-manager/.db-credentials; \
+             cd ~/auth-manager; \
+             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear; \
+             /opt/cpanel/ea-php85/root/usr/bin/php artisan migrate --force"
+
       # The destination is intentionally hard-coded. This hosting account serves several
       # independent applications from sibling directories, and --delete makes an
       # interpolated, empty, or broad destination catastrophic. Never target the account
@@ -155,9 +176,6 @@ jobs:
                exit 1; \
              fi"
 
-      # Schema changes are deliberately NOT applied here yet. There is no identity schema
-      # to apply, and automatic schema application against the live database is decided
-      # alongside the identity tables rather than inherited from this scaffold.
       - name: Install private configuration and refresh config cache
         run: |
           ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \

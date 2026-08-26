@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\OAuthClientGrantService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Laravel\Passport\Client;
@@ -84,6 +85,21 @@ class OAuthClientGrantEndpointTest extends TestCase
             'client_secret' => $secret,
             'refresh_token' => $refreshToken,
         ])->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
+    }
+
+    public function test_deleting_a_client_invalidates_an_existing_bearer_token(): void
+    {
+        [$user, $client, $secret] = $this->grantedClient();
+        $authorizationCode = $this->authorizationCode($user, $client);
+        $accessToken = (string) $this->post(
+            '/oauth/token',
+            $this->authorizationCodePayload($client, $secret, $authorizationCode),
+        )->assertOk()->json('access_token');
+
+        DB::table('oauth_clients')->where('id', $client->getKey())->delete();
+        Auth::forgetGuards();
+
+        $this->withToken($accessToken)->getJson('/api/oauth/user')->assertUnauthorized();
     }
 
     /** @return array{User, Client, string} */

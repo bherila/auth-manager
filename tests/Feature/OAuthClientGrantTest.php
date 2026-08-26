@@ -102,6 +102,7 @@ class OAuthClientGrantTest extends TestCase
         $this->assertInstanceOf(GrantAwareAccessTokenRepository::class, $accessTokens);
         $this->assertInstanceOf(GrantAwareRefreshTokenRepository::class, $refreshTokens);
         $this->assertFalse($authCodes->isAuthCodeRevoked($authCodeId));
+        $this->assertFalse($accessTokens->isAccessTokenRevoked($accessTokenId));
         $this->assertFalse($refreshTokens->isRefreshTokenRevoked($refreshTokenId));
 
         DB::table('oauth_client_grants')
@@ -110,7 +111,27 @@ class OAuthClientGrantTest extends TestCase
             ->delete();
 
         $this->assertTrue($authCodes->isAuthCodeRevoked($authCodeId));
+        $this->assertTrue($accessTokens->isAccessTokenRevoked($accessTokenId));
         $this->assertTrue($refreshTokens->isRefreshTokenRevoked($refreshTokenId));
+    }
+
+    public function test_deleting_a_client_invalidates_its_existing_subject_access_token(): void
+    {
+        $user = User::factory()->create();
+        $clientId = $this->client('Example Application');
+        $grants = app(OAuthClientGrantService::class);
+        $grants->grant((string) $user->getKey(), $clientId);
+        $accessTokenId = $this->accessToken((int) $user->getKey(), $clientId);
+        $accessTokens = app(AccessTokenRepository::class);
+        $this->assertFalse($accessTokens->isAccessTokenRevoked($accessTokenId));
+
+        DB::table('oauth_clients')->where('id', $clientId)->delete();
+
+        $this->assertDatabaseHas('oauth_access_tokens', [
+            'id' => $accessTokenId,
+            'revoked' => false,
+        ]);
+        $this->assertTrue($accessTokens->isAccessTokenRevoked($accessTokenId));
     }
 
     private function client(string $name): string

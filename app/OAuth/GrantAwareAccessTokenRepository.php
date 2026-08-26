@@ -2,9 +2,11 @@
 
 namespace App\OAuth;
 
+use App\Services\OAuthClientGrantService;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Laravel\Passport\Bridge\AccessTokenRepository;
+use Laravel\Passport\Passport;
 use League\OAuth2\Server\Entities\AccessTokenEntityInterface;
 use League\OAuth2\Server\Exception\OAuthServerException;
 
@@ -12,8 +14,32 @@ class GrantAwareAccessTokenRepository extends AccessTokenRepository
 {
     public function __construct(
         Dispatcher $events,
+        private readonly OAuthClientGrantService $grants,
     ) {
         parent::__construct($events);
+    }
+
+    public function isAccessTokenRevoked(string $tokenId): bool
+    {
+        if (parent::isAccessTokenRevoked($tokenId)) {
+            return true;
+        }
+
+        $token = Passport::token()->newQuery()->whereKey($tokenId)->first();
+
+        if ($token === null || Passport::client()->newQuery()
+            ->whereKey($token->getAttribute('client_id'))
+            ->where('revoked', false)
+            ->doesntExist()) {
+            return true;
+        }
+
+        $subject = $token->getAttribute('user_id');
+
+        return $subject !== null && ! $this->grants->allows(
+            (string) $subject,
+            (string) $token->getAttribute('client_id'),
+        );
     }
 
     public function persistNewAccessToken(AccessTokenEntityInterface $accessTokenEntity): void
