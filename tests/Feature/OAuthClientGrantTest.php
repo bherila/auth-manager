@@ -115,6 +115,35 @@ class OAuthClientGrantTest extends TestCase
         $this->assertTrue($refreshTokens->isRefreshTokenRevoked($refreshTokenId));
     }
 
+    public function test_oauth_credentials_are_rejected_when_the_provider_account_is_disabled(): void
+    {
+        $user = User::factory()->create(['user_role' => 'user']);
+        $clientId = $this->client('Example Application');
+        $grants = app(OAuthClientGrantService::class);
+        $grants->grant((string) $user->getKey(), $clientId);
+        $accessTokenId = $this->accessToken((int) $user->getKey(), $clientId);
+        $refreshTokenId = $this->refreshToken($accessTokenId);
+        $authCodeId = str_repeat('b', 80);
+        DB::table('oauth_auth_codes')->insert([
+            'id' => $authCodeId,
+            'user_id' => $user->getKey(),
+            'client_id' => $clientId,
+            'scopes' => '[]',
+            'revoked' => false,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $user->update(['disabled_at' => now()]);
+
+        $this->assertTrue(app(AuthCodeRepository::class)->isAuthCodeRevoked($authCodeId));
+        $this->assertTrue(app(AccessTokenRepository::class)->isAccessTokenRevoked($accessTokenId));
+        $this->assertTrue(app(RefreshTokenRepository::class)->isRefreshTokenRevoked($refreshTokenId));
+        $this->assertDatabaseHas('oauth_client_grants', [
+            'subject' => $user->getKey(),
+            'oauth_client_id' => $clientId,
+        ]);
+    }
+
     public function test_deleting_a_client_invalidates_its_existing_subject_access_token(): void
     {
         $user = User::factory()->create();

@@ -15,6 +15,17 @@ applications that rely on it.
 Applications resolve their own fine-grained permissions locally. This service
 does not model any application's feature vocabulary.
 
+## Directory administration
+
+Active provider administrators can use `/admin/users` to create people, change
+provider email addresses and passwords, disable or re-enable sign-in, and manage
+coarse OAuth client grants. Every successful mutation records the target and the
+acting provider administrator in the authentication audit log.
+
+Provider state deliberately stops at the OAuth boundary: creating a person or
+granting an OAuth client here never creates an account or permissions inside a
+connected application.
+
 ## Stack
 
 Laravel 13 on PHP 8.5, with [`bherila/auth-laravel`](https://github.com/bherila/auth-laravel)

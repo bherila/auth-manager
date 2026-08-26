@@ -2,7 +2,9 @@
 
 namespace App\OAuth;
 
+use App\Models\User;
 use App\Services\OAuthClientGrantService;
+use App\Services\UserAccountStatusService;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Laravel\Passport\Bridge\AccessTokenRepository;
@@ -15,6 +17,7 @@ class GrantAwareAccessTokenRepository extends AccessTokenRepository
     public function __construct(
         Dispatcher $events,
         private readonly OAuthClientGrantService $grants,
+        private readonly UserAccountStatusService $accounts,
     ) {
         parent::__construct($events);
     }
@@ -36,9 +39,12 @@ class GrantAwareAccessTokenRepository extends AccessTokenRepository
 
         $subject = $token->getAttribute('user_id');
 
-        return $subject !== null && ! $this->grants->allows(
-            (string) $subject,
-            (string) $token->getAttribute('client_id'),
+        return $subject !== null && (
+            ! $this->accounts->allowsSignIn((string) $subject)
+            || ! $this->grants->allows(
+                (string) $subject,
+                (string) $token->getAttribute('client_id'),
+            )
         );
     }
 
@@ -55,6 +61,12 @@ class GrantAwareAccessTokenRepository extends AccessTokenRepository
         $clientId = $accessTokenEntity->getClient()->getIdentifier();
 
         DB::transaction(function () use ($accessTokenEntity, $subject, $clientId): void {
+            $user = User::query()->whereKey($subject)->lockForUpdate()->first();
+
+            if (! $user instanceof User || ! $user->canLogin()) {
+                throw OAuthServerException::accessDenied('The provider account is not active.');
+            }
+
             $grantExists = DB::table('oauth_client_grants')
                 ->where('subject', (string) $subject)
                 ->where('oauth_client_id', $clientId)

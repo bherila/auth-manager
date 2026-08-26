@@ -3,12 +3,16 @@
 namespace App\OAuth;
 
 use App\Services\OAuthClientGrantService;
+use App\Services\UserAccountStatusService;
 use Laravel\Passport\Bridge\AuthCodeRepository;
 use Laravel\Passport\Passport;
 
 class GrantAwareAuthCodeRepository extends AuthCodeRepository
 {
-    public function __construct(private readonly OAuthClientGrantService $grants) {}
+    public function __construct(
+        private readonly OAuthClientGrantService $grants,
+        private readonly UserAccountStatusService $accounts,
+    ) {}
 
     public function isAuthCodeRevoked(string $codeId): bool
     {
@@ -18,9 +22,13 @@ class GrantAwareAuthCodeRepository extends AuthCodeRepository
 
         $code = Passport::authCode()->newQuery()->whereKey($codeId)->first();
 
-        return $code === null || ! $this->grants->allows(
-            (string) $code->getAttribute('user_id'),
-            (string) $code->getAttribute('client_id'),
-        );
+        if ($code === null) {
+            return true;
+        }
+
+        $subject = (string) $code->getAttribute('user_id');
+
+        return ! $this->accounts->allowsSignIn($subject)
+            || ! $this->grants->allows($subject, (string) $code->getAttribute('client_id'));
     }
 }
