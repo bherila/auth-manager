@@ -3,6 +3,7 @@
 use App\Http\Controllers\EndSessionController;
 use App\Http\Middleware\AuditOAuthAuthorization;
 use App\Http\Middleware\EnsureOAuthSessionIsFullyAuthenticated;
+use App\Http\Middleware\RequireOAuthClientGrant;
 use BWH\Auth\Http\Middleware\RequireActiveUser;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passport\Http\Controllers\AccessTokenController;
@@ -27,6 +28,7 @@ Route::prefix(config('passport.path', 'oauth'))
             'web',
             EnsureOAuthSessionIsFullyAuthenticated::class,
             RequireActiveUser::class,
+            RequireOAuthClientGrant::class,
             AuditOAuthAuthorization::class,
         ];
 

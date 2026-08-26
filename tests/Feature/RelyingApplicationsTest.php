@@ -21,10 +21,19 @@ class RelyingApplicationsTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function client(string $name, string $redirectUris, bool $revoked = false): void
+    protected function setUp(): void
     {
+        parent::setUp();
+
+        User::factory()->create(['id' => 1]);
+    }
+
+    private function client(string $name, string $redirectUris, bool $revoked = false): string
+    {
+        $clientId = (string) Str::uuid();
+
         DB::table('oauth_clients')->insert([
-            'id' => (string) Str::uuid(),
+            'id' => $clientId,
             'name' => $name,
             'secret' => 'secret',
             'redirect_uris' => $redirectUris,
@@ -33,16 +42,52 @@ class RelyingApplicationsTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        return $clientId;
+    }
+
+    private function grant(string $clientId, string $subject = '1'): void
+    {
+        DB::table('oauth_client_grants')->insert([
+            'oauth_client_id' => $clientId,
+            'subject' => $subject,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     public function test_each_client_becomes_an_application_at_its_redirect_origin(): void
     {
-        $this->client('Finance', json_encode(['https://pf.example.test/oauth/callback']));
+        $clientId = $this->client('Finance', json_encode(['https://pf.example.test/oauth/callback']));
+        $this->grant($clientId);
 
         $this->assertSame(
             [['key' => 'finance', 'name' => 'Finance', 'url' => 'https://pf.example.test']],
             (new RelyingApplications)->forSubject('1'),
         );
+    }
+
+    public function test_a_client_without_a_subject_grant_is_not_an_application(): void
+    {
+        $this->client('Finance', json_encode(['https://pf.example.test/oauth/callback']));
+
+        $this->assertSame([], (new RelyingApplications)->forSubject('1'));
+    }
+
+    public function test_a_grant_only_claims_token_eligibility_for_the_provider_subject(): void
+    {
+        $user = User::factory()->create();
+        $clientId = $this->client('Finance', json_encode(['https://pf.example.test/oauth/callback']));
+        $this->grant($clientId, (string) $user->getKey());
+
+        $this->assertSame(
+            [['key' => 'finance', 'name' => 'Finance', 'url' => 'https://pf.example.test']],
+            (new RelyingApplications)->forSubject((string) $user->getKey()),
+        );
+        $this->assertDatabaseHas('oauth_client_grants', [
+            'oauth_client_id' => $clientId,
+            'subject' => $user->getKey(),
+        ]);
     }
 
     public function test_a_revoked_client_is_not_an_application(): void
@@ -59,9 +104,9 @@ class RelyingApplicationsTest extends TestCase
      */
     public function test_a_client_without_an_absolute_redirect_is_skipped(): void
     {
-        $this->client('Machine', json_encode([]));
-        $this->client('Relative', json_encode(['/callback']));
-        $this->client('Malformed', 'not json');
+        $this->grant($this->client('Machine', json_encode([])));
+        $this->grant($this->client('Relative', json_encode(['/callback'])));
+        $this->grant($this->client('Malformed', 'not json'));
 
         $this->assertSame([], (new RelyingApplications)->forSubject('1'));
     }
@@ -72,9 +117,9 @@ class RelyingApplicationsTest extends TestCase
      */
     public function test_the_identity_payload_carries_the_application_list(): void
     {
-        $this->client('Finance', json_encode(['https://pf.example.test/oauth/callback']));
-
         $user = User::factory()->create();
+        $clientId = $this->client('Finance', json_encode(['https://pf.example.test/oauth/callback']));
+        $this->grant($clientId, (string) $user->getKey());
         $request = Request::create('/api/oauth/user');
         $request->setUserResolver(fn (): User => $user);
 
@@ -91,7 +136,8 @@ class RelyingApplicationsTest extends TestCase
 
     public function test_a_non_default_port_is_kept(): void
     {
-        $this->client('Local', json_encode(['http://localhost:8000/oauth/callback']));
+        $clientId = $this->client('Local', json_encode(['http://localhost:8000/oauth/callback']));
+        $this->grant($clientId);
 
         $this->assertSame('http://localhost:8000', (new RelyingApplications)->forSubject('1')[0]['url']);
     }
