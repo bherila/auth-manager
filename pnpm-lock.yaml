@@ -12,8 +12,8 @@ importers:
         specifier: 1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       bwh-auth:
-        specifier: 0.2.0
-        version: 0.2.0(lucide-react@1.33.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 0.3.0
+        version: 0.3.0(lucide-react@1.33.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -32,22 +32,22 @@ importers:
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.0.0
-        version: 4.3.3(vite@8.2.2(@types/node@26.2.0)(jiti@2.7.0))
+        version: 4.3.3(vite@8.2.2(@types/node@26.4.0)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.2.0
-        version: 26.2.0
+        specifier: ^26.4.0
+        version: 26.4.0
       '@types/react':
         specifier: ^19.2.18
         version: 19.2.18
       '@types/react-dom':
-        specifier: ^19.2.4
-        version: 19.2.4(@types/react@19.2.18)
+        specifier: ^19.2.5
+        version: 19.2.5(@types/react@19.2.18)
       concurrently:
         specifier: ^10.0.3
         version: 10.0.5
       laravel-vite-plugin:
         specifier: ^3.1
-        version: 3.2.0(vite@8.2.2(@types/node@26.2.0)(jiti@2.7.0))
+        version: 3.2.0(vite@8.2.2(@types/node@26.4.0)(jiti@2.7.0))
       tailwindcss:
         specifier: ^4.0.0
         version: 4.3.3
@@ -56,7 +56,7 @@ importers:
         version: 6.0.3
       vite:
         specifier: ^8.0.0
-        version: 8.2.2(@types/node@26.2.0)(jiti@2.7.0)
+        version: 8.2.2(@types/node@26.4.0)(jiti@2.7.0)
     optionalDependencies:
       '@laravel/multiplex':
         specifier: ^0.4.1
@@ -332,11 +332,11 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
-  '@types/node@26.2.0':
-    resolution: {integrity: sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg==}
+  '@types/node@26.4.0':
+    resolution: {integrity: sha512-faiGnoIrLH/V8cibOMEAZ8pMw6oXqSukl29ra4mN8GdaB2ZewzeaLj+INpV5N+Z1eKWzY+IzaIZH2EIR6YZRNQ==}
 
-  '@types/react-dom@19.2.4':
-    resolution: {integrity: sha512-Bsc+QHgp+P/F02XDzNCY9jnZNCUuLki36KT7VKrTXXLdHf+vHMNZnW1rVu5DNW/rCK+fya3DATySbLM4yhtKUw==}
+  '@types/react-dom@19.2.5':
+    resolution: {integrity: sha512-fMPwH9v7r/pp43yUd2/Mbiex5KouJwwR3dzHkhLREUC6764VyDsqxhAxv6OFEYR1RhjOyD1naqba8ECDBe7ZQg==}
     peerDependencies:
       '@types/react': ^19.2.0
 
@@ -359,8 +359,8 @@ packages:
     resolution: {integrity: sha512-ooviqdwwgfIfNmDwo94wlshcdzfO64XV0Cg6oDsDYBJfITDz1EngD2z7DkbvCWn+XIMsIqW27sEVF6qcpJrRcg==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
-  bwh-auth@0.2.0:
-    resolution: {integrity: sha512-4NvFr44e8O0s3826FTR2vwyXiiqYqwPYWOdJcQ0vB/TAowpAwVNCe5B0Gmxnao8su/ZAUVcva3LJ1V2ik6MHoQ==}
+  bwh-auth@0.3.0:
+    resolution: {integrity: sha512-cqxHiC9jhowMy22n1ZxUm4vIztAk0PL9j2o2yz1aVHOqFCMK3LRfYAVVIg8ZS16S7XIZ525o0aKwp3ITPfvr0g==}
     peerDependencies:
       lucide-react: '>=0.468.0 <2.0.0'
       react: ^18.3.0 || ^19.0.0
@@ -1086,18 +1086,18 @@ snapshots:
       '@tailwindcss/oxide-win32-arm64-msvc': 4.3.3
       '@tailwindcss/oxide-win32-x64-msvc': 4.3.3
 
-  '@tailwindcss/vite@4.3.3(vite@8.2.2(@types/node@26.2.0)(jiti@2.7.0))':
+  '@tailwindcss/vite@4.3.3(vite@8.2.2(@types/node@26.4.0)(jiti@2.7.0))':
     dependencies:
       '@tailwindcss/node': 4.3.3
       '@tailwindcss/oxide': 4.3.3
       tailwindcss: 4.3.3
-      vite: 8.2.2(@types/node@26.2.0)(jiti@2.7.0)
+      vite: 8.2.2(@types/node@26.4.0)(jiti@2.7.0)
 
-  '@types/node@26.2.0':
+  '@types/node@26.4.0':
     dependencies:
       undici-types: 8.3.0
 
-  '@types/react-dom@19.2.4(@types/react@19.2.18)':
+  '@types/react-dom@19.2.5(@types/react@19.2.18)':
     dependencies:
       '@types/react': 19.2.18
 
@@ -1117,7 +1117,7 @@ snapshots:
   auto-bind@5.0.1:
     optional: true
 
-  bwh-auth@0.2.0(lucide-react@1.33.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  bwh-auth@0.3.0(lucide-react@1.33.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
       lucide-react: 1.33.0(react@19.2.8)
       react: 19.2.8
@@ -1254,11 +1254,11 @@ snapshots:
 
   jiti@2.7.0: {}
 
-  laravel-vite-plugin@3.2.0(vite@8.2.2(@types/node@26.2.0)(jiti@2.7.0)):
+  laravel-vite-plugin@3.2.0(vite@8.2.2(@types/node@26.4.0)(jiti@2.7.0)):
     dependencies:
       picocolors: 1.1.1
       tinyglobby: 0.2.17
-      vite: 8.2.2(@types/node@26.2.0)(jiti@2.7.0)
+      vite: 8.2.2(@types/node@26.4.0)(jiti@2.7.0)
       vite-plugin-full-reload: 1.2.0
 
   lightningcss-android-arm64@1.32.0:
@@ -1515,7 +1515,7 @@ snapshots:
       picocolors: 1.1.1
       picomatch: 2.3.2
 
-  vite@8.2.2(@types/node@26.2.0)(jiti@2.7.0):
+  vite@8.2.2(@types/node@26.4.0)(jiti@2.7.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
@@ -1523,7 +1523,7 @@ snapshots:
       rolldown: 1.2.5
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 26.2.0
+      '@types/node': 26.4.0
       fsevents: 2.3.3
       jiti: 2.7.0
 
