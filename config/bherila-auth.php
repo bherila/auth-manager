@@ -48,7 +48,8 @@ return [
     'two_factor' => [
         'table' => 'auth_two_factor_attempts',
         'expires_minutes' => 15,
-        'allow_test_code' => env('BHERILA_AUTH_ALLOW_TEST_2FA_CODE', env('APP_ENV') !== 'production'),
+        'allow_test_code' => env('BHERILA_AUTH_ALLOW_TEST_2FA_CODE', false),
+        'test_code_environments' => ['local', 'testing'],
         'test_code' => '999999',
         'mail_subject' => env('BHERILA_AUTH_TWO_FACTOR_MAIL_SUBJECT', 'Verify your login - :app'),
         'login_url' => env('BHERILA_AUTH_LOGIN_URL', '/login'),
