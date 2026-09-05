@@ -67,13 +67,15 @@ if (config('auth-manager.oauth_server')) {
 }
 
 if (config('auth-manager.oauth_server') && config('auth-manager.dynamic_client_registration')) {
-    Route::post('/oauth/register', OAuthDynamicClientRegistrationController::class)
+    Route::prefix(config('passport.path', 'oauth'))
+        ->post('/register', OAuthDynamicClientRegistrationController::class)
         ->middleware([EnsureOAuthServerEnabled::class, 'throttle:10,1'])
         ->name('oauth.register');
 }
 
 if (config('auth-manager.oauth_server') && config('auth-manager.introspection')) {
-    Route::post('/oauth/introspect', OAuthTokenIntrospectionController::class)
+    Route::prefix(config('passport.path', 'oauth'))
+        ->post('/introspect', OAuthTokenIntrospectionController::class)
         ->middleware([EnsureOAuthServerEnabled::class, 'throttle:300,1'])
         ->name('oauth.introspect');
 }

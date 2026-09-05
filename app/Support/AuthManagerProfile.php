@@ -84,7 +84,10 @@ enum AuthManagerProfile: string
         $scheme = is_array($parts) ? strtolower((string) ($parts['scheme'] ?? '')) : '';
         if (! is_array($parts)
             || $host === ''
-            || isset($parts['user'], $parts['pass'], $parts['query'], $parts['fragment'])
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['query'])
+            || isset($parts['fragment'])
             || ($scheme !== 'https' && ! self::allowsLoopbackHttp($scheme, $host))) {
             throw new InvalidArgumentException("{$name} must be an absolute HTTPS URL.");
         }

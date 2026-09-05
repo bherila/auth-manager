@@ -94,7 +94,21 @@ class ResourceOAuthTest extends TestCase
 
         $this->getJson('/.well-known/oauth-authorization-server')
             ->assertOk()
-            ->assertJsonPath('issuer', self::ISSUER);
+            ->assertJsonPath('issuer', self::ISSUER)
+            ->assertJsonPath('authorization_endpoint', self::ISSUER.'/oauth/authorize')
+            ->assertJsonPath('token_endpoint', self::ISSUER.'/oauth/token')
+            ->assertJsonPath('registration_endpoint', self::ISSUER.'/oauth/register')
+            ->assertJsonPath('token_endpoint_auth_methods_supported', [
+                'none',
+                'client_secret_basic',
+                'client_secret_post',
+            ]);
+
+        config()->set('passport.path', 'connect');
+        $customPathConfig = require config_path('bherila-auth.php');
+        $this->assertSame(self::ISSUER.'/connect/authorize', $customPathConfig['oauth_server']['authorization_endpoint']);
+        $this->assertSame(self::ISSUER.'/connect/token', $customPathConfig['oauth_server']['token_endpoint']);
+        $this->assertSame(self::ISSUER.'/connect/register', $customPathConfig['oauth_server']['registration_endpoint']);
     }
 
     public function test_resource_binding_survives_code_and_refresh_grants_and_rejects_wrong_targets(): void
@@ -154,6 +168,27 @@ class ResourceOAuthTest extends TestCase
             User::factory()->create(['user_role' => 'user']),
             Passport::scopesFor(['mcp:use', 'offers:read']),
         ));
+
+        $this->withoutVite();
+        $user = User::factory()->create(['user_role' => 'user']);
+        app(OAuthClientGrantService::class)->grant((string) $user->getKey(), (string) $client->getKey());
+        $verifier = str_repeat('v', 64);
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => (string) $client->getKey(),
+            'redirect_uri' => 'http://127.0.0.1:39053/callback',
+            'response_type' => 'code',
+            'scope' => 'mcp:use offers:read',
+            'resource' => self::RESOURCE,
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ]))->assertOk()
+            ->assertSee('Requested permissions')
+            ->assertSee('Use the protected MCP service')
+            ->assertSee('Read protected offer data')
+            ->assertSee('Only continue if you recognize and trust this application.')
+            ->assertSee('This application registered automatically.')
+            ->assertSee('http://127.0.0.1:39053/callback');
     }
 
     public function test_introspection_rejects_bad_credentials_and_reports_grant_or_account_revocation(): void

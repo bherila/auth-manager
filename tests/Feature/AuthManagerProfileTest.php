@@ -51,4 +51,21 @@ class AuthManagerProfileTest extends TestCase
         $this->assertStringContainsString('var allowedHosts = ["bherila.net"]', $rendered);
         $this->assertStringNotContainsString('domain=.bherila.net', $rendered);
     }
+
+    public function test_oauth_urls_reject_each_forbidden_component_independently(): void
+    {
+        foreach ([
+            'https://identity.example.test?tenant=one',
+            'https://identity.example.test#fragment',
+            'https://user@identity.example.test',
+            'https://user:password@identity.example.test',
+        ] as $url) {
+            try {
+                AuthManagerProfile::validatedAbsoluteUrl($url, 'AUTH_MANAGER_OAUTH_ISSUER');
+                $this->fail("Expected {$url} to be rejected.");
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
 }

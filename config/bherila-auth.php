@@ -10,6 +10,8 @@ $dcrEnabled = (bool) config('auth-manager.dynamic_client_registration');
 $introspectionEnabled = (bool) config('auth-manager.introspection');
 $introspectionClientId = env('AUTH_MANAGER_INTROSPECTION_CLIENT_ID');
 $introspectionSecretHash = env('AUTH_MANAGER_INTROSPECTION_SECRET_HASH');
+$passportPath = trim((string) config('passport.path', 'oauth'), '/');
+$oauthEndpointBase = rtrim($issuer, '/').($passportPath === '' ? '' : '/'.$passportPath);
 
 return [
     'routes' => [
@@ -87,12 +89,15 @@ return [
         'enabled' => $oauthServerEnabled,
         'issuer' => $issuer,
         'resource' => $resource,
-        'authorization_endpoint' => $issuer.'/oauth/authorize',
-        'token_endpoint' => $issuer.'/oauth/token',
-        'registration_endpoint' => $dcrEnabled ? $issuer.'/oauth/register' : null,
+        'authorization_endpoint' => $oauthEndpointBase.'/authorize',
+        'token_endpoint' => $oauthEndpointBase.'/token',
+        'registration_endpoint' => $dcrEnabled ? $oauthEndpointBase.'/register' : null,
         'scopes' => config('auth-manager.scopes'),
         'protected_resource_scopes' => config('auth-manager.resource_required_scopes'),
-        'token_endpoint_auth_methods' => ['none'],
+        // Passport accepts public requests and the confidential client-secret
+        // methods below. DCR remains public-only because its controller
+        // separately requires `none` before registering a client.
+        'token_endpoint_auth_methods' => ['none', 'client_secret_basic', 'client_secret_post'],
         'protected_resource_metadata_url' => null,
         'auth_code_resource_column' => 'resource_uri',
         'resource_column' => 'resource_uri',
