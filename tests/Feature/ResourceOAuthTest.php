@@ -104,6 +104,9 @@ class ResourceOAuthTest extends TestCase
                 'client_secret_post',
             ]);
 
+        $this->assertSame('', parse_url((string) config('auth-manager.issuer'), PHP_URL_PATH) ?? '');
+        $this->assertSame('.well-known/oauth-authorization-server', Route::getRoutes()->getByName('oauth.metadata.authorization-server')?->uri());
+
         config()->set('passport.path', 'connect');
         $customPathConfig = require config_path('bherila-auth.php');
         $this->assertSame(self::ISSUER.'/connect/authorize', $customPathConfig['oauth_server']['authorization_endpoint']);

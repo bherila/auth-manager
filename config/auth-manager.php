@@ -3,7 +3,7 @@
 use App\Support\AuthManagerProfile;
 
 $profile = AuthManagerProfile::fromEnvironment();
-$issuer = AuthManagerProfile::validatedAbsoluteUrl(
+$issuer = AuthManagerProfile::validatedIssuerUrl(
     env('AUTH_MANAGER_OAUTH_ISSUER', $profile->defaultIssuer()),
     'AUTH_MANAGER_OAUTH_ISSUER',
 );

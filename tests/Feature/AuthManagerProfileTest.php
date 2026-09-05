@@ -68,4 +68,55 @@ class AuthManagerProfileTest extends TestCase
             }
         }
     }
+
+    public function test_oauth_urls_validate_hosts_and_preserve_local_loopback_support(): void
+    {
+        foreach ([
+            'https://bad host',
+            'https://bad_host.example.test',
+            'https://-bad.example.test',
+            'https://example..test',
+            'https://::1',
+            'https://identity.example.test:0',
+        ] as $url) {
+            try {
+                AuthManagerProfile::validatedAbsoluteUrl($url, 'AUTH_MANAGER_OAUTH_RESOURCE');
+                $this->fail("Expected {$url} to be rejected.");
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+
+        foreach ([
+            'https://identity.example.test',
+            'https://localhost',
+            'https://127.0.0.1',
+            'https://[::1]',
+            'http://localhost',
+            'http://127.0.0.1',
+            'http://[::1]',
+        ] as $url) {
+            $this->assertSame($url, AuthManagerProfile::validatedAbsoluteUrl($url, 'AUTH_MANAGER_OAUTH_RESOURCE'));
+        }
+    }
+
+    public function test_issuer_must_be_root_only_so_its_metadata_route_is_consistent(): void
+    {
+        $this->assertSame(
+            'https://identity.example.test',
+            AuthManagerProfile::validatedIssuerUrl('https://identity.example.test/', 'AUTH_MANAGER_OAUTH_ISSUER'),
+        );
+
+        foreach ([
+            'https://identity.example.test/tenant',
+            'https://identity.example.test/tenant/',
+        ] as $issuer) {
+            try {
+                AuthManagerProfile::validatedIssuerUrl($issuer, 'AUTH_MANAGER_OAUTH_ISSUER');
+                $this->fail("Expected {$issuer} to be rejected.");
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
 }

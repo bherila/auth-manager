@@ -84,6 +84,9 @@ enum AuthManagerProfile: string
         $scheme = is_array($parts) ? strtolower((string) ($parts['scheme'] ?? '')) : '';
         if (! is_array($parts)
             || $host === ''
+            || filter_var($value, FILTER_VALIDATE_URL) === false
+            || ! self::isValidUrlHost($host)
+            || (isset($parts['port']) && ($parts['port'] < 1 || $parts['port'] > 65535))
             || isset($parts['user'])
             || isset($parts['pass'])
             || isset($parts['query'])
@@ -93,6 +96,18 @@ enum AuthManagerProfile: string
         }
 
         return $value;
+    }
+
+    public static function validatedIssuerUrl(mixed $value, string $name): string
+    {
+        $issuer = self::validatedAbsoluteUrl($value, $name);
+        $path = parse_url($issuer, PHP_URL_PATH);
+
+        if ($path !== null && $path !== '' && $path !== '/') {
+            throw new InvalidArgumentException("{$name} must not contain a path.");
+        }
+
+        return rtrim($issuer, '/');
     }
 
     public static function validatedThemeCookieDomain(mixed $value): ?string
@@ -129,6 +144,19 @@ enum AuthManagerProfile: string
         return $scheme === 'http'
             && in_array((string) env('APP_ENV', 'production'), ['local', 'testing'], true)
             && in_array($host, ['localhost', '127.0.0.1', '[::1]', '::1'], true);
+    }
+
+    private static function isValidUrlHost(string $host): bool
+    {
+        if ($host === 'localhost') {
+            return true;
+        }
+
+        $ip = str_starts_with($host, '[') && str_ends_with($host, ']')
+            ? substr($host, 1, -1)
+            : $host;
+
+        return filter_var($ip, FILTER_VALIDATE_IP) !== false || self::isValidHostname($host);
     }
 
     private static function isValidHostname(string $host): bool
