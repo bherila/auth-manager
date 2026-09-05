@@ -7,13 +7,13 @@ use App\Models\User;
 use App\Services\OAuthClientGrantService;
 use App\Services\OAuthCredentialGenerationContext;
 use App\Services\UserAccountStatusService;
+use BWH\Auth\OAuth\Server\ResourceAuthCodeRepository;
 use Illuminate\Support\Facades\DB;
-use Laravel\Passport\Bridge\AuthCodeRepository;
 use Laravel\Passport\Passport;
 use League\OAuth2\Server\Entities\AuthCodeEntityInterface;
 use League\OAuth2\Server\Exception\OAuthServerException;
 
-class GrantAwareAuthCodeRepository extends AuthCodeRepository
+class GrantAwareAuthCodeRepository extends ResourceAuthCodeRepository
 {
     public function __construct(
         private readonly OAuthClientGrantService $grants,
@@ -21,15 +21,25 @@ class GrantAwareAuthCodeRepository extends AuthCodeRepository
         private readonly OAuthCredentialGenerationContext $credentialGeneration,
     ) {}
 
-    public function persistNewAuthCode(AuthCodeEntityInterface $authCodeEntity): void
-    {
+    /**
+     * The package has already validated the RFC 8707 binding when this hook is
+     * reached. Keep this application policy inside that final protocol.
+     *
+     * @param  list<string>  $scopeIdentifiers
+     */
+    protected function persistResourceAuthCode(
+        AuthCodeEntityInterface $authCodeEntity,
+        ?string $resource,
+        bool $hasResourceColumn,
+        array $scopeIdentifiers,
+    ): void {
         $subject = $authCodeEntity->getUserIdentifier();
 
         if ($subject === null) {
             throw OAuthServerException::accessDenied('A provider account is required.');
         }
 
-        DB::transaction(function () use ($authCodeEntity, $subject): void {
+        DB::transaction(function () use ($authCodeEntity, $hasResourceColumn, $resource, $scopeIdentifiers, $subject): void {
             $user = User::query()->whereKey($subject)->lockForUpdate()->first();
             $sessionVersion = request()->hasSession()
                 ? request()->session()->get(EnsureCredentialVersion::SESSION_KEY)
@@ -42,19 +52,15 @@ class GrantAwareAuthCodeRepository extends AuthCodeRepository
                 throw OAuthServerException::accessDenied('The authenticated session is no longer valid.');
             }
 
-            parent::persistNewAuthCode($authCodeEntity);
+            parent::persistResourceAuthCode($authCodeEntity, $resource, $hasResourceColumn, $scopeIdentifiers);
             DB::table('oauth_auth_codes')
                 ->where('id', $authCodeEntity->getIdentifier())
                 ->update(['credential_version' => $sessionVersion]);
         });
     }
 
-    public function isAuthCodeRevoked(string $codeId): bool
+    protected function isApplicationAuthCodeRevoked(string $codeId): bool
     {
-        if (parent::isAuthCodeRevoked($codeId)) {
-            return true;
-        }
-
         $code = Passport::authCode()->newQuery()->whereKey($codeId)->first();
 
         if ($code === null) {

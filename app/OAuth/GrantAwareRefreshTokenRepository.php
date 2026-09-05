@@ -5,11 +5,11 @@ namespace App\OAuth;
 use App\Services\OAuthClientGrantService;
 use App\Services\OAuthCredentialGenerationContext;
 use App\Services\UserAccountStatusService;
+use BWH\Auth\OAuth\Server\ResourceRefreshTokenRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
-use Laravel\Passport\Bridge\RefreshTokenRepository;
 
-class GrantAwareRefreshTokenRepository extends RefreshTokenRepository
+class GrantAwareRefreshTokenRepository extends ResourceRefreshTokenRepository
 {
     public function __construct(
         Dispatcher $events,
@@ -20,12 +20,8 @@ class GrantAwareRefreshTokenRepository extends RefreshTokenRepository
         parent::__construct($events);
     }
 
-    public function isRefreshTokenRevoked(string $tokenId): bool
+    protected function isApplicationRefreshTokenRevoked(string $tokenId): bool
     {
-        if (parent::isRefreshTokenRevoked($tokenId)) {
-            return true;
-        }
-
         $token = DB::table('oauth_refresh_tokens as refresh_tokens')
             ->join('oauth_access_tokens as access_tokens', 'access_tokens.id', '=', 'refresh_tokens.access_token_id')
             ->where('refresh_tokens.id', $tokenId)

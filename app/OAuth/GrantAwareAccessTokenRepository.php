@@ -6,14 +6,14 @@ use App\Models\User;
 use App\Services\OAuthClientGrantService;
 use App\Services\OAuthCredentialGenerationContext;
 use App\Services\UserAccountStatusService;
+use BWH\Auth\OAuth\Server\ResourceAccessTokenRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
-use Laravel\Passport\Bridge\AccessTokenRepository;
 use Laravel\Passport\Passport;
 use League\OAuth2\Server\Entities\AccessTokenEntityInterface;
 use League\OAuth2\Server\Exception\OAuthServerException;
 
-class GrantAwareAccessTokenRepository extends AccessTokenRepository
+class GrantAwareAccessTokenRepository extends ResourceAccessTokenRepository
 {
     public function __construct(
         Dispatcher $events,
@@ -24,12 +24,8 @@ class GrantAwareAccessTokenRepository extends AccessTokenRepository
         parent::__construct($events);
     }
 
-    public function isAccessTokenRevoked(string $tokenId): bool
+    protected function isApplicationAccessTokenRevoked(string $tokenId): bool
     {
-        if (parent::isAccessTokenRevoked($tokenId)) {
-            return true;
-        }
-
         $token = Passport::token()->newQuery()->whereKey($tokenId)->first();
 
         if ($token === null || Passport::client()->newQuery()
@@ -53,12 +49,36 @@ class GrantAwareAccessTokenRepository extends AccessTokenRepository
             || ! $this->grants->allows($subject, (string) $token->getAttribute('client_id'));
     }
 
-    public function persistNewAccessToken(AccessTokenEntityInterface $accessTokenEntity): void
+    protected function persistResourceAccessToken(
+        AccessTokenEntityInterface $accessTokenEntity,
+        ?string $resource,
+        bool $hasResourceColumn,
+    ): void {
+        $this->persistForActiveGrantedSubject(
+            $accessTokenEntity,
+            function () use ($accessTokenEntity, $resource, $hasResourceColumn): void {
+                parent::persistResourceAccessToken($accessTokenEntity, $resource, $hasResourceColumn);
+            },
+        );
+    }
+
+    protected function persistUnboundAccessToken(AccessTokenEntityInterface $accessTokenEntity): void
+    {
+        $this->persistForActiveGrantedSubject(
+            $accessTokenEntity,
+            function () use ($accessTokenEntity): void {
+                parent::persistUnboundAccessToken($accessTokenEntity);
+            },
+        );
+    }
+
+    /** @param callable(): void $persist */
+    private function persistForActiveGrantedSubject(AccessTokenEntityInterface $accessTokenEntity, callable $persist): void
     {
         $subject = $accessTokenEntity->getUserIdentifier();
 
         if ($subject === null) {
-            parent::persistNewAccessToken($accessTokenEntity);
+            $persist();
 
             return;
         }
@@ -66,7 +86,7 @@ class GrantAwareAccessTokenRepository extends AccessTokenRepository
         $clientId = $accessTokenEntity->getClient()->getIdentifier();
         $expectedVersion = $this->credentialGeneration->expectedFor((string) $subject);
 
-        DB::transaction(function () use ($accessTokenEntity, $subject, $clientId, $expectedVersion): void {
+        DB::transaction(function () use ($accessTokenEntity, $clientId, $expectedVersion, $persist, $subject): void {
             $user = User::query()->whereKey($subject)->lockForUpdate()->first();
 
             if (! $user instanceof User
@@ -86,7 +106,7 @@ class GrantAwareAccessTokenRepository extends AccessTokenRepository
                 throw OAuthServerException::accessDenied('Application access has been removed.');
             }
 
-            parent::persistNewAccessToken($accessTokenEntity);
+            $persist();
             DB::table('oauth_access_tokens')
                 ->where('id', $accessTokenEntity->getIdentifier())
                 ->update(['credential_version' => $expectedVersion]);

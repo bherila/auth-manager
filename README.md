@@ -48,11 +48,18 @@ composer ci:check  # the checks CI runs
 
 ## Theme
 
-Colour scheme is shared across `*.bherila.net` through a `theme` cookie on
-`Domain=.bherila.net`, resolved before first paint by
-`resources/views/layouts/theme-init.blade.php` so navigating between
-applications does not flash. `localStorage` mirrors the value and is the
-fallback in local development, where that cookie cannot be set.
+Theme preference is resolved before first paint by
+`resources/views/layouts/theme-init.blade.php`. A deployment may opt into a
+shared, non-sensitive `theme` cookie through a validated domain and host
+allow-list; `localStorage` remains the fallback. Session cookies stay host-only
+unless a deployment explicitly changes `SESSION_DOMAIN`.
+
+## Deployment profiles and resource OAuth
+
+The provider has a legacy identity profile and an opt-in resource-bound OAuth
+profile. See [`docs/deployment-profiles.md`](docs/deployment-profiles.md) for
+the environment contract, OAuth metadata, dynamic client registration, and
+introspection configuration.
 
 ## Deployment
 

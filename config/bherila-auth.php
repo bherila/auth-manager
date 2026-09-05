@@ -3,8 +3,21 @@
 use App\Http\Middleware\ThrottleTwoFactorVerify;
 use App\Models\User;
 
+$issuer = (string) config('auth-manager.issuer');
+$resource = (string) config('auth-manager.resource');
+$oauthServerEnabled = (bool) config('auth-manager.oauth_server');
+$dcrEnabled = (bool) config('auth-manager.dynamic_client_registration');
+$introspectionEnabled = (bool) config('auth-manager.introspection');
+$introspectionClientId = env('AUTH_MANAGER_INTROSPECTION_CLIENT_ID');
+$introspectionSecretHash = env('AUTH_MANAGER_INTROSPECTION_SECRET_HASH');
+$passportPath = trim((string) config('passport.path', 'oauth'), '/');
+$oauthEndpointBase = rtrim($issuer, '/').($passportPath === '' ? '' : '/'.$passportPath);
+
 return [
     'routes' => [
+        // These are the shared login, passkey, and account-protection routes;
+        // they remain enabled for both deployments. OAuth issuance is gated
+        // independently below.
         'enabled' => true,
         'prefix' => 'api',
         'middleware' => ['web', ThrottleTwoFactorVerify::class],
@@ -68,6 +81,67 @@ return [
         'timeout' => 60000,
         'resident_key' => env('WEBAUTHN_RESIDENT_KEY', 'preferred'),
         'user_verification' => env('WEBAUTHN_USER_VERIFICATION', 'preferred'),
+    ],
+
+    // OAuth issuance is profile-aware. Legacy identity credentials remain
+    // unbound; resource-profile credentials are pinned to its configured API.
+    'oauth_server' => [
+        'enabled' => $oauthServerEnabled,
+        'issuer' => $issuer,
+        'resource' => $resource,
+        'authorization_endpoint' => $oauthEndpointBase.'/authorize',
+        'token_endpoint' => $oauthEndpointBase.'/token',
+        'registration_endpoint' => $dcrEnabled ? $oauthEndpointBase.'/register' : null,
+        'scopes' => config('auth-manager.scopes'),
+        'protected_resource_scopes' => config('auth-manager.resource_required_scopes'),
+        // Passport accepts public requests and the confidential client-secret
+        // methods below. DCR remains public-only because its controller
+        // separately requires `none` before registering a client.
+        'token_endpoint_auth_methods' => ['none', 'client_secret_basic', 'client_secret_post'],
+        'protected_resource_metadata_url' => null,
+        'auth_code_resource_column' => 'resource_uri',
+        'resource_column' => 'resource_uri',
+        'refresh_token_resource_column' => 'resource_uri',
+        'authorization_response_issuer' => ['enabled' => false],
+        'resource_required_scope' => null,
+        'resource_required_scopes' => config('auth-manager.resource_required_scopes'),
+        'dynamic_clients' => [
+            'enabled' => $dcrEnabled,
+            'required_columns' => ['dynamically_registered_at', 'scopes'],
+            'registered_at_column' => 'dynamically_registered_at',
+            'last_used_at_column' => 'last_used_at',
+            'scopes_column' => 'scopes',
+            'enforce_registered_scopes' => true,
+        ],
+        'authorization_state' => [
+            'cache_prefix' => 'oauth-resource:',
+            'ttl_seconds' => null,
+        ],
+        'consent' => [
+            'app_name' => env('APP_NAME', 'Application'),
+            'heading' => 'Connect :client to :app?',
+            'intro' => 'This application is requesting access to your :app account.',
+            'identity' => true,
+            'trust_warning' => 'Only continue if you recognize and trust this application. You can disconnect it later.',
+            'dynamic_client_warning' => 'This application registered automatically. After approval, your browser returns to:',
+            'policy_notice' => 'Your current permissions still apply to every request.',
+            'approve_label' => 'Authorize',
+            'deny_label' => 'Cancel',
+        ],
+        'introspection' => [
+            'enabled' => $introspectionEnabled,
+            // This list intentionally contains only password_hash() output. The
+            // plaintext resource-server secret is never an application setting.
+            'clients' => $introspectionEnabled
+                && is_string($introspectionClientId) && $introspectionClientId !== ''
+                && is_string($introspectionSecretHash) && $introspectionSecretHash !== ''
+                ? [[
+                    'id' => $introspectionClientId,
+                    'secret_hash' => $introspectionSecretHash,
+                    'resource' => $resource,
+                ]]
+                : [],
+        ],
     ],
 
     'users' => [

@@ -10,7 +10,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.4",
-        "bherila/auth-laravel": "^0.11",
+        "bherila/auth-laravel": "^0.12",
         "laravel/framework": "^13.17",
         "laravel/passport": "^13.4",
         "laravel/tinker": "^3.0"

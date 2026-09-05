@@ -55,10 +55,10 @@ class AppServiceProvider extends ServiceProvider
         Passport::loadKeysFrom(storage_path('app/private/oauth'));
 
         Passport::useClientModel(PassportClient::class);
-        Passport::authorizationView('oauth.authorize');
-        Passport::tokensCan([
-            'identity:read' => 'Read your account identity',
-        ]);
+        Passport::authorizationView(config('auth-manager.oauth_server')
+            ? 'bherila-auth::oauth.authorize'
+            : 'oauth.authorize');
+        Passport::tokensCan((array) config('auth-manager.scopes', []));
         Passport::tokensExpireIn(now()->addMinutes(5));
         Passport::refreshTokensExpireIn(now()->addDay());
     }
