@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "bherila/auth-laravel",
-            "version": "v0.12.1",
+            "version": "v0.12.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/auth-laravel.git",
-                "reference": "6efccae6f3207f7aba7f9fb2eb0d58ec4711633c"
+                "reference": "b2df696f3a573e69693e7268aad1dcb578db1ae1"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/auth-laravel/zipball/6efccae6f3207f7aba7f9fb2eb0d58ec4711633c",
-                "reference": "6efccae6f3207f7aba7f9fb2eb0d58ec4711633c",
+                "url": "https://api.github.com/repos/bherila/auth-laravel/zipball/b2df696f3a573e69693e7268aad1dcb578db1ae1",
+                "reference": "b2df696f3a573e69693e7268aad1dcb578db1ae1",
                 "shasum": ""
             },
             "require": {
@@ -65,7 +65,7 @@
                 "issues": "https://github.com/bherila/auth-laravel/issues",
                 "source": "https://github.com/bherila/auth-laravel"
             },
-            "time": "2026-09-05T05:51:52+00:00"
+            "time": "2026-09-05T07:38:24+00:00"
         },
         {
             "name": "brick/math",
