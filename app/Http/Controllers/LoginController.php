@@ -27,7 +27,9 @@ class LoginController extends Controller
             $throttle->recordBlocked($request, null, $email, 'password', $throttleState);
             $seconds = $throttleState->availableInSeconds();
 
-            return back()->withErrors(['email' => "Too many login attempts. Please try again in {$seconds} seconds."]);
+            return back()
+                ->withErrors(['email' => "Too many sign-in attempts. Please try again in {$seconds} seconds."])
+                ->withInput($request->only('email', 'remember'));
         }
 
         if (Auth::attempt($credentials, $remember)) {
@@ -39,7 +41,9 @@ class LoginController extends Controller
                 $request->session()->invalidate();
                 $this->auditLoginFailed($request, $user, $email, 'Account disabled', 'password');
 
-                return back()->withErrors(['email' => 'Your account is disabled. Please contact an administrator.']);
+                return back()
+                    ->withErrors(['email' => 'Your account is disabled. Please contact an administrator.'])
+                    ->withInput($request->only('email', 'remember'));
             }
 
             $request->session()->regenerate();
@@ -51,7 +55,10 @@ class LoginController extends Controller
 
         $this->auditLoginFailed($request, null, $email, 'Invalid credentials', 'password');
 
-        return back()->withErrors(['email' => 'Invalid credentials']);
+        // Only the email and remember flag are flashed back; the password never is.
+        return back()
+            ->withErrors(['email' => "That email and password don't match. Try again, or email yourself a sign-in code."])
+            ->withInput($request->only('email', 'remember'));
     }
 
     /**

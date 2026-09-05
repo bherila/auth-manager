@@ -18,7 +18,7 @@
             <p class="text-muted-foreground mt-2 text-sm">
                 For your security, add or remove a passkey within ten minutes of signing in.
             </p>
-            <a href="{{ route('login') }}" class="text-primary mt-3 inline-block text-sm underline">Sign in again</a>
+            <a href="{{ route('login') }}" class="text-accent-foreground mt-3 inline-block text-sm underline">Sign in again</a>
         </header>
 
         <div id="passkey-management-mount">

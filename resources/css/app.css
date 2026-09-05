@@ -1,5 +1,10 @@
 @import 'tailwindcss';
 
+/* bwh-auth emits Tailwind utilities from inside its dist bundle, which the
+   automatic source scan skips (node_modules). Register it so those classes
+   survive the build. */
+@source '../../node_modules/bwh-auth/dist';
+
 /* The theme script drives dark mode via the `dark` class on <html> (mirroring the
    OS preference when theme is "system"). Without this variant override, Tailwind v4
    keys `dark:` utilities to the OS media query and they desync from the
@@ -78,7 +83,7 @@
   --navbar-foreground: 0 0% 10%; /* #1a1a1a - high-contrast for light navbar */
 
   --primary: 39 40% 45%;         /* Darker Gold for contrast */
-  --primary-foreground: 0 0% 98%;
+  --primary-foreground: 0 0% 10%; /* Dark text on gold: ~4.8:1, white was ~3.5:1 */
 
   --secondary: 0 0% 90%;         /* #e5e5e5 */
   --secondary-foreground: 0 0% 10%;
