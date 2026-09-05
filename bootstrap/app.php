@@ -19,7 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->append(AddSecurityHeaders::class);
+        $middleware->prepend(AddSecurityHeaders::class);
         $middleware->appendToGroup('web', EnsureCredentialVersion::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

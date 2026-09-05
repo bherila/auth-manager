@@ -41,4 +41,15 @@ final class SecurityHeadersTest extends TestCase
             ->assertOk()
             ->assertHeader('Content-Security-Policy', "default-src 'none'");
     }
+
+    public function test_framework_short_circuit_responses_include_security_headers(): void
+    {
+        Route::post('/security-header-test/oversized', static fn () => response('unreachable'));
+
+        $this->withServerVariables(['CONTENT_LENGTH' => PHP_INT_MAX])
+            ->post('https://identity.example.test/security-header-test/oversized')
+            ->assertStatus(413)
+            ->assertHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
+    }
 }
