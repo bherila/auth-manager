@@ -1,12 +1,12 @@
 {{-- Blocking theme init, shared by every layout. Resolves the theme before
      first paint and exposes window.bwhTheme for toggles. The preference is
-     shared across *.bherila.net (games.bherila.net etc.) via a `theme` cookie
-     (values: system|light|dark) on Domain=.bherila.net; localStorage mirrors
-     it and is the fallback where that cookie can't be set (local dev). Keep
-     the cookie contract in sync with the games repo's layouts/game.blade.php. --}}
+     through the validated profile/environment allow-list. localStorage mirrors
+     it and is the fallback where that cookie cannot be set (local dev). --}}
 <script @cspNonce>
     (function () {
         try {
+            var cookieDomain = @json(config('auth-manager.theme.cookie_domain'));
+            var allowedHosts = @json(config('auth-manager.theme.allowed_hosts', []));
             var d = document.documentElement;
             var media = window.matchMedia('(prefers-color-scheme: dark)');
             var read = function () {
@@ -24,8 +24,11 @@
                     // Theme still changes for this page when storage is unavailable.
                 }
                 var host = location.hostname;
-                if (host === 'bherila.net' || host.endsWith('.bherila.net')) {
-                    document.cookie = 'theme=' + theme + '; domain=.bherila.net; path=/; max-age=31536000; samesite=lax'
+                var allowed = Array.isArray(allowedHosts) && allowedHosts.some(function (allowedHost) {
+                    return typeof allowedHost === 'string' && (host === allowedHost || host.endsWith('.' + allowedHost));
+                });
+                if (typeof cookieDomain === 'string' && cookieDomain !== '' && allowed) {
+                    document.cookie = 'theme=' + theme + '; domain=' + cookieDomain + '; path=/; max-age=31536000; samesite=lax'
                         + (location.protocol === 'https:' ? '; secure' : '');
                 }
             };

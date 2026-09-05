@@ -56,9 +56,7 @@ class AppServiceProvider extends ServiceProvider
 
         Passport::useClientModel(PassportClient::class);
         Passport::authorizationView('oauth.authorize');
-        Passport::tokensCan([
-            'identity:read' => 'Read your account identity',
-        ]);
+        Passport::tokensCan((array) config('auth-manager.scopes', []));
         Passport::tokensExpireIn(now()->addMinutes(5));
         Passport::refreshTokensExpireIn(now()->addDay());
     }
