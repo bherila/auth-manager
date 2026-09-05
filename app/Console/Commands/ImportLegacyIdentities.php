@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -59,6 +60,10 @@ class ImportLegacyIdentities extends Command
             $hasLegacyPasskeys = $only === null || $only === 'passkeys'
                 ? $this->hasSupportedLegacyPasskeys($legacy)
                 : false;
+        } catch (QueryException) {
+            $this->error('The configured legacy identity source cannot be reached safely.');
+
+            return self::FAILURE;
         } catch (Throwable) {
             $this->error('The legacy identity source has an unsupported schema. Nothing was written.');
 
@@ -118,6 +123,10 @@ class ImportLegacyIdentities extends Command
         if ($database === config("database.connections.{$default}.database")) {
             throw new \RuntimeException('The legacy source and this service point at the same database.');
         }
+
+        // Establish the connection before schema preflight so authentication and
+        // network failures are reported as source availability problems.
+        $connection->getPdo();
 
         return $connection;
     }

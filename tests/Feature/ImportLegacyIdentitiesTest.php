@@ -109,6 +109,23 @@ class ImportLegacyIdentitiesTest extends TestCase
         $this->artisan('identity:import-legacy')->assertFailed();
     }
 
+    public function test_it_reports_an_unreachable_source_as_an_availability_failure(): void
+    {
+        config([
+            'database.connections.legacy_identity' => [
+                'driver' => 'sqlite',
+                'database' => storage_path('framework/testing/missing-'.Str::uuid().'.sqlite'),
+                'prefix' => '',
+            ],
+        ]);
+        DB::purge('legacy_identity');
+
+        $this->artisan('identity:import-legacy')
+            ->expectsOutputToContain('The configured legacy identity source cannot be reached safely.')
+            ->doesntExpectOutputToContain('unsupported schema')
+            ->assertFailed();
+    }
+
     public function test_a_dry_run_writes_nothing(): void
     {
         $this->configureLegacySource();
