@@ -4,7 +4,10 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\RequireRecentPasskeyAuthentication;
 use App\Models\User;
+use BWH\Auth\Models\TwoFactorAttempt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class PasskeyManagementTest extends TestCase
@@ -84,5 +87,53 @@ class PasskeyManagementTest extends TestCase
         $this->postJson('/api/passkeys/register/options')
             ->assertOk()
             ->assertJsonStructure(['challenge', 'rp', 'user']);
+    }
+
+    public function test_a_verified_email_code_can_start_passkey_registration(): void
+    {
+        $user = User::factory()->create(['user_role' => 'user']);
+        $attempt = TwoFactorAttempt::createForUser($user);
+
+        $this->postJson('/api/auth/two-factor/verify', [
+            'attempt_token' => $attempt->token,
+            'code' => $attempt->code,
+        ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertIsInt(session(RequireRecentPasskeyAuthentication::SESSION_KEY));
+
+        $this->postJson('/api/passkeys/register/options')
+            ->assertOk()
+            ->assertJsonStructure(['challenge', 'rp', 'user']);
+    }
+
+    public function test_a_remembered_session_cannot_gain_freshness_from_an_invalid_password_attempt(): void
+    {
+        $user = User::factory()->create([
+            'user_role' => 'user',
+            'password' => bcrypt('synthetic-password'),
+            'remember_token' => Str::random(60),
+        ]);
+        $guard = Auth::guard();
+        $recaller = implode('|', [
+            $user->getAuthIdentifier(),
+            $user->getRememberToken(),
+            $guard->hashPasswordForCookie($user->getAuthPassword()),
+        ]);
+
+        $this->withCookie($guard->getRecallerName(), $recaller)
+            ->post('/login', [
+                'email' => $user->email,
+                'password' => 'not-the-password',
+            ])
+            ->assertSessionHasErrors('email');
+
+        $this->assertAuthenticatedAs($user);
+        $this->assertNull(session(RequireRecentPasskeyAuthentication::SESSION_KEY));
+
+        $this->postJson('/api/passkeys/register/options')
+            ->assertForbidden()
+            ->assertJsonPath('message', 'Please sign in again before managing passkeys.');
     }
 }

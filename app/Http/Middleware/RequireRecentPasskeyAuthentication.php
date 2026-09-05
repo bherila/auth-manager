@@ -23,16 +23,22 @@ final class RequireRecentPasskeyAuthentication
 
     public function handle(Request $request, Closure $next): Response
     {
-        if (! $this->protects($request) || $request->user() === null || $this->hasFreshAuthentication($request)) {
-            return $next($request);
+        if ($this->protects($request) && $request->user() !== null && ! $this->hasFreshAuthentication($request)) {
+            return new JsonResponse([
+                'message' => 'Please sign in again before managing passkeys.',
+            ], Response::HTTP_FORBIDDEN, [
+                'Cache-Control' => 'no-store',
+                'Pragma' => 'no-cache',
+            ]);
         }
 
-        return new JsonResponse([
-            'message' => 'Please sign in again before managing passkeys.',
-        ], Response::HTTP_FORBIDDEN, [
-            'Cache-Control' => 'no-store',
-            'Pragma' => 'no-cache',
-        ]);
+        $response = $next($request);
+
+        if ($this->completedJsonCredentialVerification($request, $response)) {
+            $request->session()->put(self::SESSION_KEY, now()->getTimestamp());
+        }
+
+        return $response;
     }
 
     private function protects(Request $request): bool
@@ -57,5 +63,28 @@ final class RequireRecentPasskeyAuthentication
         $timestamp = (int) $authenticatedAt;
 
         return $timestamp <= $now && $timestamp >= $now - self::MAX_AGE_SECONDS;
+    }
+
+    /**
+     * The shared package exposes only these two JSON verification endpoints to
+     * this application. A route match alone is not enough: Laravel restores a
+     * remembered user before the login controller, which emits Login even when
+     * the password submitted later in the request is wrong. Both controllers
+     * return this exact JSON success response only after a valid email code or
+     * WebAuthn assertion has authenticated the user.
+     */
+    private function completedJsonCredentialVerification(Request $request, Response $response): bool
+    {
+        if (! $request->isMethod('POST') || ! $response instanceof JsonResponse || ! $response->isSuccessful()) {
+            return false;
+        }
+
+        if (! in_array($request->path(), ['api/auth/two-factor/verify', 'api/passkeys/auth'], true)) {
+            return false;
+        }
+
+        $payload = $response->getData(true);
+
+        return is_array($payload) && ($payload['success'] ?? false) === true && $request->user() !== null;
     }
 }
