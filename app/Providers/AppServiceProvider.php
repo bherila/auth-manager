@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Http\Middleware\EnsureCredentialVersion;
+use App\Http\Middleware\RequireRecentPasskeyAuthentication;
 use App\Models\PassportClient;
 use App\Models\User;
 use App\OAuth\GrantAwareAccessTokenRepository;
@@ -46,6 +47,13 @@ class AppServiceProvider extends ServiceProvider
                     EnsureCredentialVersion::SESSION_KEY,
                     (int) $event->user->credential_version,
                 );
+
+                if (self::isFreshCredentialVerificationRequest()) {
+                    request()->session()->put(
+                        RequireRecentPasskeyAuthentication::SESSION_KEY,
+                        now()->getTimestamp(),
+                    );
+                }
             }
         });
 
@@ -61,5 +69,23 @@ class AppServiceProvider extends ServiceProvider
         Passport::tokensCan((array) config('auth-manager.scopes', []));
         Passport::tokensExpireIn(now()->addMinutes(5));
         Passport::refreshTokensExpireIn(now()->addDay());
+    }
+
+    /**
+     * A remembered-login restoration also emits Laravel's Login event. Mark a
+     * passkey-management session fresh only after one of the routes that has
+     * actually verified a password, email code, or passkey assertion.
+     */
+    private static function isFreshCredentialVerificationRequest(): bool
+    {
+        $request = request();
+
+        return $request->isMethod('POST') && in_array($request->path(), [
+            'login',
+            'login/dev',
+            'login/dev-by-id',
+            'api/auth/two-factor/verify',
+            'api/passkeys/auth',
+        ], true);
     }
 }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\RequireRecentPasskeyAuthentication;
 use App\Http\Middleware\ThrottleTwoFactorVerify;
 use App\Models\User;
 
@@ -20,7 +21,7 @@ return [
         // independently below.
         'enabled' => true,
         'prefix' => 'api',
-        'middleware' => ['web', ThrottleTwoFactorVerify::class],
+        'middleware' => ['web', ThrottleTwoFactorVerify::class, RequireRecentPasskeyAuthentication::class],
         'passkeys' => true,
         'password_resets' => false,
         'change_password' => false,
