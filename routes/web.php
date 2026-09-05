@@ -4,6 +4,7 @@ use App\Http\Controllers\DirectoryAdminController;
 use App\Http\Controllers\LoginController;
 use App\Http\Controllers\OAuthUserController;
 use App\Http\Middleware\RequireProviderAdmin;
+use BWH\Auth\Http\Middleware\RequireActiveUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -25,6 +26,10 @@ Route::post('/logout', function (Request $request) {
 
     return redirect('/');
 })->name('logout');
+
+Route::view('/settings/passkeys', 'settings.passkeys')
+    ->middleware(['auth', RequireActiveUser::class])
+    ->name('settings.passkeys');
 
 Route::middleware(['auth', RequireProviderAdmin::class])->group(function (): void {
     Route::view('/admin/users', 'admin.users')->name('admin.users');

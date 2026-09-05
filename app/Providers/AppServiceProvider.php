@@ -46,6 +46,7 @@ class AppServiceProvider extends ServiceProvider
                     EnsureCredentialVersion::SESSION_KEY,
                     (int) $event->user->credential_version,
                 );
+
             }
         });
 

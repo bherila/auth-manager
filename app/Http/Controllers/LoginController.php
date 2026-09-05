@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\RequireRecentPasskeyAuthentication;
 use App\Models\User;
 use BWH\Auth\Concerns\LogsAuthEvents;
 use BWH\Auth\Contracts\LoginThrottle;
@@ -42,6 +43,7 @@ class LoginController extends Controller
             }
 
             $request->session()->regenerate();
+            RequireRecentPasskeyAuthentication::recordCredentialVerification($request);
             $this->auditLoginSucceeded($request, $user, 'password');
 
             return redirect()->intended('/');
