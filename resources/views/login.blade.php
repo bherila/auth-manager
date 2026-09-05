@@ -1,127 +1,153 @@
 @extends('layouts.app')
 
+@section('title', 'Sign in')
+
 @push('head')
     <meta name="robots" content="noindex, nofollow, noarchive" />
 @endpush
 
+{{-- DOM contract shared with resources/js/auth/login-dom.ts. The React islands
+     enhance this server-rendered page and only ever touch the ids below:
+
+       password-login       wrapper hidden while the emailed-code step is shown
+       password-login-form  native POST /login form; submitting aborts passkey autofill
+       email / password / remember   the inputs every sign-in method reads
+       password-toggle      show/hide password button, hidden until JS runs
+       forgot-password      "Forgot password?" button, hidden until JS runs
+       login-error          server-side error block referenced by aria-describedby
+       passkey-login-mount / email-code-login-mount   React roots
+
+     The password form must keep working with JavaScript disabled. --}}
+
 @section('content')
-    <div class="mx-auto max-w-md px-4 py-12">
-        <div class="bg-card text-card-foreground border-border rounded-lg border p-6 shadow-md">
-            <h1 class="mb-2 text-2xl font-bold">Sign In</h1>
-            <p class="text-muted-foreground mb-6 text-sm">
-                Use a passkey or an emailed sign-in code — no password needed.
-            </p>
+    <main class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-10 sm:px-6">
+        <p class="text-muted-foreground mb-3 text-center text-sm font-medium">{{ config('app.name') }}</p>
 
-            {{-- Passkey login (primary).
+        <div class="bg-card text-card-foreground border-border rounded-xl border p-6 shadow-sm sm:p-8">
+            <h1 class="text-2xl font-semibold tracking-tight">Sign in</h1>
+            <p class="text-muted-foreground mt-1 text-sm">Use a passkey, or your email and password.</p>
 
-                 The placeholder is sized to match what mounts here. The bundle is deferred to
-                 the end of the document, so an empty container would paint at zero height and
-                 then shove the rest of the card down once it hydrates. It is aria-hidden
-                 because it conveys nothing; the real control replaces it entirely. --}}
-            <div id="passkey-login-mount">
-                <div class="bg-muted h-10 w-full animate-pulse rounded-md" aria-hidden="true"></div>
+            {{-- Passkey (React island). The placeholder matches the mounted button's
+                 height so the card does not jump when the bundle hydrates. --}}
+            <div id="passkey-login-mount" class="mt-6">
+                <div class="bg-muted h-10 w-full rounded-md motion-safe:animate-pulse" aria-hidden="true"></div>
             </div>
 
-            {{-- Passwordless email code (primary) --}}
-            <div class="mt-6">
-                <div class="relative mb-4">
-                    <div class="absolute inset-0 flex items-center">
-                        <div class="border-border w-full border-t"></div>
-                    </div>
-                    <div class="relative flex justify-center text-sm">
-                        <span class="bg-card text-muted-foreground px-2">OR</span>
-                    </div>
-                </div>
-                <div id="passwordless-login-mount">
-                    <div class="space-y-3" aria-hidden="true">
-                        <div class="bg-muted h-4 w-24 animate-pulse rounded"></div>
-                        <div class="bg-muted h-10 w-full animate-pulse rounded-md"></div>
-                        <div class="bg-muted h-10 w-full animate-pulse rounded-md"></div>
-                    </div>
-                </div>
+            <div class="my-6 flex items-center gap-3" aria-hidden="true">
+                <hr class="border-border flex-1" />
+                <span class="text-muted-foreground text-xs font-medium tracking-wide uppercase">or</span>
+                <hr class="border-border flex-1" />
             </div>
 
-            @if ($errors->has('email'))
-                <p class="text-destructive mt-4 text-sm">{{ $errors->first('email') }}</p>
-            @endif
+            @php
+                $hasError = $errors->has('email');
+                $emailPrefilled = old('email', '') !== '';
+            @endphp
 
-            {{-- Password login (de-emphasized fallback) --}}
-            <details class="group mt-6" {{ $errors->any() ? 'open' : '' }}>
-                <summary class="text-muted-foreground hover:text-foreground cursor-pointer text-sm select-none">
-                    Sign in with a password instead
-                </summary>
-                <form method="POST" action="/login" class="mt-4 space-y-4">
+            <div id="password-login">
+                @if ($hasError)
+                    <div
+                        id="login-error"
+                        role="alert"
+                        class="border-destructive/40 bg-destructive/10 text-destructive mb-4 rounded-md border px-3 py-2 text-sm"
+                    >
+                        {{ $errors->first('email') }}
+                    </div>
+                @endif
+
+                <form id="password-login-form" method="POST" action="/login" class="space-y-4">
                     @csrf
 
-                    <div>
-                        <label for="email" class="text-foreground mb-1 block text-sm font-semibold">Email</label>
-                        <input
+                    <div class="space-y-2">
+                        <x-ui.label for="email">Email</x-ui.label>
+                        <x-ui.input
                             type="email"
                             id="email"
                             name="email"
-                            value="{{ old('email') }}"
+                            :value="old('email')"
                             required
-                            class="bg-muted border-input text-foreground placeholder:text-muted-foreground focus:ring-ring focus:border-ring block w-full rounded-md border px-3 py-2 transition-colors focus:ring-2 focus:outline-none"
+                            autocomplete="username webauthn"
+                            inputmode="email"
+                            autocapitalize="none"
+                            spellcheck="false"
+                            :autofocus="! $emailPrefilled"
+                            :aria-invalid="$hasError ? 'true' : null"
+                            :aria-describedby="$hasError ? 'login-error' : null"
                         />
                     </div>
 
-                    <div>
-                        <label for="password" class="text-foreground mb-1 block text-sm font-semibold">Password</label>
-                        <input
-                            type="password"
-                            id="password"
-                            name="password"
-                            required
-                            class="bg-muted border-input text-foreground placeholder:text-muted-foreground focus:ring-ring focus:border-ring block w-full rounded-md border px-3 py-2 transition-colors focus:ring-2 focus:outline-none"
-                        />
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <x-ui.label for="password">Password</x-ui.label>
+                            <x-ui.button id="forgot-password" variant="link" size="sm" class="h-auto px-0" hidden>
+                                Forgot password?
+                            </x-ui.button>
+                        </div>
+                        <div class="relative">
+                            <x-ui.input
+                                type="password"
+                                id="password"
+                                name="password"
+                                required
+                                autocomplete="current-password"
+                                class="pr-16"
+                                :autofocus="$emailPrefilled"
+                                :aria-invalid="$hasError ? 'true' : null"
+                                :aria-describedby="$hasError ? 'login-error' : null"
+                            />
+                            <x-ui.button
+                                id="password-toggle"
+                                variant="ghost"
+                                size="sm"
+                                class="absolute inset-y-0 right-1 my-auto h-7 px-2 text-xs"
+                                aria-controls="password"
+                                aria-pressed="false"
+                                aria-label="Show password"
+                                hidden
+                            >
+                                Show
+                            </x-ui.button>
+                        </div>
                     </div>
 
-                    <div class="flex items-center">
+                    <label for="remember" class="flex min-h-6 cursor-pointer items-center gap-2 text-sm">
                         <input
                             type="checkbox"
                             id="remember"
                             name="remember"
-                            class="border-input focus:ring-ring h-4 w-4 rounded text-blue-600"
+                            value="1"
+                            @checked(old('remember'))
+                            class="border-input accent-primary size-4 rounded"
                         />
-                        <label for="remember" class="text-foreground ml-2 block text-sm">Keep me logged in</label>
-                    </div>
+                        Keep me signed in
+                    </label>
 
-                    <button
-                        type="submit"
-                        class="bg-muted text-foreground border-input hover:bg-muted/80 focus:ring-ring w-full cursor-pointer rounded-md border px-4 py-2 font-medium transition-colors focus:ring-2 focus:outline-none"
-                    >
-                        Sign In with Password
-                    </button>
+                    <x-ui.button type="submit" size="lg" class="w-full">Sign in</x-ui.button>
                 </form>
-            </details>
+            </div>
 
-            {{-- Dev login section (local environment only) --}}
+            {{-- Emailed sign-in code (React island). Mounted outside #password-login so it
+                 stays visible while that section is hidden during the code step. --}}
+            <div id="email-code-login-mount" class="mt-3">
+                <div class="bg-muted h-10 w-full rounded-md motion-safe:animate-pulse" aria-hidden="true"></div>
+            </div>
+
             @if (app()->environment('local'))
-                <div class="mt-4">
-                    <div class="relative mb-4">
-                        <div class="absolute inset-0 flex items-center">
-                            <div class="border-border w-full border-t"></div>
-                        </div>
-                        <div class="relative flex justify-center text-sm">
-                            <span class="bg-card text-muted-foreground px-2">DEV</span>
-                        </div>
-                    </div>
-                    <form method="POST" action="{{ route('login.dev.by-id') }}">
+                <section aria-labelledby="dev-login-heading" class="border-border mt-6 border-t pt-4">
+                    <h2 id="dev-login-heading" class="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                        Development only
+                    </h2>
+                    <form method="POST" action="{{ route('login.dev.by-id') }}" class="mt-2">
                         @csrf
                         <input type="hidden" name="user_id" value="1" />
-                        <button
-                            type="submit"
-                            class="w-full cursor-pointer rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                        >
-                            Dev Login as UID=1
-                        </button>
+                        <x-ui.button type="submit" variant="secondary" class="w-full">Sign in as user #1 (dev)</x-ui.button>
                     </form>
-                </div>
+                </section>
             @endif
         </div>
-    </div>
+    </main>
 @endsection
 
 @push('scripts')
-    @vite(['resources/js/login-passkey.tsx'])
+    @vite(['resources/js/login.tsx'])
 @endpush

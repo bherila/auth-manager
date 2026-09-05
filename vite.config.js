@@ -9,7 +9,7 @@ export default defineConfig({
             input: [
                 'resources/css/app.css',
                 'resources/js/app.js',
-                'resources/js/login-passkey.tsx',
+                'resources/js/login.tsx',
                 'resources/js/admin-directory.tsx',
                 'resources/js/passkey-management.tsx',
             ],
