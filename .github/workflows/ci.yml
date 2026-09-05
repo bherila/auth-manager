@@ -208,3 +208,147 @@ jobs:
         run: |
           curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
             https://id.bherila.net/up > /dev/null
+
+  deploy_resource:
+    name: Deploy resource profile to web1
+    needs: ci
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
+    runs-on: ubuntu-24.04-arm
+    environment: resource-web1
+    permissions:
+      contents: read
+    env:
+      DEPLOY_PROFILE: ${{ vars.AUTH_MANAGER_PROFILE }}
+      DEPLOY_SITE_URL: ${{ vars.SITE_URL }}
+
+    steps:
+      - name: Validate deployment profile and route
+        run: |
+          test "$DEPLOY_PROFILE" = 'resource'
+          test -n "$DEPLOY_SITE_URL"
+          test "${DEPLOY_SITE_URL#https://}" != "$DEPLOY_SITE_URL"
+          test "${DEPLOY_SITE_URL%/}" = "$DEPLOY_SITE_URL"
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Install production Composer dependencies
+        run: composer install --no-dev --no-interaction --optimize-autoloader
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: frontend-build
+          path: public/build/
+
+      - name: Append cPanel PHP handler to .htaccess
+        run: cat htaccess-append.txt >> public/.htaccess
+
+      - name: Set up pinned SSH credentials
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ecdsa
+          chmod 600 ~/.ssh/id_ecdsa
+          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Apply backward-compatible database migrations
+        run: |
+          rsync -av \
+            -e "ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes" \
+            database/migrations/ \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/auth-manager/database/migrations/
+          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "set -eu; \
+             test -f ~/.config/auth-manager/deployment.env; \
+             test -f ~/.config/auth-manager/database.env; \
+             grep -Fqx 'AUTH_MANAGER_PROFILE=resource' ~/.config/auth-manager/deployment.env; \
+             install -m 600 ~/.config/auth-manager/deployment.env ~/auth-manager/.env; \
+             install -m 600 ~/.config/auth-manager/database.env ~/auth-manager/.db-credentials; \
+             cd ~/auth-manager; \
+             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear; \
+             /opt/cpanel/ea-php85/root/usr/bin/php artisan migrate --force"
+
+      # The destination stays literal so a missing environment value can never widen the
+      # destructive rsync target to the account home or another application directory.
+      - name: Deploy application with guarded rsync
+        run: |
+          rsync -av --delete \
+            --exclude='.env' \
+            --exclude='.db-credentials' \
+            --exclude='/storage/app/' \
+            --exclude='/storage/logs/' \
+            --exclude='/storage/framework/sessions/' \
+            --exclude='/storage/framework/cache/' \
+            -e "ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes" \
+            app \
+            bootstrap \
+            config \
+            database \
+            public \
+            resources \
+            routes \
+            storage \
+            vendor \
+            artisan \
+            composer.json \
+            composer.lock \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/auth-manager/
+
+      - name: Create or verify persistent OAuth signing keys
+        run: |
+          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "cd ~/auth-manager && \
+             install -d -m 700 storage/app/private/oauth && \
+             if [ -s storage/app/private/oauth/oauth-private.key ] && [ -s storage/app/private/oauth/oauth-public.key ]; then \
+               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
+             elif [ ! -e storage/app/private/oauth/oauth-private.key ] && [ ! -e storage/app/private/oauth/oauth-public.key ]; then \
+               /opt/cpanel/ea-php85/root/usr/bin/php artisan passport:keys --force && \
+               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
+             else \
+               echo 'OAuth signing key pair is incomplete; refusing to rotate it automatically.' >&2; \
+               exit 1; \
+             fi"
+
+      - name: Install private configuration and refresh config cache
+        run: |
+          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "set -eu; \
+             test -f ~/.config/auth-manager/deployment.env; \
+             test -f ~/.config/auth-manager/database.env; \
+             grep -Fqx 'AUTH_MANAGER_PROFILE=resource' ~/.config/auth-manager/deployment.env; \
+             install -m 600 ~/.config/auth-manager/deployment.env ~/auth-manager/.env; \
+             install -m 600 ~/.config/auth-manager/database.env ~/auth-manager/.db-credentials; \
+             cd ~/auth-manager; \
+             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear; \
+             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:cache"
+
+      - name: Install and verify Laravel scheduler cron
+        run: |
+          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} 'bash -s' <<'REMOTE'
+            set -eu
+            existing="$(crontab -l 2>/dev/null || true)"
+            scheduler_line='* * * * * cd "$HOME/auth-manager" && /opt/cpanel/ea-php85/root/usr/bin/php artisan schedule:run > /dev/null 2>&1'
+            if ! printf '%s\n' "$existing" | grep -Fqx "$scheduler_line"; then
+              { printf '%s\n' "$existing"; printf '%s\n' "$scheduler_line"; } | crontab -
+            fi
+            crontab -l | grep -Fqx "$scheduler_line"
+          REMOTE
+
+      - name: Verify public health
+        run: |
+          curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
+            "$DEPLOY_SITE_URL/up" > /dev/null
