@@ -17,6 +17,9 @@ interface AutofillHandlers {
  */
 let controller: AbortController | null = null;
 let lastHandlers: AutofillHandlers | null = null;
+// Bumped by every abort so a start still awaiting the support check can be
+// invalidated before it has a controller to abort.
+let generation = 0;
 
 export function passkeysSupported(): boolean {
   return typeof window !== 'undefined' && typeof window.PublicKeyCredential !== 'undefined';
@@ -25,9 +28,11 @@ export function passkeysSupported(): boolean {
 export async function startPasskeyAutofill(handlers: AutofillHandlers): Promise<void> {
   lastHandlers = handlers;
   if (!passkeysSupported() || controller !== null) return;
+  const startedIn = generation;
   if (!(await isConditionalMediationAvailable())) return;
-  // The availability check is async; another start may have won meanwhile.
-  if (controller !== null) return;
+  // The availability check is async: an abort (the button was clicked, a form
+  // was submitted) or a competing start may have happened meanwhile.
+  if (startedIn !== generation || controller !== null) return;
 
   const own = new AbortController();
   controller = own;
@@ -51,6 +56,7 @@ export async function startPasskeyAutofill(handlers: AutofillHandlers): Promise<
 }
 
 export function abortPasskeyAutofill(): void {
+  generation += 1;
   controller?.abort();
   controller = null;
 }

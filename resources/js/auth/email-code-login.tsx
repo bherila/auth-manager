@@ -48,11 +48,15 @@ export function EmailCodeLogin(): React.JSX.Element {
   const [attemptToken, setAttemptToken] = useState('');
   const [code, setCode] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [cooldown, setCooldown] = useState(0);
   const codeInputRef = useRef<HTMLInputElement>(null);
+  // Bumped when leaving the code step so a verify or resend response that
+  // arrives afterwards is ignored instead of redirecting or writing a stale error.
+  const codeSessionRef = useRef(0);
 
   const clearEmailFieldError = useCallback((field: HTMLInputElement) => {
     field.removeAttribute('aria-invalid');
@@ -131,13 +135,16 @@ export function EmailCodeLogin(): React.JSX.Element {
     setError(null);
     setStatus('');
     setVerifying(true);
+    const session = codeSessionRef.current;
     try {
       const result = (await fetchWrapper.post('/api/auth/two-factor/verify', {
         attempt_token: attemptToken,
         code,
       })) as VerifyResponse;
+      if (session !== codeSessionRef.current) return;
       window.location.assign(result.redirect || '/');
     } catch (caught) {
+      if (session !== codeSessionRef.current) return;
       const message = mapCodeError(caught);
       setError(message);
       if (message === CODE_LOCKED_MESSAGE) setLocked(true);
@@ -151,10 +158,14 @@ export function EmailCodeLogin(): React.JSX.Element {
   // for the empty token unknown addresses receive, which would reveal whether
   // an account exists. Re-requesting is always 200 and rotates the token.
   async function resend(): Promise<void> {
+    if (resending) return;
     setError(null);
     setStatus('');
+    setResending(true);
+    const session = codeSessionRef.current;
     try {
       const token = await requestSignInCode(email, remember);
+      if (session !== codeSessionRef.current) return;
       setAttemptToken(token);
       setCode('');
       setLocked(false);
@@ -162,11 +173,17 @@ export function EmailCodeLogin(): React.JSX.Element {
       setStatus('We sent a new code.');
       codeInputRef.current?.focus();
     } catch (caught) {
+      if (session !== codeSessionRef.current) return;
       setError(mapCodeError(caught));
+    } finally {
+      if (session === codeSessionRef.current) setResending(false);
     }
   }
 
   function back(): void {
+    codeSessionRef.current += 1;
+    setVerifying(false);
+    setResending(false);
     setStep('idle');
     setError(null);
     setStatus('');
@@ -247,10 +264,16 @@ export function EmailCodeLogin(): React.JSX.Element {
       </p>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <Button type="button" variant="outline" onClick={() => void resend()} disabled={cooldown > 0}>
-          {cooldown > 0 ? `Send a new code (${cooldown}s)` : 'Send a new code'}
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void resend()}
+          disabled={cooldown > 0 || resending || verifying}
+          aria-busy={resending}
+        >
+          {resending ? 'Sending…' : cooldown > 0 ? `Send a new code (${cooldown}s)` : 'Send a new code'}
         </Button>
-        <Button type="button" variant="link" onClick={back}>
+        <Button type="button" variant="link" onClick={back} disabled={verifying || resending}>
           Use a different email
         </Button>
       </div>
