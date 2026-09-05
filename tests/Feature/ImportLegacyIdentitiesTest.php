@@ -12,7 +12,7 @@ class ImportLegacyIdentitiesTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function configureLegacySource(): void
+    private function configureLegacySource(bool $usesAliasSchema = false, bool $withPasskeys = true): void
     {
         config([
             'database.connections.legacy_identity' => [
@@ -27,47 +27,69 @@ class ImportLegacyIdentitiesTest extends TestCase
         file_put_contents($path, '');
         DB::purge('legacy_identity');
 
-        Schema::connection('legacy_identity')->create('users', function ($table): void {
+        Schema::connection('legacy_identity')->create('users', function ($table) use ($usesAliasSchema): void {
             $table->id();
-            $table->string('name');
+            $table->string($usesAliasSchema ? 'alias' : 'name');
             $table->string('email');
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
-            $table->string('user_role')->default('user');
+            if ($usesAliasSchema) {
+                $table->boolean('is_admin')->default(false);
+            } else {
+                $table->string('user_role')->default('user');
+            }
             $table->string('remember_token')->nullable();
-            $table->dateTime('last_login_date')->nullable();
+            $table->dateTime($usesAliasSchema ? 'last_login_at' : 'last_login_date')->nullable();
             $table->timestamps();
         });
 
-        Schema::connection('legacy_identity')->create('webauthn_credentials', function ($table): void {
-            $table->id();
-            $table->unsignedBigInteger('user_id');
-            $table->string('credential_id', 1024);
-            $table->string('credential_id_hash')->nullable();
-            $table->text('public_key');
-            $table->unsignedBigInteger('counter')->default(0);
-            $table->string('aaguid')->nullable();
-            $table->string('name')->default('Passkey');
-            $table->text('transports')->nullable();
-            $table->timestamp('last_used_at')->nullable();
-            $table->timestamps();
-        });
+        if ($withPasskeys) {
+            Schema::connection('legacy_identity')->create('webauthn_credentials', function ($table): void {
+                $table->id();
+                $table->unsignedBigInteger('user_id');
+                $table->string('credential_id', 1024);
+                $table->string('credential_id_hash')->nullable();
+                $table->text('public_key');
+                $table->unsignedBigInteger('counter')->default(0);
+                $table->string('aaguid')->nullable();
+                $table->string('name')->default('Passkey');
+                $table->text('transports')->nullable();
+                $table->timestamp('last_used_at')->nullable();
+                $table->timestamps();
+            });
+        }
     }
 
     private function seedLegacyUser(
         int $id,
-        string $email = 'person@example.com',
+        string $email = 'person@example.test',
         string $role = 'user',
+        bool $usesAliasSchema = false,
+        bool $isAdmin = false,
+        string $password = 'hashed-secret',
     ): void {
-        DB::connection('legacy_identity')->table('users')->insert([
+        $attributes = [
             'id' => $id,
-            'name' => 'Person',
             'email' => $email,
-            'password' => 'hashed-secret',
-            'user_role' => $role,
+            'password' => $password,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
+
+        if ($usesAliasSchema) {
+            $attributes += [
+                'alias' => 'Synthetic Alias',
+                'is_admin' => $isAdmin,
+                'last_login_at' => now()->subDay(),
+            ];
+        } else {
+            $attributes += [
+                'name' => 'Synthetic Person',
+                'user_role' => $role,
+            ];
+        }
+
+        DB::connection('legacy_identity')->table('users')->insert($attributes);
     }
 
     public function test_it_refuses_to_run_without_a_configured_source(): void
@@ -87,6 +109,23 @@ class ImportLegacyIdentitiesTest extends TestCase
         $this->artisan('identity:import-legacy')->assertFailed();
     }
 
+    public function test_it_reports_an_unreachable_source_as_an_availability_failure(): void
+    {
+        config([
+            'database.connections.legacy_identity' => [
+                'driver' => 'sqlite',
+                'database' => storage_path('framework/testing/missing-'.Str::uuid().'.sqlite'),
+                'prefix' => '',
+            ],
+        ]);
+        DB::purge('legacy_identity');
+
+        $this->artisan('identity:import-legacy')
+            ->expectsOutputToContain('The configured legacy identity source cannot be reached safely.')
+            ->doesntExpectOutputToContain('unsupported schema')
+            ->assertFailed();
+    }
+
     public function test_a_dry_run_writes_nothing(): void
     {
         $this->configureLegacySource();
@@ -104,7 +143,86 @@ class ImportLegacyIdentitiesTest extends TestCase
 
         $this->artisan('identity:import-legacy --apply')->assertSuccessful();
 
-        $this->assertDatabaseHas('users', ['id' => 42, 'email' => 'person@example.com']);
+        $this->assertDatabaseHas('users', ['id' => 42, 'email' => 'person@example.test']);
+    }
+
+    public function test_it_maps_supported_legacy_aliases_and_skips_an_absent_passkey_table(): void
+    {
+        $this->configureLegacySource(usesAliasSchema: true, withPasskeys: false);
+        $this->seedLegacyUser(42, usesAliasSchema: true, isAdmin: true);
+        $this->seedLegacyUser(43, 'second@example.test', usesAliasSchema: true);
+
+        $this->artisan('identity:import-legacy --apply')
+            ->expectsOutputToContain('The legacy source has no passkey table; skipping passkeys.')
+            ->expectsOutputToContain('users     created 2, updated 0, unchanged 0, skipped 0')
+            ->expectsOutputToContain('passkeys  created 0, updated 0, unchanged 0, skipped 0')
+            ->assertSuccessful();
+
+        $administrator = DB::table('users')->where('id', 42)->first();
+        $user = DB::table('users')->where('id', 43)->first();
+
+        $this->assertSame('Synthetic Alias', $administrator->name);
+        $this->assertSame('admin', $administrator->user_role);
+        $this->assertSame('user', $user->user_role);
+        $this->assertNotNull($user->last_login_date);
+        $this->assertDatabaseCount('webauthn_credentials', 0);
+    }
+
+    public function test_an_alias_schema_dry_run_completes_without_a_passkey_table_or_target_writes(): void
+    {
+        $this->configureLegacySource(usesAliasSchema: true, withPasskeys: false);
+        $this->seedLegacyUser(42, usesAliasSchema: true);
+
+        $this->artisan('identity:import-legacy')
+            ->expectsOutputToContain('Dry run. Nothing will be written. Pass --apply to commit.')
+            ->expectsOutputToContain('The legacy source has no passkey table; skipping passkeys.')
+            ->expectsOutputToContain('users     created 1, updated 0, unchanged 0, skipped 0')
+            ->expectsOutputToContain('passkeys  created 0, updated 0, unchanged 0, skipped 0')
+            ->assertSuccessful();
+
+        $this->assertDatabaseCount('users', 0);
+        $this->assertDatabaseCount('webauthn_credentials', 0);
+    }
+
+    public function test_it_skips_a_legacy_user_without_a_password_credential(): void
+    {
+        $this->configureLegacySource();
+        $this->seedLegacyUser(42, password: '');
+
+        $this->artisan('identity:import-legacy --apply --only=users')
+            ->expectsOutputToContain('A legacy user record was skipped because it has no usable password credential.')
+            ->expectsOutputToContain('users     created 0, updated 0, unchanged 0, skipped 1')
+            ->assertSuccessful();
+
+        $this->assertDatabaseCount('users', 0);
+    }
+
+    public function test_it_skips_a_legacy_user_without_an_email_address(): void
+    {
+        $this->configureLegacySource();
+        $this->seedLegacyUser(42, email: '');
+
+        $this->artisan('identity:import-legacy --apply --only=users')
+            ->expectsOutputToContain('A legacy user record was skipped because it has no usable email address.')
+            ->expectsOutputToContain('users     created 0, updated 0, unchanged 0, skipped 1')
+            ->assertSuccessful();
+
+        $this->assertDatabaseCount('users', 0);
+    }
+
+    public function test_it_fails_before_writing_when_the_legacy_users_schema_is_not_supported(): void
+    {
+        $this->configureLegacySource();
+        Schema::connection('legacy_identity')->drop('users');
+        Schema::connection('legacy_identity')->create('users', function ($table): void {
+            $table->id();
+        });
+
+        $this->artisan('identity:import-legacy --apply --only=users')
+            ->expectsOutputToContain('The legacy identity source has an unsupported schema. Nothing was written.')
+            ->assertFailed();
+
+        $this->assertDatabaseCount('users', 0);
     }
 
     public function test_running_it_twice_changes_nothing_the_second_time(): void
@@ -175,12 +293,12 @@ class ImportLegacyIdentitiesTest extends TestCase
     public function test_it_skips_a_row_whose_address_belongs_to_a_different_identifier(): void
     {
         $this->configureLegacySource();
-        $this->seedLegacyUser(42, 'taken@example.com');
+        $this->seedLegacyUser(42, 'taken@example.test');
 
         DB::table('users')->insert([
             'id' => 99,
-            'name' => 'Someone else',
-            'email' => 'taken@example.com',
+            'name' => 'Synthetic Existing User',
+            'email' => 'taken@example.test',
             'password' => 'hashed-secret',
             'user_role' => 'user',
             'created_at' => now(),
@@ -190,7 +308,7 @@ class ImportLegacyIdentitiesTest extends TestCase
         $this->artisan('identity:import-legacy --apply')->assertSuccessful();
 
         $this->assertDatabaseMissing('users', ['id' => 42]);
-        $this->assertDatabaseHas('users', ['id' => 99, 'email' => 'taken@example.com']);
+        $this->assertDatabaseHas('users', ['id' => 99, 'email' => 'taken@example.test']);
     }
 
     public function test_it_never_lowers_a_passkey_signature_counter(): void
@@ -241,8 +359,8 @@ class ImportLegacyIdentitiesTest extends TestCase
         ]);
 
         $this->artisan('identity:import-legacy --apply')
-            ->expectsOutputToContain('users#42 skipped: this OAuth subject has a provider deletion tombstone.')
-            ->expectsOutputToContain('passkey#1 skipped: its owner users#42 is not present.')
+            ->expectsOutputToContain('A legacy user record was skipped because it has a provider deletion tombstone.')
+            ->expectsOutputToContain('A legacy passkey record was skipped because its owner is not present.')
             ->assertSuccessful();
 
         $this->assertDatabaseMissing('users', ['id' => 42]);
