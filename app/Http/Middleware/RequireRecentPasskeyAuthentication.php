@@ -35,7 +35,7 @@ final class RequireRecentPasskeyAuthentication
         $response = $next($request);
 
         if ($this->completedJsonCredentialVerification($request, $response)) {
-            $request->session()->put(self::SESSION_KEY, now()->getTimestamp());
+            self::recordCredentialVerification($request);
         }
 
         return $response;
@@ -51,11 +51,35 @@ final class RequireRecentPasskeyAuthentication
         return $request->isMethod('DELETE') && $request->is('api/passkeys/*');
     }
 
+    public static function recordCredentialVerification(Request $request): void
+    {
+        $user = $request->user();
+
+        if ($user === null) {
+            return;
+        }
+
+        $request->session()->put(self::SESSION_KEY, [
+            'user_id' => (string) $user->getAuthIdentifier(),
+            'authenticated_at' => now()->getTimestamp(),
+        ]);
+    }
+
     private function hasFreshAuthentication(Request $request): bool
     {
-        $authenticatedAt = $request->session()->get(self::SESSION_KEY);
+        $authentication = $request->session()->get(self::SESSION_KEY);
+        $user = $request->user();
 
-        if (! is_int($authenticatedAt) && ! (is_string($authenticatedAt) && ctype_digit($authenticatedAt))) {
+        if (! is_array($authentication) || $user === null) {
+            return false;
+        }
+
+        $authenticatedUserId = $authentication['user_id'] ?? null;
+        $authenticatedAt = $authentication['authenticated_at'] ?? null;
+
+        if ((! is_int($authenticatedAt) && ! (is_string($authenticatedAt) && ctype_digit($authenticatedAt)))
+            || ! is_string($authenticatedUserId)
+            || ! hash_equals((string) $user->getAuthIdentifier(), $authenticatedUserId)) {
             return false;
         }
 

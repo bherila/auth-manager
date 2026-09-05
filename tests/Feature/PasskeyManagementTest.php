@@ -55,13 +55,29 @@ class PasskeyManagementTest extends TestCase
             ->assertJsonPath('message', 'Please sign in again before managing passkeys.');
 
         $this->withSession([
-            RequireRecentPasskeyAuthentication::SESSION_KEY => now()->subMinutes(11)->getTimestamp(),
+            RequireRecentPasskeyAuthentication::SESSION_KEY => [
+                'user_id' => (string) $user->getAuthIdentifier(),
+                'authenticated_at' => now()->subMinutes(11)->getTimestamp(),
+            ],
         ])->actingAs($user)
             ->postJson('/api/passkeys/register/options')
             ->assertForbidden();
 
         $this->withSession([
-            RequireRecentPasskeyAuthentication::SESSION_KEY => now()->addSecond()->getTimestamp(),
+            RequireRecentPasskeyAuthentication::SESSION_KEY => [
+                'user_id' => (string) $user->getAuthIdentifier(),
+                'authenticated_at' => now()->addSecond()->getTimestamp(),
+            ],
+        ])->actingAs($user)
+            ->postJson('/api/passkeys/register/options')
+            ->assertForbidden();
+
+        $otherUser = User::factory()->create(['user_role' => 'user']);
+        $this->withSession([
+            RequireRecentPasskeyAuthentication::SESSION_KEY => [
+                'user_id' => (string) $otherUser->getAuthIdentifier(),
+                'authenticated_at' => now()->getTimestamp(),
+            ],
         ])->actingAs($user)
             ->postJson('/api/passkeys/register/options')
             ->assertForbidden();
@@ -79,10 +95,11 @@ class PasskeyManagementTest extends TestCase
             'password' => 'synthetic-password',
         ])->assertRedirect('/');
 
-        $authenticatedAt = session(RequireRecentPasskeyAuthentication::SESSION_KEY);
-        $this->assertIsInt($authenticatedAt);
-        $this->assertGreaterThanOrEqual(now()->subSecond()->getTimestamp(), $authenticatedAt);
-        $this->assertLessThanOrEqual(now()->getTimestamp(), $authenticatedAt);
+        $authentication = session(RequireRecentPasskeyAuthentication::SESSION_KEY);
+        $this->assertSame((string) $user->getAuthIdentifier(), $authentication['user_id']);
+        $this->assertIsInt($authentication['authenticated_at']);
+        $this->assertGreaterThanOrEqual(now()->subSecond()->getTimestamp(), $authentication['authenticated_at']);
+        $this->assertLessThanOrEqual(now()->getTimestamp(), $authentication['authenticated_at']);
 
         $this->postJson('/api/passkeys/register/options')
             ->assertOk()
@@ -101,7 +118,9 @@ class PasskeyManagementTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true);
 
-        $this->assertIsInt(session(RequireRecentPasskeyAuthentication::SESSION_KEY));
+        $authentication = session(RequireRecentPasskeyAuthentication::SESSION_KEY);
+        $this->assertSame((string) $user->getAuthIdentifier(), $authentication['user_id']);
+        $this->assertIsInt($authentication['authenticated_at']);
 
         $this->postJson('/api/passkeys/register/options')
             ->assertOk()

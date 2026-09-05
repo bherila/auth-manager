@@ -43,7 +43,7 @@ class LoginController extends Controller
             }
 
             $request->session()->regenerate();
-            $request->session()->put(RequireRecentPasskeyAuthentication::SESSION_KEY, now()->getTimestamp());
+            RequireRecentPasskeyAuthentication::recordCredentialVerification($request);
             $this->auditLoginSucceeded($request, $user, 'password');
 
             return redirect()->intended('/');
