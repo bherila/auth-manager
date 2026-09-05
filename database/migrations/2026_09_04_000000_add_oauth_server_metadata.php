@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Schema\Builder;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -35,10 +36,23 @@ return new class extends Migration
     /** @param callable(Blueprint): void $definition */
     private function addColumn(string $tableName, string $column, callable $definition): void
     {
-        if (! Schema::hasTable($tableName) || Schema::hasColumn($tableName, $column)) {
+        $schema = $this->schema();
+
+        if (! $schema->hasTable($tableName) || $schema->hasColumn($tableName, $column)) {
             return;
         }
 
-        Schema::table($tableName, $definition);
+        $schema->table($tableName, $definition);
+    }
+
+    /** Keep metadata beside Passport's OAuth tables when it uses a separate database. */
+    public function getConnection(): ?string
+    {
+        return $this->connection ?? config('passport.connection');
+    }
+
+    private function schema(): Builder
+    {
+        return Schema::connection($this->getConnection());
     }
 };
