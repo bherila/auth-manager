@@ -75,7 +75,7 @@ class ResourceOAuthTest extends TestCase
         $this->assertTrue(config('auth-manager.oauth_server'));
         $this->assertTrue(config('bherila-auth.routes.enabled'));
         $this->assertTrue(config('bherila-auth.oauth_server.enabled'));
-        $this->assertSame(['mcp:use', 'offers:read'], array_keys(config('auth-manager.scopes')));
+        $this->assertSame(['identity:read', 'mcp:use', 'offers:read'], array_keys(config('auth-manager.scopes')));
         $this->assertSame(self::RESOURCE, config('auth-manager.resource'));
         $this->assertNotNull(Route::getRoutes()->getByName('oauth.metadata.authorization-server'));
         $this->assertNull(Route::getRoutes()->getByName('oauth.metadata.protected-resource'));
