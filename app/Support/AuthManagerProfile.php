@@ -30,6 +30,11 @@ enum AuthManagerProfile: string
         return match ($this) {
             self::Bherila => ['identity:read' => 'Read your account identity'],
             self::ResourceServer => [
+                // A resource deployment still signs people in to its relying applications,
+                // so it needs the identity scope as well as the protected-resource ones.
+                // Only the latter are resource-bound: a browser sign-in sends no RFC 8707
+                // resource parameter, so requiring one here would make web login impossible.
+                'identity:read' => 'Read your account identity',
                 'mcp:use' => 'Use the protected MCP service',
                 'offers:read' => 'Read protected offer data',
             ],

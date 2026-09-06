@@ -30,12 +30,19 @@ class AuthManagerProfileTest extends TestCase
         }
     }
 
-    public function test_profiles_have_disjoint_scope_and_resource_policy(): void
+    public function test_profiles_share_the_identity_scope_but_not_resource_policy(): void
     {
         $this->assertSame(['identity:read'], array_keys(AuthManagerProfile::Bherila->scopes()));
         $this->assertSame([], AuthManagerProfile::Bherila->resourceRequiredScopes());
-        $this->assertSame(['mcp:use', 'offers:read'], array_keys(AuthManagerProfile::ResourceServer->scopes()));
+        $this->assertSame(
+            ['identity:read', 'mcp:use', 'offers:read'],
+            array_keys(AuthManagerProfile::ResourceServer->scopes()),
+        );
         $this->assertSame(['mcp:use', 'offers:read'], AuthManagerProfile::ResourceServer->resourceRequiredScopes());
+
+        // The point of sharing the scope is browser sign-in, which sends no RFC 8707
+        // resource parameter. Binding it to a resource would reintroduce invalid_target.
+        $this->assertNotContains('identity:read', AuthManagerProfile::ResourceServer->resourceRequiredScopes());
         $this->assertNull(AuthManagerProfile::ResourceServer->defaultIssuer());
         $this->assertNull(AuthManagerProfile::ResourceServer->defaultResource());
     }
