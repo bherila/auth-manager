@@ -96,13 +96,7 @@ class GrantAwareAccessTokenRepository extends ResourceAccessTokenRepository
                 throw OAuthServerException::accessDenied('The provider credentials changed during token issuance.');
             }
 
-            $grantExists = DB::table('oauth_client_grants')
-                ->where('subject', (string) $subject)
-                ->where('oauth_client_id', $clientId)
-                ->lockForUpdate()
-                ->exists();
-
-            if (! $grantExists) {
+            if (! $this->grants->allows((string) $subject, $clientId, lockForUpdate: true)) {
                 throw OAuthServerException::accessDenied('Application access has been removed.');
             }
 

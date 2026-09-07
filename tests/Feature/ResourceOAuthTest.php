@@ -174,7 +174,7 @@ class ResourceOAuthTest extends TestCase
 
         $this->withoutVite();
         $user = User::factory()->create(['user_role' => 'user']);
-        app(OAuthClientGrantService::class)->grant((string) $user->getKey(), (string) $client->getKey());
+        $this->assertDatabaseCount('oauth_client_grants', 0);
         $verifier = str_repeat('v', 64);
         $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
         $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
@@ -192,6 +192,34 @@ class ResourceOAuthTest extends TestCase
             ->assertSee('Only continue if you recognize and trust this application.')
             ->assertSee('This application registered automatically.')
             ->assertSee('http://127.0.0.1:39053/callback');
+
+        $authToken = session('authToken');
+        $this->assertIsString($authToken);
+        $approved = $this->actingAs($user)->post('/oauth/authorize', [
+            'auth_token' => $authToken,
+        ])->assertRedirect();
+        parse_str((string) parse_url((string) $approved->headers->get('Location'), PHP_URL_QUERY), $query);
+        $this->assertIsString($query['code'] ?? null);
+        $token = $this->postJson('/oauth/token', [
+            'grant_type' => 'authorization_code',
+            'client_id' => (string) $client->getKey(),
+            'redirect_uri' => 'http://127.0.0.1:39053/callback',
+            'code' => $query['code'],
+            'code_verifier' => $verifier,
+            'resource' => self::RESOURCE,
+        ])->assertOk();
+        $this->introspect((string) $token->json('access_token'))->assertOk()->assertJsonPath('active', true);
+        $refreshed = $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => (string) $client->getKey(),
+            'refresh_token' => $token->json('refresh_token'),
+            'resource' => self::RESOURCE,
+        ])->assertOk();
+        $this->assertDatabaseCount('oauth_client_grants', 0);
+        $this->introspect((string) $refreshed->json('access_token'))->assertOk()->assertJsonPath('active', true);
+        $user->forceFill(['disabled_at' => now()])->save();
+        $this->introspect((string) $refreshed->json('access_token'))->assertOk()->assertJsonPath('active', false);
+
     }
 
     public function test_introspection_rejects_bad_credentials_and_reports_grant_or_account_revocation(): void

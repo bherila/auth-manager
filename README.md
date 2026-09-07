@@ -19,7 +19,9 @@ does not model any application's feature vocabulary.
 
 Active provider administrators can use `/admin/users` to create people, change
 provider email addresses and passwords, disable or re-enable sign-in, and manage
-coarse OAuth client grants. They can also delete a provider identity through the
+coarse OAuth client grants. The resource profile also permits active users to
+consent to dynamically registered MCP clients without a per-installation grant;
+see [deployment profiles](docs/deployment-profiles.md). They can also delete a provider identity through the
 tombstone-and-reconcile lifecycle. Every successful mutation records the target
 and the acting provider administrator in the authentication audit log.
 

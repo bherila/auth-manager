@@ -31,9 +31,24 @@ The resource profile publishes authorization-server metadata at
 registration at `POST /oauth/register` and token introspection at
 `POST /oauth/introspect`. These endpoints are absent from the default profile.
 
-The existing provider access-grant, disabled-account, and credential-version
-checks still apply to every authorization code, access token, and refresh token.
-Removing a grant or disabling an account makes an existing credential inactive.
+On the `resource` profile, active provider users can authorize dynamically
+registered MCP clients (including Codex, ChatGPT, and Claude) without an
+administrator granting each newly registered client. Registration does not grant
+consent: these public clients still show the explicit authorization screen and
+must satisfy PKCE, registered redirects, scope, and resource checks. The resource
+application remains responsible for resolving its own account and permissions.
+
+Static OAuth clients still require explicit per-user client grants. The `bherila`
+profile retains this requirement for every client, including dynamic clients;
+the MCP onboarding policy must not widen the shared provider's other deployment.
+Disabled-account and credential-version checks apply throughout code exchange,
+access-token validation, introspection, and refresh on both profiles.
+
+Revoking a dynamic client's grant through directory administration revokes its
+existing tokens, but does not prohibit an active resource-profile user from
+consenting again. Revoke the client itself to prevent any further use of that
+registration, or disable the provider account to prevent that user's sign-in.
+Static client grant removal continues to block subsequent authorization.
 
 ## Introspection credential
 
