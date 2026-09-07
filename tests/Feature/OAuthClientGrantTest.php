@@ -241,6 +241,31 @@ class OAuthClientGrantTest extends TestCase
         $this->assertTrue($accessTokens->isAccessTokenRevoked($accessTokenId));
     }
 
+    public function test_dynamic_client_access_is_limited_to_active_users_on_the_resource_profile(): void
+    {
+        $user = User::factory()->create(['user_role' => 'user']);
+        $clientId = $this->client('Example MCP Client');
+        DB::table('oauth_clients')->where('id', $clientId)->update(['dynamically_registered_at' => now()]);
+        $grants = app(OAuthClientGrantService::class);
+        $subject = (string) $user->getKey();
+
+        config()->set('auth-manager.profile', 'bherila');
+        config()->set('auth-manager.dynamic_client_registration', true);
+        $this->assertFalse($grants->allows($subject, $clientId));
+        config()->set('auth-manager.profile', 'resource');
+        $this->assertTrue($grants->allows($subject, $clientId));
+        $this->assertFalse($grants->allows($subject, $this->client('Static Application')));
+        $this->assertFalse($grants->allows('999999', $clientId));
+        config()->set('auth-manager.dynamic_client_registration', false);
+        $this->assertFalse($grants->allows($subject, $clientId));
+        config()->set('auth-manager.dynamic_client_registration', true);
+        $user->forceFill(['disabled_at' => now()])->save();
+        $this->assertFalse($grants->allows($subject, $clientId));
+        $user->forceFill(['disabled_at' => null])->save();
+        DB::table('oauth_clients')->where('id', $clientId)->update(['revoked' => true]);
+        $this->assertFalse($grants->allows($subject, $clientId));
+    }
+
     private function client(string $name): string
     {
         $id = (string) Str::uuid();

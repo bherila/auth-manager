@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\PassportClient;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 class OAuthClientGrantService
@@ -10,6 +12,16 @@ class OAuthClientGrantService
 
     public function allows(string $subject, string $clientId): bool
     {
+        // Public MCP clients are registered before a user signs in. On the
+        // resource profile, active users may consent without an administrator
+        // pre-granting each installation. UC owns account and shop access.
+        if (config('auth-manager.profile') === 'resource'
+            && config('auth-manager.dynamic_client_registration') === true
+            && PassportClient::query()->whereKey($clientId)
+                ->where('revoked', false)->whereNotNull('dynamically_registered_at')->exists()) {
+            return User::query()->find($subject)?->canLogin() === true;
+        }
+
         return DB::table('oauth_client_grants')
             ->where('subject', $subject)
             ->where('oauth_client_id', $clientId)
