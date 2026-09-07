@@ -96,7 +96,7 @@ class GrantAwareAccessTokenRepository extends ResourceAccessTokenRepository
                 throw OAuthServerException::accessDenied('The provider credentials changed during token issuance.');
             }
 
-            if (! $this->grants->allows((string) $subject, $clientId)) {
+            if (! $this->grants->allows((string) $subject, $clientId, lockForUpdate: true)) {
                 throw OAuthServerException::accessDenied('Application access has been removed.');
             }
 

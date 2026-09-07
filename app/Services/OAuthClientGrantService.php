@@ -10,7 +10,7 @@ class OAuthClientGrantService
 {
     public function __construct(private readonly OAuthTokenRevocationService $tokens) {}
 
-    public function allows(string $subject, string $clientId): bool
+    public function allows(string $subject, string $clientId, bool $lockForUpdate = false): bool
     {
         // Public MCP clients are registered before a user signs in. On the
         // resource profile, active users may consent without an administrator
@@ -22,10 +22,15 @@ class OAuthClientGrantService
             return User::query()->find($subject)?->canLogin() === true;
         }
 
-        return DB::table('oauth_client_grants')
+        $grant = DB::table('oauth_client_grants')
             ->where('subject', $subject)
-            ->where('oauth_client_id', $clientId)
-            ->exists();
+            ->where('oauth_client_id', $clientId);
+
+        if ($lockForUpdate) {
+            $grant->lockForUpdate();
+        }
+
+        return $grant->exists();
     }
 
     public function grant(string $subject, string $clientId): bool
