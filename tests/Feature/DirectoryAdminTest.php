@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Laravel\Passport\AccessToken;
+use Laravel\Passport\ClientRepository;
 use Tests\TestCase;
 
 class DirectoryAdminTest extends TestCase
@@ -133,7 +135,15 @@ class DirectoryAdminTest extends TestCase
             'metadata' => null,
         ]);
 
-        // Check the consumer payload independently of Passport signing-key setup.
+        // Preserve the authenticated token generation while checking payload without signing-key setup.
+        $client = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Example Consumer', ['https://consumer.example.test/oauth/callback']);
+        $tokenId = 'synthetic-directory-token';
+        DB::table('oauth_access_tokens')->insert([
+            'id' => $tokenId, 'user_id' => $target->id, 'client_id' => $client->id,
+            'scopes' => '[]', 'revoked' => false, 'credential_version' => (int) $target->credential_version,
+        ]);
+        $target->withAccessToken(new AccessToken(['oauth_access_token_id' => $tokenId,
+            'oauth_client_id' => $client->id, 'oauth_user_id' => (string) $target->id]));
         $request = Request::create('/api/oauth/user');
         $request->setUserResolver(fn (): User => $target);
         $identity = app(OAuthUserController::class)($request)->getData(true);
