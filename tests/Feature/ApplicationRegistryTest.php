@@ -151,6 +151,36 @@ class ApplicationRegistryTest extends TestCase
         $this->assertDatabaseCount('registered_application_clients', 0);
     }
 
+    public function test_registry_schema_relationships_and_launch_reads_use_the_passport_connection(): void
+    {
+        $admin = User::factory()->create(['user_role' => 'admin']);
+        $client = $this->client();
+        $this->grant($admin, $client);
+        $schema = DB::selectOne("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'oauth_clients'")->sql;
+        config(['database.connections.registry_passport' => [
+            'driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => true,
+        ], 'passport.connection' => 'registry_passport', 'application-registry.launch_enabled' => true]);
+        try {
+            DB::connection('registry_passport')->statement($schema);
+            DB::connection('registry_passport')->table('oauth_clients')->insert($client->getAttributes());
+            $migration = require database_path('migrations/2026_09_08_010000_create_registered_applications.php');
+            $this->assertSame('registry_passport', $migration->getConnection());
+            $migration->up();
+            $migration->up();
+            $this->actingAs($admin)->postJson('/api/admin/applications', $this->payload([$client->id]))->assertCreated();
+            $application = RegisteredApplication::with('clients')->firstOrFail();
+            $this->assertSame([$client->id], $application->clients->modelKeys());
+            $this->assertSame(0, DB::connection('sqlite')->table('registered_applications')->count());
+            $this->assertSame(1, DB::connection('sqlite')->table('auth_audit_log')->where('event', 'application_registered')->count());
+            $this->assertCount(1, app(RelyingApplications::class)->forSubject((string) $admin->id));
+            $this->putJson('/api/admin/applications/'.$application->id, [...$this->payload([]), 'key' => null])->assertOk();
+            $this->assertSame([], $application->fresh()->clients->modelKeys());
+        } finally {
+            config(['passport.connection' => null]);
+            DB::purge('registry_passport');
+        }
+    }
+
     private function payload(array $clients = []): array
     {
         return ['key' => 'example-app', 'name' => 'Example Application', 'launch_url' => 'https://launch.example.test/start', 'enabled' => true, 'client_ids' => $clients];

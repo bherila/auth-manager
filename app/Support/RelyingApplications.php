@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /** Trusted registry launch links, with a temporary static-client navigation fallback. */
@@ -17,9 +18,9 @@ class RelyingApplications
     public function forSubject(string $subject): array
     {
         $staticClients = new StaticApplicationClients;
+        $grantedClientIds = DB::table('oauth_client_grants')->where('subject', $subject)->pluck('oauth_client_id');
         $clients = PassportClient::query()
-            ->join('oauth_client_grants', 'oauth_client_grants.oauth_client_id', '=', 'oauth_clients.id')
-            ->where('oauth_client_grants.subject', $subject)
+            ->whereIn('oauth_clients.id', $grantedClientIds)
             ->where('oauth_clients.revoked', false)
             ->orderBy('oauth_clients.name')
             ->select('oauth_clients.*')

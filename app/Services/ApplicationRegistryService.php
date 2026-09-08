@@ -18,7 +18,7 @@ class ApplicationRegistryService
     public function save(Request $request, array $attributes, ?RegisteredApplication $application = null): RegisteredApplication
     {
         try {
-            return DB::transaction(function () use ($request, $attributes, $application): RegisteredApplication {
+            return DB::connection((new RegisteredApplication)->getConnectionName())->transaction(function () use ($request, $attributes, $application): RegisteredApplication {
                 $clientIds = $attributes['client_ids'];
                 $clients = PassportClient::query()->whereKey($clientIds)->orderBy('id')->lockForUpdate()->get();
                 if ($clients->count() !== count($clientIds)

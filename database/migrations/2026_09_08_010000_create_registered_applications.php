@@ -6,10 +6,15 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    public function getConnection(): ?string
+    {
+        return $this->connection ?? config('passport.connection');
+    }
+
     public function up(): void
     {
-        if (! Schema::hasTable('registered_applications')) {
-            Schema::create('registered_applications', function (Blueprint $table): void {
+        if (! Schema::connection($this->getConnection())->hasTable('registered_applications')) {
+            Schema::connection($this->getConnection())->create('registered_applications', function (Blueprint $table): void {
                 $table->id();
                 $table->string('key', 64)->unique();
                 $table->string('name', 255);
@@ -19,8 +24,8 @@ return new class extends Migration
             });
         }
 
-        if (! Schema::hasTable('registered_application_clients')) {
-            Schema::create('registered_application_clients', function (Blueprint $table): void {
+        if (! Schema::connection($this->getConnection())->hasTable('registered_application_clients')) {
+            Schema::connection($this->getConnection())->create('registered_application_clients', function (Blueprint $table): void {
                 $table->id();
                 $table->foreignId('registered_application_id')->constrained()->cascadeOnDelete();
                 $table->uuid('oauth_client_id')->unique();
@@ -31,7 +36,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('registered_application_clients');
-        Schema::dropIfExists('registered_applications');
+        Schema::connection($this->getConnection())->dropIfExists('registered_application_clients');
+        Schema::connection($this->getConnection())->dropIfExists('registered_applications');
     }
 };

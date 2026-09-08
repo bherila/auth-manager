@@ -42,3 +42,5 @@ Application keys come from the registry and survive display-name changes.
 The instance registry does not publish application data, provision user projections,
 or authorize delegated application writes. A future delegated API integration must
 establish its own trusted destination, actor proof and application authorization.
+
+Registry tables, client mappings, and their transaction use the configured Passport connection so the mapping foreign key and relationships stay with OAuth clients. Provider audit records and existing subject grants remain on the provider database; launch reads fetch granted client IDs before querying Passport. This does not change the existing grant-table migration or make cross-database auditing a distributed transaction. Existing grant storage must already be configured compatibly before enabling registry navigation.

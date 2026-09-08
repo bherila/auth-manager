@@ -9,6 +9,11 @@ class RegisteredApplication extends Model
 {
     protected $fillable = ['key', 'name', 'launch_url', 'enabled'];
 
+    public function getConnectionName(): ?string
+    {
+        return $this->connection ?? config('passport.connection');
+    }
+
     protected function casts(): array
     {
         return ['enabled' => 'boolean'];
