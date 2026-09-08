@@ -31,3 +31,5 @@ Thumbs.db
 
 # Deployment-owned branding is supplied privately, never checked in.
 /public/branding/
+
+__pycache__/
