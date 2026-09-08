@@ -8,7 +8,9 @@ use App\Services\OAuthClientGrantService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Laravel\Passport\AccessToken;
 use Laravel\Passport\ClientRepository;
+use Laravel\Passport\TransientToken;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -98,6 +100,7 @@ class IdentityStatusTest extends TestCase
     public function test_oauth_identity_exposes_generation_but_never_disabled_identity(): void
     {
         $user = User::factory()->create(['user_role' => 'user', 'credential_version' => 3]);
+        $this->attachToken($user, 3);
         $request = Request::create('/api/oauth/user');
         $request->setUserResolver(fn (): User => $user);
         $response = app(OAuthUserController::class)($request);
@@ -121,5 +124,45 @@ class IdentityStatusTest extends TestCase
             $this->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson(['contract_version' => 1, 'active' => false]);
         }
         $this->assertSame([], $subjectQueries);
+    }
+
+    private function attachToken(User $user, int $generation): void
+    {
+        [$client] = $this->client();
+        DB::table('oauth_access_tokens')->insert([
+            'id' => 'synthetic-access-token', 'user_id' => $user->id, 'client_id' => $client->id,
+            'scopes' => '[]', 'revoked' => false, 'credential_version' => $generation,
+        ]);
+        $user->withAccessToken(new AccessToken(['oauth_access_token_id' => 'synthetic-access-token', 'oauth_client_id' => (string) $client->id, 'oauth_user_id' => (string) $user->id]));
+    }
+
+    public function test_identity_never_adopts_a_generation_newer_than_the_authenticated_token(): void
+    {
+        $user = User::factory()->create(['user_role' => 'user', 'credential_version' => 3]);
+        $this->attachToken($user, 3);
+        $request = Request::create('/api/oauth/user');
+        $request->setUserResolver(fn (): User => $user);
+        // Simulate reset after the guard authenticated the token but before the response.
+        User::whereKey($user->id)->update(['credential_version' => 4]);
+        $this->expectException(HttpException::class);
+        app(OAuthUserController::class)($request);
+    }
+
+    public function test_revoked_and_transient_tokens_cannot_supply_a_login_generation(): void
+    {
+        $user = User::factory()->create(['user_role' => 'user', 'credential_version' => 3]);
+        $this->attachToken($user, 3);
+        DB::table('oauth_access_tokens')->where('id', 'synthetic-access-token')->update(['revoked' => true]);
+        $request = Request::create('/api/oauth/user');
+        $request->setUserResolver(fn (): User => $user);
+        try {
+            app(OAuthUserController::class)($request);
+            $this->fail('A revoked credential must not establish a generation baseline.');
+        } catch (HttpException $exception) {
+            $this->assertSame(401, $exception->getStatusCode());
+        }
+        $user->withAccessToken(new TransientToken);
+        $this->expectException(HttpException::class);
+        app(OAuthUserController::class)($request);
     }
 }

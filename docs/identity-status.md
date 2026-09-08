@@ -18,7 +18,7 @@ Unknown, disabled, deleted, and ungranted subjects receive the identical success
 
 Invalid client authentication is HTTP 401; invalid request shape is HTTP 422. The existing reconciliation throttle allows 60 requests per minute and returns HTTP 429 when exhausted. Responses, including authentication, validation and throttle failures, carry `Cache-Control: private, no-store`. Do not log client credentials or returned profiles.
 
-The existing OAuth user response also includes integer `credential_version`, allowing a consumer to capture the generation when establishing its own session. Existing callers can ignore the additive field. Disabled identities cannot obtain this response.
+The existing OAuth user response also includes the authenticated bearer token's integer `credential_version`, allowing a consumer to capture the generation when establishing its own session. Existing callers can ignore the additive field. Disabled identities, revoked tokens, transient cookie sessions, and a token whose generation no longer matches the current account cannot obtain this response. A concurrent reset can never upgrade an old token into a new-generation login.
 
 ## Consumer responsibility
 
