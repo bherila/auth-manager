@@ -77,11 +77,14 @@ final class DelegatedAccessTransport
     private function audit(User $actor, string $application, string $target, string $correlation, string $outcome): void
     {
         try {
+            if ((new AuthAuditLog)->getConnection()->transactionLevel() !== 0) {
+                throw new DelegatedAccessException('audit_unavailable');
+            }
             $entry = AuthAuditLog::create([
                 'user_id' => $actor->id, 'acting_user_id' => $actor->id,
                 'event' => $outcome === 'attempt' ? 'delegated_access_update_attempt' : 'delegated_access_update_result',
                 'auth_method' => 'delegated', 'succeeded' => $outcome === 'succeeded',
-                'metadata' => ['application' => $application, 'target' => $target, 'operation' => 'update',
+                'metadata' => ['actor' => (string) $actor->id, 'application' => $application, 'target' => $target, 'operation' => 'update',
                     'outcome' => $outcome, 'correlation' => $correlation],
             ]);
             if (! $entry->exists) {

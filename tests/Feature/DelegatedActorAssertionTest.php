@@ -110,6 +110,30 @@ class DelegatedActorAssertionTest extends TestCase
         $this->refused(fn () => $this->verifier()->verify($token, 'POST', '{}'), 'replayed_actor_assertion', 401);
     }
 
+    public function test_delayed_nonce_storage_cannot_authorize_an_assertion_after_expiry(): void
+    {
+        $expires = time();
+        $store = new class($expires) implements NonceStore
+        {
+            public bool $called = false;
+
+            public function __construct(private int $expires) {}
+
+            public function consume(string $key, int $seconds): bool
+            {
+                $this->called = true;
+                while (time() < $this->expires + 5) {
+                    usleep(100000);
+                }
+
+                return true;
+            }
+        };
+        $token = $this->signed(['iat' => $expires - 60, 'exp' => $expires]);
+        $this->refused(fn () => $this->verifier($store)->verify($token, 'POST', '{}'), 'invalid_actor_assertion', 401);
+        $this->assertTrue($store->called);
+    }
+
     private function verifier(?NonceStore $nonces = null): ActorAssertionVerifier
     {
         return new ActorAssertionVerifier('https://identity.example.test', 'https://app.example.test/access', 'example-app', ['integration-v1' => $this->publicKey], $nonces ?? $this->nonceStore());

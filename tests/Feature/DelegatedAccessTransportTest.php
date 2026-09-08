@@ -14,7 +14,8 @@ use App\Services\DelegatedAccess\TransportClock;
 use BWH\Auth\Models\AuthAuditLog;
 use GuzzleHttp\Psr7\FnStream;
 use GuzzleHttp\Psr7\Utils;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request as ClientRequest;
@@ -30,8 +31,18 @@ use Tests\TestCase;
 
 class DelegatedAccessTransportTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseMigrations;
     use UsesDurableNonces;
+
+    public function runDatabaseMigrations(): void
+    {
+        // Each SQLite in-memory test owns committed state; do not wrap writes in a
+        // transaction or exercise unrelated migration down() paths during teardown.
+        $this->refreshTestDatabase();
+        $this->beforeApplicationDestroyed(function (): void {
+            RefreshDatabaseState::$migrated = false;
+        });
+    }
 
     private string $keyPath;
 
@@ -119,7 +130,7 @@ class DelegatedAccessTransportTest extends TestCase
         $this->assertSame(DB::table('reference_access_audit')->value('correlation'), $providerRecords[0]->metadata['correlation']);
         $this->assertSame($providerRecords[0]->metadata['correlation'], $providerRecords[1]->metadata['correlation']);
         $this->assertNotSame($providerRecords[0]->metadata['correlation'], $providerRecords[2]->metadata['correlation']);
-        $this->assertSame(['application', 'target', 'operation', 'outcome', 'correlation'], array_keys($providerRecords[0]->metadata));
+        $this->assertSame(['actor', 'application', 'target', 'operation', 'outcome', 'correlation'], array_keys($providerRecords[0]->metadata));
         $this->assertSame($this->actor->id, $providerRecords[0]->acting_user_id);
         $unprovisioned = $transport->send($this->request, 'example-app', ['operation' => 'read', 'subject' => 'unknown-subject']);
         $this->assertFalse($unprovisioned['provisioned']);
@@ -285,6 +296,20 @@ class DelegatedAccessTransportTest extends TestCase
         $this->assertDatabaseCount('reference_access_audit', 1);
         $this->assertDatabaseHas('auth_audit_log', ['event' => 'delegated_access_update_attempt', 'acting_user_id' => $this->actor->id]);
         $this->assertDatabaseMissing('auth_audit_log', ['event' => 'delegated_access_update_result']);
+    }
+
+    public function test_caller_transaction_cannot_erase_provider_audit_after_remote_write(): void
+    {
+        $this->fakeAdapter();
+        DB::beginTransaction();
+        try {
+            $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', $this->update('revision-initial')), 'audit_unavailable', 503);
+            Http::assertNothingSent();
+        } finally {
+            DB::rollBack();
+        }
+        $this->assertDatabaseCount('reference_access_audit', 0);
+        $this->assertDatabaseMissing('auth_audit_log', ['event' => 'delegated_access_update_attempt']);
     }
 
     private function fakeAdapter(): void
