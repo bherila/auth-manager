@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Middleware\AddSecurityHeaders;
+use App\Http\Middleware\ApplicationAccessResponse;
 use App\Http\Middleware\EnsureCredentialVersion;
+use App\Services\DelegatedAccess\DelegatedAccessException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -59,6 +61,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('web', EnsureCredentialVersion::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->render(function (DelegatedAccessException $exception, Request $request) {
+            if ($request->is('applications/*')) {
+                return ApplicationAccessResponse::failure($exception, $request);
+            }
+
+            return null;
+        });
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
