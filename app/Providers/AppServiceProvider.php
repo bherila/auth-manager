@@ -51,9 +51,12 @@ class AppServiceProvider extends ServiceProvider
             $input = $request->input('email');
             $email = hash('sha256', mb_strtolower(trim(is_string($input) ? $input : '')));
 
+            // The per-address budget is what an attacker uses to lock a specific person out of
+            // recovery, so it allows a few honest retries; Cloudflare's per-IP edge rule and the
+            // per-IP budget below (real client IPs via trusted proxies) absorb volume.
             return [
                 Limit::perMinute(10)->by('email-code-ip:'.$request->ip())->response($blocked),
-                Limit::perSecond(1, 30)->by('email-code-address:'.$email)->response($blocked),
+                Limit::perMinutes(5, 3)->by('email-code-address:'.$email)->response($blocked),
             ];
         });
 
