@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\OAuthUserController;
 use App\Http\Middleware\EnsureCredentialVersion;
 use App\Models\User;
 use App\Services\DirectoryAdminService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -104,6 +106,68 @@ class DirectoryAdminTest extends TestCase
             'event' => DirectoryAdminService::EVENT_USER_CREATED,
             'succeeded' => true,
         ]);
+    }
+
+    public function test_provider_name_edit_is_audited_and_visible_to_consumers_without_changing_authorization(): void
+    {
+        $admin = User::factory()->create(['user_role' => 'admin']);
+        $target = User::factory()->create(['name' => 'Original Display', 'user_role' => 'user']);
+        $original = $target->refresh()->getAttributes();
+        $name = str_repeat('N', 255);
+
+        $this->actingAs($admin)->patchJson("/api/admin/users/{$target->id}/name", [
+            'name' => $name,
+            'user_role' => 'admin',
+            'email' => 'unrequested@example.test',
+        ])->assertOk()->assertJsonPath('user.name', $name)->assertJsonPath('user.roles', ['user']);
+
+        $target->refresh();
+        foreach (['email', 'password', 'user_role', 'credential_version', 'remember_token'] as $attribute) {
+            $this->assertSame($original[$attribute] ?? null, $target->getAttribute($attribute));
+        }
+        $this->assertDatabaseHas('auth_audit_log', [
+            'user_id' => $target->id,
+            'acting_user_id' => $admin->id,
+            'event' => DirectoryAdminService::EVENT_NAME_CHANGED,
+            'succeeded' => true,
+            'metadata' => null,
+        ]);
+
+        // Check the consumer payload independently of Passport signing-key setup.
+        $request = Request::create('/api/oauth/user');
+        $request->setUserResolver(fn (): User => $target);
+        $identity = app(OAuthUserController::class)($request)->getData(true);
+        $this->assertSame($name, $identity['name']);
+        $this->assertSame((string) $target->id, $identity['sub']);
+    }
+
+    public function test_name_edit_requires_an_active_provider_administrator(): void
+    {
+        $target = User::factory()->create(['name' => 'Original Display']);
+        $url = "/api/admin/users/{$target->id}/name";
+        $this->patchJson($url, ['name' => 'Changed Display'])->assertUnauthorized();
+
+        foreach ([['user_role' => 'user'], ['user_role' => 'admin', 'disabled_at' => now()]] as $attributes) {
+            $actor = User::factory()->create($attributes);
+            $this->actingAs($actor)->patchJson($url, ['name' => 'Changed Display'])->assertForbidden();
+        }
+
+        $this->assertSame('Original Display', $target->fresh()->name);
+        $this->assertDatabaseMissing('auth_audit_log', ['event' => DirectoryAdminService::EVENT_NAME_CHANGED]);
+    }
+
+    public function test_name_edit_validates_input_and_does_not_audit_unchanged_values(): void
+    {
+        $admin = User::factory()->create(['user_role' => 'admin']);
+        $target = User::factory()->create(['name' => 'Original Display']);
+        $url = "/api/admin/users/{$target->id}/name";
+
+        foreach ([[], ['name' => '  '], ['name' => ['wrong type']], ['name' => str_repeat('N', 256)]] as $payload) {
+            $this->actingAs($admin)->patchJson($url, $payload)->assertUnprocessable()->assertJsonValidationErrors('name');
+        }
+        $this->actingAs($admin)->patchJson($url, ['name' => 'Original Display'])->assertOk();
+        $this->assertSame('Original Display', $target->fresh()->name);
+        $this->assertDatabaseMissing('auth_audit_log', ['event' => DirectoryAdminService::EVENT_NAME_CHANGED]);
     }
 
     public function test_disabling_a_person_preserves_grants_and_revokes_oauth_credentials(): void
