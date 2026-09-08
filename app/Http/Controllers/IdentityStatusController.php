@@ -24,6 +24,14 @@ final class IdentityStatusController extends Controller
         $data = $request->validate(['subject' => ['required', 'string', 'max:255']]);
         $subject = $data['subject'];
         $inactive = ['contract_version' => 1, 'active' => false];
+        // This provider currently stores subjects as positive signed bigint IDs.
+        // Reject other opaque values before binding them to numeric SQL columns:
+        // strict engines reject them, while permissive engines may coerce them.
+        if (! preg_match('/^[1-9][0-9]{0,18}$/D', $subject)
+            || (strlen($subject) === 19 && strcmp($subject, '9223372036854775807') > 0)) {
+            return response()->json($inactive);
+        }
+
         // Explicit per-client assignments are required even in the resource profile.
         // Its general OAuth consent policy deliberately also permits dynamic clients.
         $granted = DB::table('oauth_client_grants')

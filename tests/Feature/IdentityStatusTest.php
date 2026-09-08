@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\OAuthClientGrantService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Laravel\Passport\ClientRepository;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -104,5 +105,21 @@ class IdentityStatusTest extends TestCase
         $user->update(['disabled_at' => now()]);
         $this->expectException(HttpException::class);
         app(OAuthUserController::class)($request);
+    }
+
+    public function test_noncanonical_subjects_never_reach_bigint_queries(): void
+    {
+        [$client, $secret] = $this->client();
+        $this->withBasicAuth((string) $client->id, $secret);
+        $subjectQueries = [];
+        DB::listen(static function ($query) use (&$subjectQueries): void {
+            if (str_contains($query->sql, 'oauth_client_grants') || str_contains($query->sql, '"users"')) {
+                $subjectQueries[] = $query->sql;
+            }
+        });
+        foreach (['unknown-subject', '1suffix', '01', '0', '-1', '1.0', '1e0', ' 1 ', '9223372036854775808', str_repeat('9', 255)] as $subject) {
+            $this->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson(['contract_version' => 1, 'active' => false]);
+        }
+        $this->assertSame([], $subjectQueries);
     }
 }
