@@ -6,9 +6,11 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @php
         $branding = app(\App\Support\DeploymentBranding::class);
+        // yieldContent() already HTML-escapes both the section and the default, so this
+        // is safe to output raw; escaping again would render "&amp;amp;" for an ampersand.
         $pageTitle = trim($__env->yieldContent('title', config('app.name')));
     @endphp
-    <title>{{ $pageTitle }}{{ $branding->enabled() && $pageTitle !== config('app.name') ? ' — '.config('app.name') : '' }}</title>
+    <title>{!! $pageTitle !!}{{ $branding->enabled() && $pageTitle !== e(config('app.name')) ? ' — '.config('app.name') : '' }}</title>
     @include('layouts.theme-init')
     @stack('head')
     @vite(['resources/css/app.css', 'resources/js/app.js'])

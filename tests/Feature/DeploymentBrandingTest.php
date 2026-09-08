@@ -43,6 +43,15 @@ class DeploymentBrandingTest extends TestCase
             ->assertSee('id="email-code-login-mount"', false);
     }
 
+    public function test_title_escapes_the_deployment_name_exactly_once(): void
+    {
+        $this->branding();
+        config(['app.name' => 'Rock & Roll <Identity>']);
+        $this->get('/login')->assertOk()
+            ->assertSee('<title>Sign in — Rock &amp; Roll &lt;Identity&gt;</title>', false)->assertDontSee('&amp;amp;', false);
+        $this->get('/')->assertOk()->assertSee('<title>Rock &amp; Roll &lt;Identity&gt;</title>', false);
+    }
+
     public function test_branded_login_passkeys_and_consent_share_name_theme_and_safe_assets(): void
     {
         $this->branding();
