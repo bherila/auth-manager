@@ -2,17 +2,11 @@
 
 namespace App\Support;
 
-use Illuminate\Support\Facades\DB;
+use App\Models\PassportClient;
+use App\Models\RegisteredApplication;
 use Illuminate\Support\Str;
 
-/**
- * The applications a person can move between, as this service knows them.
- *
- * There is no separate registry to maintain: an application exists here because it has an
- * OAuth client, and its home page is the origin of the redirect URI that client already
- * registered. That URI is authoritative — it is what the token endpoint validates against —
- * so deriving from it cannot drift from reality the way a hand-kept list would.
- */
+/** Trusted registry launch links, with a temporary static-client navigation fallback. */
 class RelyingApplications
 {
     /**
@@ -22,18 +16,33 @@ class RelyingApplications
      */
     public function forSubject(string $subject): array
     {
-        $apps = [];
-
-        $clients = DB::table('oauth_clients')
+        $staticClients = new StaticApplicationClients;
+        $clients = PassportClient::query()
             ->join('oauth_client_grants', 'oauth_client_grants.oauth_client_id', '=', 'oauth_clients.id')
             ->where('oauth_client_grants.subject', $subject)
             ->where('oauth_clients.revoked', false)
             ->orderBy('oauth_clients.name')
             ->select('oauth_clients.*')
-            ->get();
+            ->get()
+            ->filter(fn (PassportClient $client): bool => $staticClients->eligible($client));
+
+        if (config('application-registry.launch_enabled', false)) {
+            return RegisteredApplication::query()
+                ->where('enabled', true)
+                ->whereHas('clients', fn ($query) => $query->whereIn('oauth_clients.id', $clients->modelKeys()))
+                ->orderBy('name')->orderBy('key')
+                ->get()
+                ->map(fn (RegisteredApplication $application): array => [
+                    'key' => $application->key,
+                    'name' => $application->name,
+                    'url' => $application->launch_url,
+                ])->all();
+        }
+
+        $apps = [];
 
         foreach ($clients as $client) {
-            $url = $this->homeUrl($client->redirect_uris ?? null);
+            $url = $this->homeUrl($client->getRawOriginal('redirect_uris'));
 
             if ($url === null) {
                 continue;
