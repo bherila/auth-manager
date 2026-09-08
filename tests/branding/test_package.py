@@ -152,3 +152,27 @@ class BrandingPackageTest(unittest.TestCase):
         self.assertNotIn(str(self.root), result.stderr)
         self.assertNotIn('Traceback', result.stderr)
         self.assertEqual('', result.stdout)
+
+    def test_nested_conditional_themes_cannot_become_global_defaults(self):
+        with self.assertRaises(ValueError):
+            MODULE.theme_stylesheet('@media (prefers-contrast: more) {\n' + self.stylesheet() + '\n}')
+
+    def test_whitespace_colon_declarations_still_participate_in_duplicate_checks(self):
+        duplicate = self.stylesheet().replace('--primary: 210 40% 20%;', '--primary: 210 40% 20%; --primary : 0 0% 0%;')
+        with self.assertRaises(ValueError):
+            MODULE.theme_stylesheet(duplicate)
+
+    def test_component_font_before_global_theme_is_not_promoted(self):
+        css = MODULE.theme_stylesheet('.component { --font-sans: ComponentFont; }\n' + self.stylesheet())
+        self.assertIn('Example Sans', css)
+        self.assertNotIn('ComponentFont', css)
+
+    def test_argument_errors_do_not_echo_extra_private_paths(self):
+        private_path = str(self.root / 'operator-only.css')
+        result = subprocess.run(self.command() + [private_path], capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertNotIn(private_path, result.stderr)
+
+    def test_quoted_braces_do_not_change_css_scope(self):
+        css = MODULE.theme_stylesheet('.component { content: "}{"; }\n' + self.stylesheet())
+        self.assertIn('Example Sans', css)
