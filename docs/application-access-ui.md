@@ -18,7 +18,10 @@ access, supported administrator/membership controls and explicit unprovisioned
 states. Each update includes the read revision and displays success only after
 a valid canonical application response. Conflicts require a reload. Unknown
 outcomes state that a change may already have completed and are never retried
-automatically. An unavailable integration does not render cached authority.
+automatically. A failed write redirects to the access page for the selected
+account and flashes the outcome, so a browser refresh re-reads rather than
+resubmitting the write. An unavailable integration does not render cached
+authority.
 
 Writes require recent identity confirmation. The password confirmation endpoint
 is CSRF-protected and throttled, and rechecks the locked current account,

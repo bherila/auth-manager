@@ -7,6 +7,7 @@
     <p>The application decides which accounts and workspaces you can manage. Provider administration does not grant application permissions.</p>
     @if(session('status'))<p role="status">{{ session('status') }}</p>@endif
     @if($saved)<p role="status" class="rounded border p-3">The application confirmed the access update.</p>@endif
+    @if(session('access_failure'))<p role="alert" class="rounded border p-3">{{ session('access_failure') }}</p>@endif
     @if($errors->any())
         <ul role="alert" class="list-disc rounded border p-3 pl-8">
             @foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach

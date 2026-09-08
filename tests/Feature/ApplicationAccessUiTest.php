@@ -125,9 +125,10 @@ class ApplicationAccessUiTest extends TestCase
 
     public function test_update_requires_confirmation_and_sends_revision_and_selected_memberships(): void
     {
-        $this->post('/applications/example-app/access/update', $this->update())->assertForbidden()
-            ->assertSee('Confirm your password');
-        Http::assertNothingSent();
+        $unconfirmed = $this->post('/applications/example-app/access/update', $this->update())->assertRedirect();
+        $this->assertSame('/applications/example-app/access?subject=subject-example', parse_url($unconfirmed->headers->get('Location'), PHP_URL_PATH).'?'.parse_url($unconfirmed->headers->get('Location'), PHP_URL_QUERY));
+        $this->get($unconfirmed->headers->get('Location'))->assertOk()->assertSee('Confirm your password')->assertDontSee('confirmed the access update');
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
         $this->confirm();
         $saved = $this->post('/applications/example-app/access/update', $this->update())->assertRedirect();
         $this->get($saved->headers->get('Location'))->assertOk()->assertSee('application confirmed the access update');
@@ -138,16 +139,25 @@ class ApplicationAccessUiTest extends TestCase
                 'workspaces' => [['id' => 'workspace-new', 'permission' => 'write']]]);
     }
 
-    public function test_conflict_and_unknown_outcomes_do_not_show_success_or_retry_writes(): void
+    public function test_conflict_and_unknown_outcomes_land_on_a_get_page_without_success_or_retried_writes(): void
     {
         $this->confirm();
         $this->updateStatus = 409;
-        $this->post('/applications/example-app/access/update', $this->update())
-            ->assertConflict()->assertSee('Access changed')->assertDontSee('confirmed the access update');
+        $conflict = $this->post('/applications/example-app/access/update', $this->update())->assertRedirect();
+        $this->assertStringEndsWith('/applications/example-app/access?subject=subject-example', $conflict->headers->get('Location'));
+        $this->get($conflict->headers->get('Location'))->assertOk()->assertSee('Access changed')
+            ->assertSee('Current access')->assertDontSee('confirmed the access update');
         $this->updateStatus = 503;
-        $this->post('/applications/example-app/access/update', $this->update())
-            ->assertStatus(503)->assertSee('change may have completed')->assertDontSee('confirmed the access update');
+        $unknown = $this->post('/applications/example-app/access/update', $this->update())->assertRedirect();
+        $page = $this->get($unknown->headers->get('Location'))->assertOk()->assertSee('change may have completed')
+            ->assertDontSee('confirmed the access update')->assertHeader('Cache-Control', 'no-store, private');
+        // The failure notice is a one-time flash, so a refresh of the GET page shows neither the
+        // stale notice nor a success, and never resubmits the write.
+        $this->get($unknown->headers->get('Location'))->assertOk()->assertDontSee('change may have completed');
         $this->assertCount(2, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+        // Read failures on the GET page itself still render the error page directly: refreshing a GET is harmless.
+        $this->remoteStatus = 503;
+        $this->get('/applications/example-app/access')->assertStatus(503)->assertSee('unavailable');
     }
 
     public function test_confirmation_requires_current_password_and_does_not_flash_it(): void
