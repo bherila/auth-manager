@@ -6,7 +6,9 @@ use App\Models\RegisteredApplication;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Support\RelyingApplications;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class ApplicationAccessController extends Controller
 {
@@ -24,25 +26,31 @@ class ApplicationAccessController extends Controller
 
     public function index(Request $request, string $application): View
     {
-        return $this->page($request, $application);
-    }
-
-    public function browse(Request $request, string $application): View
-    {
-        $input = $request->validate([
-            'subject_cursor' => ['nullable', 'string', 'max:512'],
-            'workspace_cursor' => ['nullable', 'string', 'max:512'],
-            'subject' => ['nullable', 'string', 'max:191'],
-        ]);
+        $input = $this->browseInput($request);
         $subject = $input['subject'] ?? null;
         $state = $subject !== null && $subject !== '' ? $this->transport->send($request, $application,
             ['operation' => 'read', 'subject' => $subject]) : null;
 
         return $this->page($request, $application, $subject, $state,
-            $input['subject_cursor'] ?? null, $input['workspace_cursor'] ?? null);
+            $input['subject_cursor'] ?? null, $input['workspace_cursor'] ?? null,
+            $request->session()->get('access_updated') === true);
     }
 
-    public function update(Request $request, string $application): View
+    public function browse(Request $request, string $application): RedirectResponse
+    {
+        return redirect()->route('applications.access', ['application' => $application, ...$this->browseInput($request)]);
+    }
+
+    private function browseInput(Request $request): array
+    {
+        return $request->validate([
+            'subject_cursor' => ['nullable', 'string', 'max:512'],
+            'workspace_cursor' => ['nullable', 'string', 'max:512'],
+            'subject' => ['nullable', 'string', 'max:191'],
+        ]);
+    }
+
+    public function update(Request $request, string $application): RedirectResponse
     {
         $input = $request->validate([
             'subject' => ['required', 'string', 'max:191'],
@@ -59,7 +67,11 @@ class ApplicationAccessController extends Controller
         if (isset($input['new_workspace']) && $input['new_workspace'] !== '') {
             $workspaces[] = ['id' => $input['new_workspace'], 'permission' => $input['new_permission'] ?? 'read'];
         }
-        $state = $this->transport->send($request, $application, [
+        if (count($workspaces) > 100) {
+            throw ValidationException::withMessages(['new_workspace' => 'Remove a workspace membership before adding another.'])
+                ->redirectTo(route('applications.access', ['application' => $application, 'subject' => $input['subject']]));
+        }
+        $this->transport->send($request, $application, [
             'operation' => 'update',
             'subject' => $input['subject'],
             'expected_revision' => $input['expected_revision'],
@@ -67,7 +79,8 @@ class ApplicationAccessController extends Controller
         ]);
 
         // Only a validated canonical update response can produce the success notice.
-        return $this->page($request, $application, $input['subject'], $state, saved: true);
+        return redirect()->route('applications.access', ['application' => $application, 'subject' => $input['subject']])
+            ->with('access_updated', true);
     }
 
     private function page(Request $request, string $application, ?string $subject = null,

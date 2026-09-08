@@ -77,7 +77,7 @@
                     @empty
                         <p>No workspace memberships.</p>
                     @endforelse
-                    @if($state['allowed_edits']['workspaces'] && count($capabilities['controls']['workspace_permissions']))
+                    @if($state['allowed_edits']['workspaces'] && count($capabilities['controls']['workspace_permissions']) && count($state['access']['workspaces']) < 100)
                         <label class="block">Add workspace
                             <select name="new_workspace" class="rounded border bg-background p-2">
                                 <option value="">No additional workspace</option>
@@ -95,6 +95,9 @@
                                 @endforeach
                             </select>
                         </label>
+                    @endif
+                    @if(count($state['access']['workspaces']) >= 100)
+                        <p>Remove and save a workspace membership before adding another.</p>
                     @endif
                     @if(config('delegated-access.writes_enabled') && ($state['allowed_edits']['application_admin'] || $state['allowed_edits']['workspaces']))
                         <button class="rounded border px-4 py-2">Save access</button>

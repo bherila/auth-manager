@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 class ApplicationAccessUiTest extends TestCase
@@ -29,6 +30,8 @@ class ApplicationAccessUiTest extends TestCase
     private bool $provisioned = true;
 
     private bool $editable = true;
+
+    private array $memberships = [['id' => 'workspace-current', 'permission' => 'read']];
 
     protected function setUp(): void
     {
@@ -66,7 +69,7 @@ class ApplicationAccessUiTest extends TestCase
                 default => ['subject' => $request['subject'], 'provisioned' => $this->provisioned,
                     'revision' => $this->provisioned ? 'revision-example' : null,
                     'access' => $this->provisioned ? ['application_admin' => false,
-                        'workspaces' => [['id' => 'workspace-current', 'permission' => 'read']]] : null,
+                        'workspaces' => $this->memberships] : null,
                     'allowed_edits' => ['application_admin' => $this->provisioned && $this->editable,
                         'workspaces' => $this->provisioned && $this->editable]],
             };
@@ -87,7 +90,7 @@ class ApplicationAccessUiTest extends TestCase
         $this->get('/applications/manage')->assertOk()->assertSee('Example Application');
         $this->get('/applications/example-app/access')->assertOk()->assertHeader('Cache-Control', 'no-store, private')
             ->assertSee('&lt;script&gt;Example&lt;/script&gt;', false)->assertDontSee('<script>Example</script>', false);
-        $this->post('/applications/example-app/access/browse', ['subject' => 'subject-example'])
+        $this->browse(['subject' => 'subject-example'])
             ->assertOk()->assertSee('Current access')->assertSee('workspace-current')->assertSee('Save access');
     }
 
@@ -102,11 +105,11 @@ class ApplicationAccessUiTest extends TestCase
     public function test_unprovisioned_and_readonly_states_offer_no_mutation_controls(): void
     {
         $this->provisioned = false;
-        $this->post('/applications/example-app/access/browse', ['subject' => 'subject-example'])
+        $this->browse(['subject' => 'subject-example'])
             ->assertOk()->assertSee('not been provisioned')->assertDontSee('Save access');
         $this->provisioned = true;
         $this->editable = false;
-        $this->post('/applications/example-app/access/browse', ['subject' => 'subject-example'])
+        $this->browse(['subject' => 'subject-example'])
             ->assertOk()->assertSee('read-only')->assertDontSee('Save access');
     }
 
@@ -116,8 +119,8 @@ class ApplicationAccessUiTest extends TestCase
             ->assertSee('Confirm your password');
         Http::assertNothingSent();
         $this->confirm();
-        $this->post('/applications/example-app/access/update', $this->update())
-            ->assertOk()->assertSee('application confirmed the access update');
+        $saved = $this->post('/applications/example-app/access/update', $this->update())->assertRedirect();
+        $this->get($saved->headers->get('Location'))->assertOk()->assertSee('application confirmed the access update');
         Http::assertSent(fn ($request) => $request['operation'] === 'update'
             && $request['expected_revision'] === 'revision-example'
             && $request['subject'] === 'subject-example'
@@ -164,7 +167,7 @@ class ApplicationAccessUiTest extends TestCase
 
     public function test_browse_cursors_are_forwarded_and_disabled_registry_has_no_management_directory(): void
     {
-        $this->post('/applications/example-app/access/browse', ['subject_cursor' => 'next-subjects', 'workspace_cursor' => 'next-workspaces'])
+        $this->browse(['subject_cursor' => 'next-subjects', 'workspace_cursor' => 'next-workspaces'])
             ->assertOk();
         Http::assertSent(fn ($request) => $request['operation'] === 'subjects' && $request['cursor'] === 'next-subjects');
         Http::assertSent(fn ($request) => $request['operation'] === 'workspaces' && $request['cursor'] === 'next-workspaces');
@@ -176,6 +179,40 @@ class ApplicationAccessUiTest extends TestCase
     {
         $this->post('/applications/example-app/access/confirm', ['password' => 'current-password-example'])
             ->assertRedirect('/applications/example-app/access');
+    }
+
+    public function test_browse_then_password_typo_returns_to_a_get_page_with_errors(): void
+    {
+        $this->withCookie(config('session.cookie'), session()->getId());
+        $selection = $this->post('/applications/example-app/access/browse', ['subject' => 'subject-example'])->assertRedirect();
+        $url = $selection->headers->get('Location');
+        $this->get($url)->assertOk()->assertSee('Current access');
+        $failure = $this->from($url)->post('/applications/example-app/access/confirm', ['password' => 'wrong-password'])
+            ->assertRedirect($url)->assertSessionHasErrors('password');
+        $this->get($failure->headers->get('Location'))->assertOk()->assertSee('The password could not be confirmed.');
+    }
+
+    public function test_membership_limit_hides_add_and_rejects_combined_overflow_before_transport(): void
+    {
+        $this->memberships = array_map(fn (int $index): array => ['id' => 'workspace-'.$index, 'permission' => 'read'], range(1, 100));
+        $this->browse(['subject' => 'subject-example'])->assertOk()
+            ->assertDontSee('name="new_workspace"', false)->assertSee('Remove and save a workspace membership');
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [...$this->update(), 'workspaces' => $this->memberships])
+            ->assertRedirect()->assertSessionHasErrors('new_workspace');
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+        $replacement = $this->memberships;
+        $replacement[0]['permission'] = 'none';
+        $this->post('/applications/example-app/access/update', [...$this->update(), 'workspaces' => $replacement])
+            ->assertRedirect()->assertSessionHas('access_updated', true);
+        Http::assertSent(fn ($request) => $request['operation'] === 'update' && count($request['access']['workspaces']) === 100);
+    }
+
+    private function browse(array $input): TestResponse
+    {
+        $response = $this->post('/applications/example-app/access/browse', $input)->assertRedirect();
+
+        return $this->get($response->headers->get('Location'));
     }
 
     private function update(): array
