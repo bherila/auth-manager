@@ -49,6 +49,7 @@ export function mapCodeError(error: unknown): string {
   if (error instanceof TypeError) return CONNECTION_MESSAGE;
 
   const message = messageOf(error).toLowerCase();
+  if (message.includes('too many sign-in code requests')) return 'Too many sign-in code requests. Please try again later.';
   if (message.includes('too many')) return CODE_LOCKED_MESSAGE;
   if (message.includes('incorrect') || message.includes('invalid or expired') || message.includes('log in again')) {
     return "That code isn't correct or has expired. Check it and try again, or send a new code.";

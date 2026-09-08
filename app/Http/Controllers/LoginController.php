@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 class LoginController extends Controller
 {
@@ -73,10 +74,10 @@ class LoginController extends Controller
     public function requestEmailCode(Request $request, TwoFactorService $twoFactor): JsonResponse
     {
         $validated = $request->validate([
-            'email' => 'required|email',
+            'email' => 'required|email|max:254',
         ]);
 
-        $email = $validated['email'];
+        $email = trim($validated['email']);
         $remember = $request->boolean('remember');
         $user = User::where('email', $email)->first();
 
@@ -88,7 +89,7 @@ class LoginController extends Controller
 
         $this->auditLoginFailed($request, $user, $email, $user ? 'Account disabled' : 'User not found', 'email_code');
 
-        return response()->json(['success' => true, 'attempt_token' => '']);
+        return response()->json(['success' => true, 'attempt_token' => Str::random(64)]);
     }
 
     /**

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AccountSettingsController;
 use App\Http\Controllers\DirectoryAdminController;
 use App\Http\Controllers\IdentityLifecycleController;
 use App\Http\Controllers\LoginController;
@@ -16,7 +17,7 @@ Route::get('/', function () {
 
 Route::get('/login', fn () => view('login'))->name('login');
 Route::post('/login', [LoginController::class, 'login']);
-Route::post('/login/email-code', [LoginController::class, 'requestEmailCode'])->name('login.email-code');
+Route::post('/login/email-code', [LoginController::class, 'requestEmailCode'])->middleware('throttle:email-code')->name('login.email-code');
 Route::post('/login/dev', [LoginController::class, 'devLogin'])->name('login.dev');
 Route::post('/login/dev-by-id', [LoginController::class, 'devLoginById'])->name('login.dev.by-id');
 
@@ -27,6 +28,11 @@ Route::post('/logout', function (Request $request) {
 
     return redirect('/');
 })->name('logout');
+
+Route::middleware(['auth', RequireActiveUser::class])->group(function (): void {
+    Route::get('/settings', [AccountSettingsController::class, 'show'])->name('settings.account');
+    Route::put('/settings/password', [AccountSettingsController::class, 'changePassword'])->middleware('throttle:5,1')->name('settings.password');
+});
 
 Route::view('/settings/passkeys', 'settings.passkeys')
     ->middleware(['auth', RequireActiveUser::class])

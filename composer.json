@@ -80,6 +80,7 @@
             "Composer\\Config::disableProcessTimeout",
             "@lint:check",
             "pnpm run type-check",
+            "pnpm run test:frontend",
             "pnpm run scan-sensitive:test",
             "pnpm run scan-sensitive",
             "@php artisan test"

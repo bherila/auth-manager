@@ -10,7 +10,10 @@ use App\OAuth\GrantAwareAuthCodeRepository;
 use App\OAuth\GrantAwareRefreshTokenRepository;
 use App\Services\OAuthCredentialGenerationContext;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Passport\Bridge\AccessTokenRepository;
 use Laravel\Passport\Bridge\AuthCodeRepository;
@@ -40,6 +43,23 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('email-code', static function (Request $request): array {
+            $blocked = static fn (Request $request, array $headers) => response()->json([
+                'success' => false,
+                'message' => 'Too many sign-in code requests. Please try again later.',
+            ], 429, $headers);
+            $input = $request->input('email');
+            $email = hash('sha256', mb_strtolower(trim(is_string($input) ? $input : '')));
+
+            // The per-address budget is what an attacker uses to lock a specific person out of
+            // recovery, so it allows a few honest retries; Cloudflare's per-IP edge rule and the
+            // per-IP budget below (real client IPs via trusted proxies) absorb volume.
+            return [
+                Limit::perMinute(10)->by('email-code-ip:'.$request->ip())->response($blocked),
+                Limit::perMinutes(5, 3)->by('email-code-address:'.$email)->response($blocked),
+            ];
+        });
+
         Event::listen(Login::class, static function (Login $event): void {
             if ($event->user instanceof User && request()->hasSession()) {
                 request()->session()->put(

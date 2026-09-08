@@ -12,6 +12,7 @@ export default defineConfig({
                 'resources/js/login.tsx',
                 'resources/js/admin-directory.tsx',
                 'resources/js/passkey-management.tsx',
+                'resources/js/account-settings.tsx',
             ],
             refresh: true,
         }),
