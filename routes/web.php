@@ -1,9 +1,12 @@
 <?php
 
+use App\Http\Controllers\ApplicationAccessController;
 use App\Http\Controllers\ApplicationRegistryController;
+use App\Http\Controllers\ConfirmApplicationAccessController;
 use App\Http\Controllers\DirectoryAdminController;
 use App\Http\Controllers\LoginController;
 use App\Http\Controllers\OAuthUserController;
+use App\Http\Middleware\ApplicationAccessResponse;
 use App\Http\Middleware\RequireProviderAdmin;
 use BWH\Auth\Http\Middleware\RequireActiveUser;
 use Illuminate\Http\Request;
@@ -56,3 +59,17 @@ Route::middleware(['auth', RequireProviderAdmin::class])->group(function (): voi
 Route::get('/api/oauth/user', OAuthUserController::class)
     ->middleware('auth:api')
     ->name('oauth.user');
+
+// Application administration is decided by the delegated API, not provider-admin status.
+Route::get('/applications/manage', [ApplicationAccessController::class, 'directory'])
+    ->middleware(['auth', RequireActiveUser::class, ApplicationAccessResponse::class])
+    ->name('applications.manage');
+
+Route::middleware(['auth', RequireActiveUser::class, ApplicationAccessResponse::class])
+    ->prefix('/applications/{application}/access')->group(function (): void {
+        Route::get('/', [ApplicationAccessController::class, 'index'])->name('applications.access');
+        Route::post('/browse', [ApplicationAccessController::class, 'browse'])->name('applications.access.browse');
+        Route::post('/update', [ApplicationAccessController::class, 'update'])->name('applications.access.update');
+        Route::post('/confirm', ConfirmApplicationAccessController::class)
+            ->middleware('throttle:5,1')->name('applications.access.confirm');
+    });
