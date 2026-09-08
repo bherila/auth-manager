@@ -17,11 +17,12 @@
             </p>
             <div class="mt-6 flex flex-wrap gap-3">
                 @if (auth()->user()->canLogin())
-                    <x-ui.button :href="route('settings.passkeys')">Manage passkeys</x-ui.button>
+                    <x-ui.button :href="route('settings.account')">Account and security</x-ui.button>
                 @endif
                 @if (auth()->user()->canLogin() && auth()->user()->hasRole('admin'))
                     <x-ui.button :href="route('admin.users')" variant="outline">Directory administration</x-ui.button>
                     <x-ui.button :href="route('admin.applications')" variant="outline">Application registry</x-ui.button>
+                    <x-ui.button :href="route('admin.identity-lifecycle')" variant="outline">Identity lifecycle</x-ui.button>
                 @endif
             </div>
         @endauth

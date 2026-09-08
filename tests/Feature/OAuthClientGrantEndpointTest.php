@@ -82,7 +82,8 @@ class OAuthClientGrantEndpointTest extends TestCase
         $accessToken = (string) $tokenResponse->json('access_token');
         $refreshToken = (string) $tokenResponse->json('refresh_token');
 
-        $this->withToken($accessToken)->getJson('/api/oauth/user')->assertOk();
+        $this->withToken($accessToken)->getJson('/api/oauth/user')->assertOk()
+            ->assertJsonPath('credential_version', (int) $user->credential_version);
 
         app(OAuthClientGrantService::class)->revoke((string) $user->getKey(), (string) $client->getKey());
         Auth::forgetGuards();

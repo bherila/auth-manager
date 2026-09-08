@@ -43,11 +43,13 @@ function UserCard({
   onChanged: (message: string) => Promise<void>;
   onError: (message: string) => void;
 }) {
+  const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => setName(user.name), [user.name]);
   useEffect(() => setEmail(user.email), [user.email]);
 
   async function run(action: () => Promise<unknown>, message: string): Promise<void> {
@@ -60,6 +62,14 @@ function UserCard({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function updateName(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    await run(
+      () => fetchWrapper.patch(`/api/admin/users/${user.id}/name`, { name }),
+      'Provider display name was updated.',
+    );
   }
 
   async function updateEmail(event: FormEvent): Promise<void> {
@@ -88,7 +98,7 @@ function UserCard({
       () => granted
         ? fetchWrapper.delete(`/api/admin/users/${user.id}/clients/${client.id}`, {})
         : fetchWrapper.put(`/api/admin/users/${user.id}/clients/${client.id}`, {}),
-      `${client.name} access was ${granted ? 'removed' : 'granted'}.`,
+      `${client.name} OAuth grant was ${granted ? 'removed' : 'added'}. Application permissions are managed separately.`,
     );
   }
 
@@ -113,7 +123,7 @@ function UserCard({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle>{user.name}</CardTitle>
-            <CardDescription>Directory subject {user.id} · {user.roles.join(', ') || 'no sign-in role'}</CardDescription>
+            <CardDescription>Directory subject {user.id} · Provider roles: {user.roles.join(', ') || 'no sign-in role'}</CardDescription>
           </div>
           <span
             className={
@@ -127,6 +137,24 @@ function UserCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        <form className="grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={(event) => void updateName(event)}>
+          <div className="space-y-2">
+            <Label htmlFor={`name-${user.id}`}>Provider display name</Label>
+            <Input
+              id={`name-${user.id}`}
+              value={name}
+              maxLength={255}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+            <p className="text-muted-foreground text-xs">
+              This is the name shown in the identity directory. Applications may use their own nickname.
+            </p>
+          </div>
+          <Button className="self-end" type="submit" variant="outline" disabled={busy || name.trim() === '' || name === user.name}>
+            Save name
+          </Button>
+        </form>
         <form className="grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={(event) => void updateEmail(event)}>
           <div className="space-y-2">
             <Label htmlFor={`email-${user.id}`}>Email address</Label>
@@ -144,7 +172,7 @@ function UserCard({
         </form>
 
         <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Application grants</legend>
+          <legend className="text-sm font-medium">OAuth client grants</legend>
           <p className="text-muted-foreground text-xs">
             A grant allows this person to request a token. It does not create their account or permissions in that application.
           </p>

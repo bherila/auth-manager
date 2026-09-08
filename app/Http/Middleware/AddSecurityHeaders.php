@@ -15,6 +15,10 @@ final class AddSecurityHeaders
     {
         $response = $next($request);
 
+        if ($request->is('api/reconciliation/*', 'api/oauth/user')) {
+            $response->headers->set('Cache-Control', 'private, no-store');
+        }
+
         $this->setIfMissing($response, 'Content-Security-Policy', "base-uri 'self'; frame-ancestors 'none'; object-src 'none'");
         $this->setIfMissing($response, 'Permissions-Policy', 'camera=(), geolocation=(), microphone=(), payment=(), usb=()');
         $this->setIfMissing($response, 'Referrer-Policy', 'no-referrer');

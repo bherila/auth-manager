@@ -8,7 +8,7 @@
 
 @section('content')
     <main class="mx-auto max-w-2xl px-4 py-10">
-        <a href="{{ url('/') }}" class="text-muted-foreground text-sm underline hover:text-foreground">Back to account</a>
+        <a href="{{ route('settings.account') }}" class="text-muted-foreground text-sm underline hover:text-foreground">Back to account</a>
 
         <header class="mt-6 mb-6">
             <h1 class="text-2xl font-semibold tracking-tight">Manage passkeys</h1>
