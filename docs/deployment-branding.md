@@ -25,3 +25,26 @@ The stylesheet loads after the application bundle and can override existing raw 
 Recovery/sign-in mail subjects and text already use `APP_NAME`; the shared mail header also displays that name and the light logo. Mail images use the configured HTTPS `APP_URL` origin, never an incoming request host. A non-HTTPS URL, URL with credentials/query/fragment, or non-root application path omits the email logo. Mail clients need not support external CSS or dark logos: messages keep readable text and the existing verification buttons. `MAIL_FROM_NAME` and `MAIL_FROM_ADDRESS` remain explicit deployment mail settings. Do not enable additional password-reset routes solely for branding; the recovery mechanism remains emailed sign-in codes and administrator assistance.
 
 Before enabling a deployment, check native password submission, passkeys, code requests, consent, the account page, light/dark modes and a rendered test email. Keep private marks, hostnames and deployment identifiers outside this public repository.
+
+## Packaging approved assets
+
+`scripts/branding/package.py` is the reusable, standard-library-only build helper (Python 3.10+). It accepts explicit files; it has no deployment-specific asset names, hostnames or source repository assumptions:
+
+```sh
+python3 /reviewed-engine/scripts/branding/package.py \
+  --identity /build/provider \
+  --logo-light /approved-brand/light.svg \
+  --logo-dark /approved-brand/dark.svg \
+  --favicon /approved-brand/favicon.ico \
+  --theme-css /approved-brand/design-system.css
+```
+
+Run this only against an **unserved build directory** after the provider source and build assets are present. It requires `config/branding.php` and a real `public/` directory, and creates the absent `public/branding/` directory with four fixed outputs: `logo-light.svg`, `logo-dark.svg`, `favicon.ico` and `theme.css`. Existing output is never overwritten. Empty or missing files, aliases through symlinks, incorrect image extensions and invalid theme values fail before output creation; an I/O failure removes newly created partial output so the build can be retried. Filesystem inputs and output must remain under the trusted build operator's control throughout the operation.
+
+SVG/ICO inputs are approved assets, copied byte-for-byte, **not sanitized uploads**. Operators must review their actual contents and media types, including SVG scripts and external references. The stylesheet helper is a restricted value extractor, not a CSS parser: it reads the first standalone `:root` and `.dark` blocks, requires exactly one declaration for each supported color token, and emits only raw HSL triples (hue 0–360; saturation/lightness 0–100%). It also takes the first `--font-sans` declaration as the global default, allowing plain ASCII family names with balanced single/double quotes and comma separators. Comments, unrelated rules, imports and component-level font overrides are not emitted. Nested theme blocks, CSS expressions, duplicate required tokens and unsupported font syntax must be normalized in the approved input before packaging.
+
+The helper does not set environment configuration, acquire assets, build the application, upload artifacts, provision hosts or activate a release. Private orchestration supplies approved inputs and keeps its asset mapping, secrets and target configuration private. Invocation failures report only a generic error category, without copying source paths or file contents into CI logs.
+
+Pin and verify the helper's source commit before invoking it. Keep this **engine pin separate from the application revision** so an older compatible application can be deployed without downgrading the packager. A trusted orchestration step must verify both checkout SHAs before running their code; the helper cannot establish its own provenance. Application revisions predating the branding hooks are intentionally rejected. No existing deployment workflow is switched by adding this helper.
+
+Run its synthetic tests with `python3 -m unittest discover -s tests/branding`; they also run in `composer ci:check`. Tests generate temporary assets and styles rather than depending on any deployment's branding.
