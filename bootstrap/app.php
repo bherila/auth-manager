@@ -20,6 +20,8 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(AddSecurityHeaders::class);
+        // Provider subjects are opaque identifiers, not text fields to normalize.
+        $middleware->trimStrings(except: [fn (Request $request): bool => $request->is('api/reconciliation/identity-status')]);
         $middleware->appendToGroup('web', EnsureCredentialVersion::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
