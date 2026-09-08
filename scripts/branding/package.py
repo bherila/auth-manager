@@ -18,15 +18,56 @@ COLOR = re.compile(rf'({NUMBER})\s+({NUMBER})%\s+({NUMBER})%')
 FONT_FAMILY = re.compile(r'''(?:'[A-Za-z0-9_ -]+'|"[A-Za-z0-9_ -]+"|[A-Za-z_-][A-Za-z0-9_ -]*)''')
 
 
+
+def top_level_blocks(css):
+    """Track actual brace depth; column position does not establish CSS scope."""
+    blocks = []
+    depth = 0
+    start = 0
+    body_start = 0
+    selector = ''
+    quote = None
+    escaped = False
+    for index, char in enumerate(css):
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in ('"', "'"):
+            quote = char
+        elif char == '{':
+            if depth == 0:
+                selector = css[start:index].strip()
+                body_start = index + 1
+            depth += 1
+        elif char == '}':
+            depth -= 1
+            if depth < 0:
+                raise ValueError('Unbalanced source stylesheet')
+            if depth == 0:
+                blocks.append((selector, css[body_start:index]))
+                start = index + 1
+        elif char == ';' and depth == 0:
+            start = index + 1
+    if depth or quote:
+        raise ValueError('Unbalanced source stylesheet')
+    return blocks
+
+
 def theme_stylesheet(css):
     """Extract a small value allowlist, never copy selectors, rules or imports."""
     css = re.sub(r'/\*.*?\*/', '', css, flags=re.S)
+    blocks = top_level_blocks(css)
     themes = []
     for selector in (':root', '.dark'):
-        match = re.search(r'^' + re.escape(selector) + r'\s*\{([^{}]*)\}', css, re.M)
-        if match is None:
+        body = next((body for name, body in blocks if name == selector), None)
+        if body is None or '{' in body or '}' in body:
             raise ValueError('Required standalone light/dark theme block is missing')
-        declarations = re.findall(r'--([a-z-]+):\s*([^;]+);', match[1])
+        declarations = re.findall(r'--([a-z-]+)\s*:\s*([^;]+);', body)
         lines = []
         for token in TOKENS:
             values = [value.strip() for name, value in declarations if name == token]
@@ -35,9 +76,10 @@ def theme_stylesheet(css):
                 raise ValueError('Expected one bounded raw HSL value for each theme token')
             lines.append('  --' + token + ': ' + ' '.join(values[0].split()) + ';')
         themes.append(selector + ' {\n' + '\n'.join(lines) + '\n}')
-    # The first font stack is the source design system's default. Component-level
-    # overrides later in the file are deliberately not included.
-    font = re.search(r'--font-sans:\s*([^;]+);', css)
+    # Only a global theme scope can supply the deployment-wide font stack.
+    font = next((match for selector, body in blocks
+                 if selector in (':root', '@theme', '@theme inline') and '{' not in body and '}' not in body
+                 if (match := re.search(r'--font-sans\s*:\s*([^;]+);', body))), None)
     families = [family.strip() for family in font[1].split(',')] if font else []
     if not families or any(FONT_FAMILY.fullmatch(family) is None for family in families):
         raise ValueError('Expected a plain local font family stack')
@@ -92,8 +134,13 @@ def package(identity, logo_light, logo_dark, favicon, theme_css):
         raise
 
 
+class PrivateArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.exit(2, 'Invalid branding arguments. Use --help for input options.\n')
+
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = PrivateArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('--identity', required=True, help='Unserved provider build directory')
     parser.add_argument('--logo-light', required=True, help='Approved light-background SVG')
     parser.add_argument('--logo-dark', required=True, help='Approved dark-background SVG')
