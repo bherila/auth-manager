@@ -124,8 +124,8 @@ operations enforce this policy. Provider-only administrators receive a denial.
 ### Versioned request and response
 
 Use a fixed configured HTTPS endpoint with POST JSON operations `capabilities`,
-`subjects`, `read` and `update`. Do not follow redirects. Set connection/read
-timeouts and cap request/response size. Subject queries use opaque cursors and a
+`subjects`, `workspaces`, `read` and `update`. Do not follow redirects. Set connection/read
+timeouts and cap request/response size. Subject and workspace queries use opaque cursors and a
 maximum page size of 50; cursors are application- and actor-scoped. There is no
 provider-directory browsing fallback for application administrators.
 
