@@ -9,6 +9,7 @@ use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Support\AuthManagerProfile;
 use App\Support\StaticApplicationClients;
+use BWH\Auth\Models\AuthAuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -46,13 +47,55 @@ final class DelegatedAccessTransport
             if (! is_string($key) || $key === '') {
                 throw new DelegatedAccessException('invalid_configuration');
             }
-            $assertion = $this->assertions->issue($issuer, (string) $actor->id, $endpoint, $application, $body, $keyId, $key);
+            $correlation = bin2hex(random_bytes(32));
+            $assertion = $this->assertions->issue($issuer, (string) $actor->id, $endpoint, $application, $body, $keyId, $key, $correlation);
         } catch (DelegatedAccessException $exception) {
             throw $exception;
         } catch (Throwable) {
             throw new DelegatedAccessException('invalid_configuration');
         }
 
+        if ($write) {
+            $this->audit($actor, $application, $payload['subject'], $correlation, 'attempt');
+        }
+        try {
+            $result = $this->exchange($endpoint, $assertion, $body, $application, $payload, $write);
+        } catch (Throwable $failure) {
+            $exception = $failure instanceof DelegatedAccessException ? $failure : new DelegatedAccessException($write ? 'unknown_outcome' : 'unavailable');
+            if ($write) {
+                $this->audit($actor, $application, $payload['subject'], $correlation, $exception->outcome);
+            }
+            throw $exception;
+        }
+        if ($write) {
+            $this->audit($actor, $application, $payload['subject'], $correlation, 'succeeded');
+        }
+
+        return $result;
+    }
+
+    private function audit(User $actor, string $application, string $target, string $correlation, string $outcome): void
+    {
+        try {
+            $entry = AuthAuditLog::create([
+                'user_id' => $actor->id, 'acting_user_id' => $actor->id,
+                'event' => $outcome === 'attempt' ? 'delegated_access_update_attempt' : 'delegated_access_update_result',
+                'auth_method' => 'delegated', 'succeeded' => $outcome === 'succeeded',
+                'metadata' => ['application' => $application, 'target' => $target, 'operation' => 'update',
+                    'outcome' => $outcome, 'correlation' => $correlation],
+            ]);
+            if (! $entry->exists) {
+                throw new DelegatedAccessException('audit_unavailable');
+            }
+        } catch (Throwable) {
+            // A missing attempt record prevents transmission. A failed result record
+            // leaves a durable attempt and must never turn a remote write into success.
+            throw new DelegatedAccessException($outcome === 'attempt' ? 'audit_unavailable' : 'unknown_outcome');
+        }
+    }
+
+    private function exchange(string $endpoint, #[\SensitiveParameter] string $assertion, string $body, string $application, array $payload, bool $write): array
+    {
         $deadline = $this->clock->now() + 10;
         try {
             // Never retry writes or follow redirects. Read at most the contract bound,

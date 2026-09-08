@@ -8,6 +8,7 @@ use App\Services\DelegatedAccess\DelegatedContract;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Lcobucci\JWT\Encoding\JoseEncoder;
 use Throwable;
 
 /** Synthetic consumer only. Production consumers must use their own domain authorization. */
@@ -19,6 +20,9 @@ final readonly class ReferenceAccessAdapter
     {
         try {
             $actorSubject = $this->verifier->verify($assertion, $method, $body);
+            // Read correlation only after the signature and all bindings have passed.
+            $encoder = new JoseEncoder;
+            $correlation = $encoder->jsonDecode($encoder->base64UrlDecode(explode('.', $assertion)[1]))['jti'];
             try {
                 $input = json_decode($body, true, 32, JSON_THROW_ON_ERROR);
             } catch (Throwable) {
@@ -30,7 +34,7 @@ final readonly class ReferenceAccessAdapter
             unset($input['contract_version'], $input['application']);
             $payload = (new DelegatedContract)->request($this->application, $input);
 
-            return DB::transaction(function () use ($actorSubject, $payload): array {
+            return DB::transaction(function () use ($actorSubject, $payload, $correlation): array {
                 // One deterministic lock order for actor, target and last-admin checks.
                 $accounts = DB::table('reference_access_accounts')->orderBy('subject')->lockForUpdate()->get();
                 $actor = $accounts->firstWhere('subject', $actorSubject);
@@ -92,7 +96,7 @@ final readonly class ReferenceAccessAdapter
                     $target->workspaces = json_encode($access['workspaces'], JSON_THROW_ON_ERROR);
                     $target->revision = (string) Str::uuid();
                     DB::table('reference_access_accounts')->where('subject', $target->subject)->update(['application_admin' => $target->application_admin, 'workspaces' => $target->workspaces, 'revision' => $target->revision]);
-                    DB::table('reference_access_audit')->insert(['actor' => $actorSubject, 'target' => $target->subject, 'application' => $this->application, 'revision' => $target->revision]);
+                    DB::table('reference_access_audit')->insert(['actor' => $actorSubject, 'target' => $target->subject, 'application' => $this->application, 'revision' => $target->revision, 'correlation' => $correlation]);
                 }
 
                 return ['status' => 200, 'body' => [...$envelope, 'subject' => $payload['subject'], 'provisioned' => true, 'revision' => $target->revision,

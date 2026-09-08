@@ -12,6 +12,7 @@ use App\Services\DelegatedAccess\CacheNonceStore;
 use App\Services\DelegatedAccess\DelegatedAccessException;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Services\DelegatedAccess\TransportClock;
+use BWH\Auth\Models\AuthAuditLog;
 use GuzzleHttp\Psr7\FnStream;
 use GuzzleHttp\Psr7\Utils;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -21,6 +22,7 @@ use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -74,6 +76,7 @@ class DelegatedAccessTransportTest extends TestCase
             $table->string('revision');
         });
         Schema::create('reference_access_audit', function ($table): void {
+            $table->string('correlation');
             $table->id();
             $table->string('actor');
             $table->string('target');
@@ -109,6 +112,13 @@ class DelegatedAccessTransportTest extends TestCase
         $this->assertDatabaseHas('reference_access_audit', ['actor' => (string) $this->actor->id, 'target' => 'target-a', 'revision' => $saved['revision']]);
         $this->refused(fn () => $transport->send($this->request, 'example-app', $update), 'revision_conflict', 409);
         $this->assertDatabaseCount('reference_access_audit', 1);
+        $providerRecords = AuthAuditLog::where('event', 'like', 'delegated_access_update_%')->orderBy('id')->get();
+        $this->assertSame(['attempt', 'succeeded', 'attempt', 'revision_conflict'], $providerRecords->map(fn ($row) => $row->metadata['outcome'])->all());
+        $this->assertSame(DB::table('reference_access_audit')->value('correlation'), $providerRecords[0]->metadata['correlation']);
+        $this->assertSame($providerRecords[0]->metadata['correlation'], $providerRecords[1]->metadata['correlation']);
+        $this->assertNotSame($providerRecords[0]->metadata['correlation'], $providerRecords[2]->metadata['correlation']);
+        $this->assertSame(['application', 'target', 'operation', 'outcome', 'correlation'], array_keys($providerRecords[0]->metadata));
+        $this->assertSame($this->actor->id, $providerRecords[0]->acting_user_id);
         $unprovisioned = $transport->send($this->request, 'example-app', ['operation' => 'read', 'subject' => 'unknown-subject']);
         $this->assertFalse($unprovisioned['provisioned']);
         $this->assertNull($unprovisioned['revision']);
@@ -253,6 +263,26 @@ class DelegatedAccessTransportTest extends TestCase
         $this->fakeAdapter();
         $result = app(DelegatedAccessTransport::class)->send($this->request, 'example-app', ['operation' => 'capabilities']);
         $this->assertSame('capabilities', $result['operation']);
+    }
+
+    public function test_provider_audit_failure_blocks_transmission_or_preserves_unknown_outcome(): void
+    {
+        $this->fakeAdapter();
+        $phase = 'attempt';
+        Event::listen('eloquent.creating: '.AuthAuditLog::class, function (AuthAuditLog $record) use (&$phase): void {
+            if ($record->event === 'delegated_access_update_'.$phase) {
+                throw new \RuntimeException('synthetic audit failure');
+            }
+        });
+        $transport = app(DelegatedAccessTransport::class);
+        $this->refused(fn () => $transport->send($this->request, 'example-app', $this->update('revision-initial')), 'audit_unavailable', 503);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('reference_access_audit', 0);
+        $phase = 'result';
+        $this->refused(fn () => $transport->send($this->request, 'example-app', $this->update('revision-initial')), 'unknown_outcome', 503);
+        $this->assertDatabaseCount('reference_access_audit', 1);
+        $this->assertDatabaseHas('auth_audit_log', ['event' => 'delegated_access_update_attempt', 'acting_user_id' => $this->actor->id]);
+        $this->assertDatabaseMissing('auth_audit_log', ['event' => 'delegated_access_update_result']);
     }
 
     private function fakeAdapter(): void

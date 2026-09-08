@@ -15,7 +15,7 @@ final class ActorAssertion
 {
     public const TYPE = 'application-access+jwt';
 
-    public function issue(string $issuer, string $subject, string $endpoint, string $application, string $body, string $keyId, #[SensitiveParameter] string $privateKey): string
+    public function issue(string $issuer, string $subject, string $endpoint, string $application, string $body, string $keyId, #[SensitiveParameter] string $privateKey, ?string $correlation = null): string
     {
         if ($subject === '' || strlen($subject) > 191 || $keyId === '' || strlen($keyId) > 128) {
             throw new DelegatedAccessException('invalid_signing_configuration');
@@ -23,13 +23,17 @@ final class ActorAssertion
 
         try {
             $now = new DateTimeImmutable('@'.time());
+            $correlation ??= bin2hex(random_bytes(32));
+            if (preg_match('/^[a-f0-9]{64}$/D', $correlation) !== 1) {
+                throw new DelegatedAccessException('invalid_signing_configuration');
+            }
 
             return Builder::new(new JoseEncoder, ChainedFormatter::withUnixTimestampDates())
                 ->withHeader('typ', self::TYPE)
                 ->withHeader('kid', $keyId)
                 ->issuedBy($issuer)->relatedTo($subject)->permittedFor($endpoint)
                 ->issuedAt($now)->expiresAt($now->modify('+60 seconds'))
-                ->identifiedBy(bin2hex(random_bytes(32)))
+                ->identifiedBy($correlation)
                 ->withClaim('application', $application)
                 ->withClaim('method', 'POST')
                 ->withClaim('body_sha256', hash('sha256', $body))
