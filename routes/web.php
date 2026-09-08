@@ -37,6 +37,7 @@ Route::middleware(['auth', RequireProviderAdmin::class])->group(function (): voi
     Route::prefix('/api/admin')->group(function (): void {
         Route::get('/users', [DirectoryAdminController::class, 'index']);
         Route::post('/users', [DirectoryAdminController::class, 'store']);
+        Route::patch('/users/{user}/name', [DirectoryAdminController::class, 'updateName']);
         Route::patch('/users/{user}/email', [DirectoryAdminController::class, 'updateEmail']);
         Route::post('/users/{user}/disable', [DirectoryAdminController::class, 'disable']);
         Route::post('/users/{user}/enable', [DirectoryAdminController::class, 'enable']);

@@ -62,6 +62,22 @@ class DirectoryAdminController extends Controller
         return response()->json(['user' => $this->userPayload($user)], 201);
     }
 
+    public function updateName(Request $request, User $user): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+        ]);
+
+        $updated = $this->directory->changeName(
+            $request,
+            $this->actor($request),
+            $user,
+            $validated['name'],
+        );
+
+        return response()->json(['user' => $this->userPayload($updated)]);
+    }
+
     public function updateEmail(Request $request, User $user): JsonResponse
     {
         $validated = $request->validate([
