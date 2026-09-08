@@ -1,8 +1,9 @@
 # auth-manager
 
-Identity provider for the `bherila.net` application family. Runs at
-[`id.bherila.net`](https://id.bherila.net) and issues OAuth 2.0 tokens to the
-applications that rely on it.
+An identity provider with shared account and administrator screens, OAuth 2.0,
+passkeys, and optional deployment branding. Each instance owns its identity
+directory and registered applications; connected applications retain their own
+business data and authorization rules.
 
 ## Responsibilities
 
@@ -65,9 +66,21 @@ introspection configuration.
 
 ## Deployment
 
-Merges to `main` that pass CI deploy automatically. The deploy destination is
-hard-coded; runtime configuration and database credentials live on the server
-outside the repository and are never committed.
+One codebase can serve independently operated client instances. The built-in
+stylesheet includes light and dark modes and remains the default. Optional logos,
+colors and font settings customize that shared UI without maintaining a fork.
+
+An operator's deployment repository owns its CI jobs, environment approvals,
+private branding and credentials. It checks out reviewed application and tooling
+revisions, builds a release, and deploys to an isolated identity runtime. Reusable
+deployment scripts and synthetic tests belong here; client-specific orchestration
+and assets stay with the operator.
+
+Start with [the deployment guide](docs/deployment.md), then use the focused
+[branding guide](docs/deployment-branding.md) and
+[OAuth profile reference](docs/deployment-profiles.md). The repository's existing
+automatic deployment jobs serve configured installations; they are not a generic
+onboarding mechanism for another client.
 
 The host invokes `php artisan schedule:run` every minute. The application
 scheduler runs identity-tombstone retention hourly and prevents overlapping
