@@ -84,6 +84,13 @@ class DelegatedActorAssertionTest extends TestCase
         $this->refused(fn () => $this->verifier(new CacheNonceStore(Cache::store('array')))->verify($this->signed(), 'POST', '{}'), 'replay_storage_unavailable', 503);
     }
 
+    public function test_pinned_issuer_trailing_slash_is_canonicalized_before_comparison(): void
+    {
+        $verifier = new ActorAssertionVerifier('https://identity.example.test/', 'https://app.example.test/access', 'example-app',
+            ['integration-v1' => $this->publicKey], new CacheNonceStore(Cache::store('database')));
+        $this->assertSame('actor-example', $verifier->verify($this->signed(), 'POST', '{}'));
+    }
+
     private function verifier(?NonceStore $nonces = null): ActorAssertionVerifier
     {
         return new ActorAssertionVerifier('https://identity.example.test', 'https://app.example.test/access', 'example-app', ['integration-v1' => $this->publicKey], $nonces ?? new CacheNonceStore(Cache::store('database')));

@@ -11,6 +11,9 @@ use App\Services\DelegatedAccess\ActorAssertionVerifier;
 use App\Services\DelegatedAccess\CacheNonceStore;
 use App\Services\DelegatedAccess\DelegatedAccessException;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
+use App\Services\DelegatedAccess\TransportClock;
+use GuzzleHttp\Psr7\FnStream;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
@@ -205,6 +208,51 @@ class DelegatedAccessTransportTest extends TestCase
         config(['delegated-access.enabled' => false]);
         $this->refused(fn () => $transport->send($this->request, 'example-app', ['operation' => 'capabilities']), 'integration_disabled', 503);
         Http::assertNothingSent();
+    }
+
+    public function test_slow_response_cannot_extend_absolute_deadline_and_is_closed(): void
+    {
+        foreach (['read', 'update'] as $operation) {
+            $clock = new class extends TransportClock
+            {
+                public float $elapsed = 0;
+
+                public function now(): float
+                {
+                    return $this->elapsed;
+                }
+            };
+            $this->app->instance(TransportClock::class, $clock);
+            $closed = false;
+            $body = Utils::streamFor(json_encode(['contract_version' => 1, 'application' => 'example-app', 'operation' => $operation,
+                'subject' => 'target-a', 'provisioned' => false, 'revision' => null, 'access' => null,
+                'allowed_edits' => ['application_admin' => false, 'workspaces' => false]], JSON_THROW_ON_ERROR));
+            $stream = FnStream::decorate($body, [
+                'read' => function (int $length) use ($body, $clock): string {
+                    $clock->elapsed = 11;
+
+                    return $body->read($length);
+                },
+                'close' => function () use (&$closed, $body): void {
+                    $closed = true;
+                    $body->close();
+                },
+            ]);
+            Http::swap(new Factory);
+            Http::fake(fn () => Http::response($stream));
+            $input = $operation === 'update' ? $this->update('revision-initial') : ['operation' => 'read', 'subject' => 'target-a'];
+            $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', $input),
+                $operation === 'update' ? 'unknown_outcome' : 'invalid_response', 503);
+            $this->assertTrue($closed);
+        }
+    }
+
+    public function test_provider_issuer_trailing_slash_uses_canonical_signed_value(): void
+    {
+        config(['delegated-access.issuer' => 'https://identity.example.test/']);
+        $this->fakeAdapter();
+        $result = app(DelegatedAccessTransport::class)->send($this->request, 'example-app', ['operation' => 'capabilities']);
+        $this->assertSame('capabilities', $result['operation']);
     }
 
     private function fakeAdapter(): void

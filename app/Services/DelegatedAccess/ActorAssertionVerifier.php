@@ -14,15 +14,17 @@ use Throwable;
 /** Consumer-side primitive: construction requires locally pinned trust, never JWT URLs. */
 final readonly class ActorAssertionVerifier
 {
+    private string $issuer;
+
     public function __construct(
-        private string $issuer,
+        string $issuer,
         private string $endpoint,
         private string $application,
         private array $publicKeys,
         private NonceStore $nonces,
     ) {
         try {
-            AuthManagerProfile::validatedIssuerUrl($issuer, 'Pinned issuer');
+            $this->issuer = AuthManagerProfile::validatedIssuerUrl($issuer, 'Pinned issuer');
             AuthManagerProfile::validatedAbsoluteUrl($endpoint, 'Pinned endpoint');
             if (parse_url($issuer, PHP_URL_SCHEME) !== 'https' || parse_url($endpoint, PHP_URL_SCHEME) !== 'https'
                 || preg_match('/^[a-z][a-z0-9-]{0,63}$/D', $application) !== 1 || $publicKeys === []) {

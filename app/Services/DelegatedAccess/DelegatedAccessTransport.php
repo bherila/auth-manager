@@ -16,7 +16,7 @@ use Throwable;
 
 final class DelegatedAccessTransport
 {
-    public function __construct(private readonly ActorAssertion $assertions, private readonly DelegatedContract $contract) {}
+    public function __construct(private readonly ActorAssertion $assertions, private readonly DelegatedContract $contract, private readonly TransportClock $clock) {}
 
     public function send(Request $request, string $application, array $operation): array
     {
@@ -33,7 +33,7 @@ final class DelegatedAccessTransport
         $keyId = $configuration['key_id'] ?? null;
         try {
             AuthManagerProfile::validatedAbsoluteUrl($endpoint, 'Delegated endpoint');
-            AuthManagerProfile::validatedIssuerUrl($issuer, 'Delegated issuer');
+            $issuer = AuthManagerProfile::validatedIssuerUrl($issuer, 'Delegated issuer');
             if (parse_url($endpoint, PHP_URL_SCHEME) !== 'https' || parse_url($issuer, PHP_URL_SCHEME) !== 'https'
                 || ! is_string($keyPath) || ! is_readable($keyPath) || ! is_string($keyId) || $keyId === '') {
                 throw new DelegatedAccessException('invalid_configuration');
@@ -53,44 +53,54 @@ final class DelegatedAccessTransport
             throw new DelegatedAccessException('invalid_configuration');
         }
 
+        $deadline = $this->clock->now() + 10;
         try {
             // Never retry writes or follow redirects. Read at most the contract bound,
             // including chunked responses, without buffering an unbounded response.
             $response = Http::connectTimeout(3)->timeout(10)->withoutRedirecting()
-                ->withOptions(['stream' => true, 'read_timeout' => 10])
+                ->withOptions(['stream' => true, 'read_timeout' => 1])
                 ->withHeaders(['Authorization' => 'Bearer '.$assertion, 'Accept' => 'application/json'])
                 ->withBody($body, 'application/json')->post($endpoint);
         } catch (Throwable) {
             throw new DelegatedAccessException($write ? 'unknown_outcome' : 'unavailable');
         }
-        if (in_array($response->status(), [403, 404, 409, 422], true)) {
-            throw new DelegatedAccessException(match ($response->status()) {
-                403, 404 => 'not_authorized',
-                409 => 'revision_conflict',
-                422 => 'invalid_request',
-            }, $response->status());
-        }
-        if (! $response->successful()) {
-            throw new DelegatedAccessException($write ? 'unknown_outcome' : 'unavailable');
-        }
+        $stream = $response->toPsrResponse()->getBody();
         try {
-            $stream = $response->toPsrResponse()->getBody();
-            $bytes = '';
-            while (! $stream->eof() && strlen($bytes) <= DelegatedContract::MAX_RESPONSE_BYTES) {
-                $chunk = $stream->read(min(8192, DelegatedContract::MAX_RESPONSE_BYTES + 1 - strlen($bytes)));
-                if ($chunk === '' && ! $stream->eof()) {
+            if ($this->clock->now() >= $deadline) {
+                throw new DelegatedAccessException($write ? 'unknown_outcome' : 'invalid_response');
+            }
+            if (in_array($response->status(), [403, 404, 409, 422], true)) {
+                throw new DelegatedAccessException(match ($response->status()) {
+                    403, 404 => 'not_authorized',
+                    409 => 'revision_conflict',
+                    422 => 'invalid_request',
+                }, $response->status());
+            }
+            if (! $response->successful()) {
+                throw new DelegatedAccessException($write ? 'unknown_outcome' : 'unavailable');
+            }
+            try {
+                $bytes = '';
+                while (! $stream->eof() && strlen($bytes) <= DelegatedContract::MAX_RESPONSE_BYTES) {
+                    if ($this->clock->now() >= $deadline) {
+                        throw new DelegatedAccessException('invalid_response');
+                    }
+                    $chunk = $stream->read(min(8192, DelegatedContract::MAX_RESPONSE_BYTES + 1 - strlen($bytes)));
+                    if ($this->clock->now() >= $deadline || ($chunk === '' && ! $stream->eof())) {
+                        throw new DelegatedAccessException('invalid_response');
+                    }
+                    $bytes .= $chunk;
+                }
+                if ($this->clock->now() >= $deadline || strlen($bytes) > DelegatedContract::MAX_RESPONSE_BYTES) {
                     throw new DelegatedAccessException('invalid_response');
                 }
-                $bytes .= $chunk;
-            }
-            $stream->close();
-            if (strlen($bytes) > DelegatedContract::MAX_RESPONSE_BYTES) {
-                throw new DelegatedAccessException('invalid_response');
-            }
 
-            return $this->contract->response(json_decode($bytes, true, 64, JSON_THROW_ON_ERROR), $application, $payload['operation'], $payload['subject'] ?? null);
-        } catch (Throwable) {
-            throw new DelegatedAccessException($write ? 'unknown_outcome' : 'invalid_response');
+                return $this->contract->response(json_decode($bytes, true, 64, JSON_THROW_ON_ERROR), $application, $payload['operation'], $payload['subject'] ?? null);
+            } catch (Throwable) {
+                throw new DelegatedAccessException($write ? 'unknown_outcome' : 'invalid_response');
+            }
+        } finally {
+            $stream->close();
         }
     }
 
