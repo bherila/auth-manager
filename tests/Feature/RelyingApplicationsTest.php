@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Laravel\Passport\AccessToken;
 use Tests\TestCase;
 
 /**
@@ -120,6 +121,11 @@ class RelyingApplicationsTest extends TestCase
         $user = User::factory()->create();
         $clientId = $this->client('Finance', json_encode(['https://pf.example.test/oauth/callback']));
         $this->grant($clientId, (string) $user->getKey());
+        DB::table('oauth_access_tokens')->insert([
+            'id' => 'synthetic-identity-token', 'user_id' => $user->id, 'client_id' => $clientId,
+            'scopes' => '[]', 'revoked' => false, 'credential_version' => 0,
+        ]);
+        $user->withAccessToken(new AccessToken(['oauth_access_token_id' => 'synthetic-identity-token', 'oauth_client_id' => $clientId, 'oauth_user_id' => (string) $user->id]));
         $request = Request::create('/api/oauth/user');
         $request->setUserResolver(fn (): User => $user);
 

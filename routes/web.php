@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Controllers\AccountSettingsController;
 use App\Http\Controllers\DirectoryAdminController;
+use App\Http\Controllers\IdentityLifecycleController;
 use App\Http\Controllers\LoginController;
 use App\Http\Controllers\OAuthUserController;
 use App\Http\Middleware\RequireProviderAdmin;
@@ -15,7 +17,7 @@ Route::get('/', function () {
 
 Route::get('/login', fn () => view('login'))->name('login');
 Route::post('/login', [LoginController::class, 'login']);
-Route::post('/login/email-code', [LoginController::class, 'requestEmailCode'])->name('login.email-code');
+Route::post('/login/email-code', [LoginController::class, 'requestEmailCode'])->middleware('throttle:email-code')->name('login.email-code');
 Route::post('/login/dev', [LoginController::class, 'devLogin'])->name('login.dev');
 Route::post('/login/dev-by-id', [LoginController::class, 'devLoginById'])->name('login.dev.by-id');
 
@@ -27,16 +29,24 @@ Route::post('/logout', function (Request $request) {
     return redirect('/');
 })->name('logout');
 
+Route::middleware(['auth', RequireActiveUser::class])->group(function (): void {
+    Route::get('/settings', [AccountSettingsController::class, 'show'])->name('settings.account');
+    Route::put('/settings/password', [AccountSettingsController::class, 'changePassword'])->middleware('throttle:5,1')->name('settings.password');
+});
+
 Route::view('/settings/passkeys', 'settings.passkeys')
     ->middleware(['auth', RequireActiveUser::class])
     ->name('settings.passkeys');
 
 Route::middleware(['auth', RequireProviderAdmin::class])->group(function (): void {
     Route::view('/admin/users', 'admin.users')->name('admin.users');
+    Route::get('/admin/identity-lifecycle', [IdentityLifecycleController::class, 'page'])->name('admin.identity-lifecycle');
 
     Route::prefix('/api/admin')->group(function (): void {
+        Route::get('/identity-lifecycle', [IdentityLifecycleController::class, 'index']);
         Route::get('/users', [DirectoryAdminController::class, 'index']);
         Route::post('/users', [DirectoryAdminController::class, 'store']);
+        Route::patch('/users/{user}/name', [DirectoryAdminController::class, 'updateName']);
         Route::patch('/users/{user}/email', [DirectoryAdminController::class, 'updateEmail']);
         Route::post('/users/{user}/disable', [DirectoryAdminController::class, 'disable']);
         Route::post('/users/{user}/enable', [DirectoryAdminController::class, 'enable']);

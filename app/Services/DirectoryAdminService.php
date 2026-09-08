@@ -17,6 +17,8 @@ class DirectoryAdminService
 {
     public const EVENT_USER_CREATED = 'directory_user_created';
 
+    public const EVENT_NAME_CHANGED = 'directory_name_changed';
+
     public const EVENT_EMAIL_CHANGED = 'directory_email_changed';
 
     public const EVENT_USER_DISABLED = 'directory_user_disabled';
@@ -64,6 +66,24 @@ class DirectoryAdminService
             ]);
 
             return $user;
+        });
+    }
+
+    public function changeName(Request $request, User $actor, User $target, string $name): User
+    {
+        return DB::transaction(function () use ($request, $actor, $target, $name): User {
+            $locked = $this->lock($target);
+
+            if ($locked->name !== $name) {
+                $previous = $locked->name;
+                $locked->forceFill(['name' => $name])->save();
+                // Consumers project this name, so a rename can impersonate. Keep both
+                // values so the audit trail shows what changed and can be reverted.
+                $this->audit->record($request, $actor, $locked, self::EVENT_NAME_CHANGED,
+                    ['previous_name' => $previous, 'name' => $name]);
+            }
+
+            return $locked;
         });
     }
 
