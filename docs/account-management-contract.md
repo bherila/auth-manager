@@ -185,18 +185,28 @@ clients are rejected. An active response has this shape:
   "contract_version": 1,
   "active": true,
   "subject": "subject-example",
-  "credential_version": 7,
-  "name": "Example User",
-  "email": "user@example.test"
+  "credential_version": 7
 }
 ```
+
+The active response carries liveness and generation only, never name, email or
+other profile data. A static client credential plus a caller-chosen subject is
+not proof about the person: a grant is coarse permission to authorize a client,
+the grant migration backfilled every active subject to every existing client,
+and subjects are sequential identifiers. Profile fields here would let any
+client operator, or anyone holding one client secret, enumerate the directory,
+including people who never established an account with that application.
+Profile data is released only through the bearer-authenticated login identity
+response, which is bound to that person's own OAuth login. Consumers ignore
+profile fields in a status response rather than adopting them.
 
 Responses are non-cacheable by intermediaries. Consumers retain the successful
 check time privately in the authenticated session. Protected requests recheck
 at least every five minutes; privileged writes require a fresh status check.
 Inactive status or a generation mismatch invalidates the bound local session.
-Valid responses refresh name/email projections according to the consumer's
-explicit alias mapping. Existing local authorization checks still run.
+Name/email projections refresh from the login identity response at sign-in,
+according to the consumer's explicit alias mapping; a status check never changes
+them. Existing local authorization checks still run.
 
 Network failures, invalid credentials and malformed responses do not mean
 "active". Once the freshness window expires, return a retryable unavailable
