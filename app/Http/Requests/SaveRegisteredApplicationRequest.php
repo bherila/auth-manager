@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\RegisteredApplication;
 use App\Support\AuthManagerProfile;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
@@ -26,7 +27,7 @@ class SaveRegisteredApplicationRequest extends FormRequest
     {
         return [
             'key' => $this->route('application') === null
-                ? ['required', 'string', 'max:64', 'regex:/^[a-z][a-z0-9-]*$/', Rule::unique('registered_applications', 'key')]
+                ? ['required', 'string', 'max:64', 'regex:/^[a-z][a-z0-9-]*$/', Rule::unique(RegisteredApplication::class, 'key')]
                 : ['prohibited'],
             'name' => ['required', 'string', 'max:255'],
             'launch_url' => ['required', 'string', 'max:2048', function (string $attribute, mixed $value, Closure $fail): void {

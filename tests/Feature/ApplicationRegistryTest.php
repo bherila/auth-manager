@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Support\RelyingApplications;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -156,6 +157,8 @@ class ApplicationRegistryTest extends TestCase
         $admin = User::factory()->create(['user_role' => 'admin']);
         $client = $this->client();
         $this->grant($admin, $client);
+        Schema::drop('registered_application_clients');
+        Schema::drop('registered_applications');
         $schema = DB::selectOne("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'oauth_clients'")->sql;
         config(['database.connections.registry_passport' => [
             'driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => true,
@@ -168,9 +171,10 @@ class ApplicationRegistryTest extends TestCase
             $migration->up();
             $migration->up();
             $this->actingAs($admin)->postJson('/api/admin/applications', $this->payload([$client->id]))->assertCreated();
+            $this->postJson('/api/admin/applications', $this->payload([]))->assertUnprocessable()->assertJsonValidationErrors('key');
             $application = RegisteredApplication::with('clients')->firstOrFail();
             $this->assertSame([$client->id], $application->clients->modelKeys());
-            $this->assertSame(0, DB::connection('sqlite')->table('registered_applications')->count());
+            $this->assertFalse(Schema::connection('sqlite')->hasTable('registered_applications'));
             $this->assertSame(1, DB::connection('sqlite')->table('auth_audit_log')->where('event', 'application_registered')->count());
             $this->assertCount(1, app(RelyingApplications::class)->forSubject((string) $admin->id));
             $this->putJson('/api/admin/applications/'.$application->id, [...$this->payload([]), 'key' => null])->assertOk();
