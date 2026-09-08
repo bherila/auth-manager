@@ -8,7 +8,6 @@ use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Services\DelegatedAccess\ActorAssertionVerifier;
-use App\Services\DelegatedAccess\CacheNonceStore;
 use App\Services\DelegatedAccess\DelegatedAccessException;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Services\DelegatedAccess\TransportClock;
@@ -20,18 +19,19 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Tests\Fixtures\ReferenceAccessAdapter;
+use Tests\Fixtures\UsesDurableNonces;
 use Tests\TestCase;
 
 class DelegatedAccessTransportTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesDurableNonces;
 
     private string $keyPath;
 
@@ -46,6 +46,7 @@ class DelegatedAccessTransportTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->setUpNonceStore();
         $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
         openssl_pkey_export($key, $private);
         $this->publicKey = openssl_pkey_get_details($key)['key'];
@@ -91,6 +92,7 @@ class DelegatedAccessTransportTest extends TestCase
 
     protected function tearDown(): void
     {
+        $this->tearDownNonceStore();
         @unlink($this->keyPath);
         parent::tearDown();
     }
@@ -287,7 +289,7 @@ class DelegatedAccessTransportTest extends TestCase
 
     private function fakeAdapter(): void
     {
-        $adapter = new ReferenceAccessAdapter(new ActorAssertionVerifier('https://identity.example.test', 'https://app.example.test/access', 'example-app', ['integration-v1' => $this->publicKey], new CacheNonceStore(Cache::store('database'))));
+        $adapter = new ReferenceAccessAdapter(new ActorAssertionVerifier('https://identity.example.test', 'https://app.example.test/access', 'example-app', ['integration-v1' => $this->publicKey], $this->nonceStore()));
         Http::swap(new Factory);
         Http::fake(function (ClientRequest $request) use ($adapter) {
             $token = substr($request->header('Authorization')[0], 7);

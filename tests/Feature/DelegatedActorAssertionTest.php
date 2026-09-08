@@ -4,19 +4,22 @@ namespace Tests\Feature;
 
 use App\Services\DelegatedAccess\ActorAssertion;
 use App\Services\DelegatedAccess\ActorAssertionVerifier;
-use App\Services\DelegatedAccess\CacheNonceStore;
+use App\Services\DelegatedAccess\DatabaseNonceStore;
 use App\Services\DelegatedAccess\DelegatedAccessException;
 use App\Services\DelegatedAccess\NonceStore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Lcobucci\JWT\Encoding\JoseEncoder;
 use Lcobucci\JWT\Signer\Key\InMemory;
 use Lcobucci\JWT\Signer\Rsa\Sha256;
+use Tests\Fixtures\UsesDurableNonces;
 use Tests\TestCase;
 
 class DelegatedActorAssertionTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesDurableNonces;
 
     private string $privateKey = '';
 
@@ -25,6 +28,7 @@ class DelegatedActorAssertionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->setUpNonceStore();
         $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
         openssl_pkey_export($key, $this->privateKey);
         $this->publicKey = openssl_pkey_get_details($key)['key'];
@@ -56,7 +60,7 @@ class DelegatedActorAssertionTest extends TestCase
         foreach ([['alg' => 'HS256'], ['typ' => 'JWT'], ['kid' => 'unknown'], ['jku' => 'https://keys.example.test/jwks']] as $header) {
             $this->refused(fn () => $this->verifier()->verify($this->signed([], $header), 'POST', '{}'), 'invalid_actor_assertion', 401);
         }
-        $this->assertDatabaseCount('cache', 0);
+        $this->assertSame(0, DB::connection('delegated_nonce_test')->table(DatabaseNonceStore::TABLE)->count());
     }
 
     public function test_modified_signature_body_and_method_fail_without_an_oauth_fallback(): void
@@ -81,19 +85,34 @@ class DelegatedActorAssertionTest extends TestCase
             }
         };
         $this->refused(fn () => $this->verifier($broken)->verify($this->signed(), 'POST', '{}'), 'replay_storage_unavailable', 503);
-        $this->refused(fn () => $this->verifier(new CacheNonceStore(Cache::store('array')))->verify($this->signed(), 'POST', '{}'), 'replay_storage_unavailable', 503);
+        $this->refused(fn () => $this->verifier(new DatabaseNonceStore(DB::connection()))->verify($this->signed(), 'POST', '{}'), 'replay_storage_unavailable', 503);
     }
 
     public function test_pinned_issuer_trailing_slash_is_canonicalized_before_comparison(): void
     {
         $verifier = new ActorAssertionVerifier('https://identity.example.test/', 'https://app.example.test/access', 'example-app',
-            ['integration-v1' => $this->publicKey], new CacheNonceStore(Cache::store('database')));
+            ['integration-v1' => $this->publicKey], $this->nonceStore());
         $this->assertSame('actor-example', $verifier->verify($this->signed(), 'POST', '{}'));
+    }
+
+    protected function tearDown(): void
+    {
+        $this->tearDownNonceStore();
+        parent::tearDown();
+    }
+
+    public function test_cache_flush_and_database_reconnect_cannot_reopen_a_consumed_nonce(): void
+    {
+        $token = $this->signed();
+        $this->assertSame('actor-example', $this->verifier()->verify($token, 'POST', '{}'));
+        Cache::store('database')->flush();
+        DB::purge('delegated_nonce_test');
+        $this->refused(fn () => $this->verifier()->verify($token, 'POST', '{}'), 'replayed_actor_assertion', 401);
     }
 
     private function verifier(?NonceStore $nonces = null): ActorAssertionVerifier
     {
-        return new ActorAssertionVerifier('https://identity.example.test', 'https://app.example.test/access', 'example-app', ['integration-v1' => $this->publicKey], $nonces ?? new CacheNonceStore(Cache::store('database')));
+        return new ActorAssertionVerifier('https://identity.example.test', 'https://app.example.test/access', 'example-app', ['integration-v1' => $this->publicKey], $nonces ?? $this->nonceStore());
     }
 
     private function signed(array $overrides = [], array $headers = []): string
