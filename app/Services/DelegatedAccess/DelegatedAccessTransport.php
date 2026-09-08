@@ -13,6 +13,8 @@ use BWH\Auth\Models\AuthAuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Psr\Http\Message\ResponseInterface;
+use RuntimeException;
 use Throwable;
 
 final class DelegatedAccessTransport
@@ -103,8 +105,18 @@ final class DelegatedAccessTransport
         try {
             // Never retry writes or follow redirects. Read at most the contract bound,
             // including chunked responses, without buffering an unbounded response.
+            // The bounded read below assumes a lazy stream, which Guzzle only provides when
+            // its stream handler is selected (allow_url_fopen). Under curl the body would buffer
+            // first, so also refuse a declared oversize body before it is read and cap curl itself.
             $response = Http::connectTimeout(3)->timeout(10)->withoutRedirecting()
-                ->withOptions(['stream' => true, 'read_timeout' => 1])
+                ->withOptions(['stream' => true, 'read_timeout' => 1,
+                    'on_headers' => static function (ResponseInterface $headers): void {
+                        $declared = $headers->getHeaderLine('Content-Length');
+                        if ($declared !== '' && (! ctype_digit($declared) || (int) $declared > DelegatedContract::MAX_RESPONSE_BYTES)) {
+                            throw new RuntimeException('The application response exceeds the contract size limit.');
+                        }
+                    },
+                    'curl' => [CURLOPT_MAXFILESIZE => DelegatedContract::MAX_RESPONSE_BYTES]])
                 ->withHeaders(['Authorization' => 'Bearer '.$assertion, 'Accept' => 'application/json'])
                 ->withBody($body, 'application/json')->post($endpoint);
         } catch (Throwable) {

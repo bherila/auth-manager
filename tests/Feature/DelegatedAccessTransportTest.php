@@ -10,9 +10,11 @@ use App\Models\User;
 use App\Services\DelegatedAccess\ActorAssertionVerifier;
 use App\Services\DelegatedAccess\DelegatedAccessException;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
+use App\Services\DelegatedAccess\DelegatedContract;
 use App\Services\DelegatedAccess\TransportClock;
 use BWH\Auth\Models\AuthAuditLog;
 use GuzzleHttp\Psr7\FnStream;
+use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Utils;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
@@ -231,6 +233,32 @@ class DelegatedAccessTransportTest extends TestCase
         config(['delegated-access.enabled' => false]);
         $this->refused(fn () => $transport->send($this->request, 'example-app', ['operation' => 'capabilities']), 'integration_disabled', 503);
         Http::assertNothingSent();
+    }
+
+    public function test_response_size_bound_is_enforced_before_the_body_is_read_under_either_handler(): void
+    {
+        $transport = app(DelegatedAccessTransport::class);
+        Http::swap(new Factory);
+        $captured = null;
+        Http::fake(function ($request, array $options) use (&$captured) {
+            $captured = $options;
+
+            return Http::response(['contract_version' => 1, 'application' => 'example-app', 'operation' => 'capabilities',
+                'controls' => ['application_admin' => true, 'workspace_permissions' => ['read', 'write']]]);
+        });
+        $transport->send($this->request, 'example-app', ['operation' => 'capabilities']);
+        $this->assertSame(DelegatedContract::MAX_RESPONSE_BYTES, $captured['curl'][CURLOPT_MAXFILESIZE]);
+        $onHeaders = $captured['on_headers'];
+        $onHeaders(new Response(200, ['Content-Length' => (string) DelegatedContract::MAX_RESPONSE_BYTES]));
+        $onHeaders(new Response(200, ['Transfer-Encoding' => 'chunked']));
+        foreach ([(string) (DelegatedContract::MAX_RESPONSE_BYTES + 1), 'not-a-number'] as $declared) {
+            try {
+                $onHeaders(new Response(200, ['Content-Length' => $declared]));
+                $this->fail('A declared oversize body must be refused before it is read.');
+            } catch (\RuntimeException) {
+                $this->addToAssertionCount(1);
+            }
+        }
     }
 
     public function test_slow_response_cannot_extend_absolute_deadline_and_is_closed(): void
