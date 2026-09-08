@@ -7,7 +7,8 @@ use App\Http\Middleware\RequireRecentPasskeyAuthentication;
 use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
@@ -17,7 +18,16 @@ use Tests\TestCase;
 
 class ApplicationAccessUiTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseMigrations;
+
+    public function runDatabaseMigrations(): void
+    {
+        // Real transport writes require independently committed audit records.
+        $this->refreshTestDatabase();
+        $this->beforeApplicationDestroyed(function (): void {
+            RefreshDatabaseState::$migrated = false;
+        });
+    }
 
     private string $keyPath;
 
