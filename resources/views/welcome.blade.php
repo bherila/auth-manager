@@ -21,6 +21,7 @@
                 @endif
                 @if (auth()->user()->canLogin() && auth()->user()->hasRole('admin'))
                     <x-ui.button :href="route('admin.users')" variant="outline">Directory administration</x-ui.button>
+                    <x-ui.button :href="route('admin.identity-lifecycle')" variant="outline">Identity lifecycle</x-ui.button>
                 @endif
             </div>
         @endauth

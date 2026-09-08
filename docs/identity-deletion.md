@@ -112,3 +112,22 @@ application acknowledgement.
 
 The deployment environment must invoke Laravel's `schedule:run` every minute;
 the repository owns the hourly job definition and overlap lock.
+
+## Provider administration
+
+Active provider administrators can review `/admin/identity-lifecycle` and its
+read-only JSON counterpart `/api/admin/identity-lifecycle?page=1`. Both list 25
+records per page, newest first, and return private, no-store responses. The API
+returns `data`, `page`, and `has_more`; user names, email addresses and credentials
+are not included. Application labels and IDs come from the deletion snapshot,
+so removing a client registration cannot hide an unacknowledged assignment.
+
+The view keeps retention expiry and provider purge separate from each
+application's acknowledgement. It never acknowledges work, purges records or
+changes the deletion protocol. A zero-application snapshot is shown explicitly.
+
+This progress view does not establish revocation of sessions created inside
+consuming applications. Consumer session revalidation, its freshness/outage
+policy, profile refresh and local tombstone adoption remain integration work;
+provider token revocation alone must not be described as proof that every
+application browser session ended.
