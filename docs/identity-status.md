@@ -7,7 +7,7 @@ Send a JSON object with a nonempty string `subject`, at most 255 characters. Tre
 For an active account with a current grant, the response is:
 
 ```json
-{"contract_version":1,"active":true,"subject":"42","credential_version":3,"name":"Example Person","email":"person@example.test"}
+{"contract_version":1,"active":true,"subject":"42","credential_version":3}
 ```
 
 Unknown, disabled, deleted, and ungranted subjects receive the identical successful response:
@@ -16,7 +16,9 @@ Unknown, disabled, deleted, and ungranted subjects receive the identical success
 {"contract_version":1,"active":false}
 ```
 
-Invalid client authentication is HTTP 401; invalid request shape is HTTP 422. The existing reconciliation throttle allows 60 requests per minute and returns HTTP 429 when exhausted. Responses, including authentication, validation and throttle failures, carry `Cache-Control: private, no-store`. Do not log client credentials or returned profiles.
+The active response never carries profile data. A client credential plus a caller-chosen subject is not proof about the person: grants are coarse permission to authorize a client, the grant migration backfilled every active subject to every existing client, and subjects are sequential identifiers. Returning `name` or `email` here would let any client operator, or anyone holding one client secret, enumerate the directory. Profile data is released only through the bearer-authenticated `GET /api/oauth/user` response, which is bound to that person's own OAuth login; consumers refresh their name/email projections from that response at sign-in. A status response that unexpectedly includes profile fields must be ignored by consumers, never adopted.
+
+Invalid client authentication is HTTP 401; invalid request shape is HTTP 422. The existing reconciliation throttle allows 60 requests per minute and returns HTTP 429 when exhausted. Responses, including authentication, validation and throttle failures, carry `Cache-Control: private, no-store`. Do not log client credentials or returned statuses.
 
 The existing OAuth user response also includes the authenticated bearer token's integer `credential_version`, allowing a consumer to capture the generation when establishing its own session. Existing callers can ignore the additive field. Disabled identities, revoked tokens, transient cookie sessions, and a token whose generation no longer matches the current account cannot obtain this response. A concurrent reset can never upgrade an old token into a new-generation login.
 

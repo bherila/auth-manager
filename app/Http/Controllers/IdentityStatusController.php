@@ -44,13 +44,15 @@ final class IdentityStatusController extends Controller
             return response()->json($inactive);
         }
 
+        // A client credential plus a caller-chosen subject proves nothing about the
+        // person: grants are coarse, were backfilled to every client, and subjects are
+        // sequential. Profile data (name, email) is released only through the
+        // bearer-authenticated identity response, which is bound to that person's login.
         return response()->json([
             'contract_version' => 1,
             'active' => true,
             'subject' => (string) $user->getKey(),
             'credential_version' => (int) $user->credential_version,
-            'name' => $user->name,
-            'email' => $user->email,
         ]);
     }
 }

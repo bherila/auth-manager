@@ -27,7 +27,7 @@ class IdentityStatusTest extends TestCase
         return [$client, $client->plainSecret];
     }
 
-    public function test_status_is_visible_only_to_a_current_granted_confidential_client(): void
+    public function test_status_is_visible_only_to_a_current_granted_confidential_client_and_never_discloses_profile_data(): void
     {
         [$client, $secret] = $this->client();
         [$other] = $this->client();
@@ -38,10 +38,12 @@ class IdentityStatusTest extends TestCase
             $this->withBasicAuth((string) $client->id, $secret)->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson($inactive)->assertHeader('Cache-Control', 'no-store, private');
         }
         app(OAuthClientGrantService::class)->grant((string) $user->id, (string) $client->id);
+        // A grant authorizes the client to learn liveness and generation, never profile data:
+        // grants were backfilled to every client and subjects are sequential, so name/email
+        // here would let one client secret enumerate the directory.
         $this->postJson(self::ENDPOINT, ['subject' => (string) $user->id])->assertOk()->assertExactJson([
-            'contract_version' => 1, 'active' => true, 'subject' => (string) $user->id,
-            'credential_version' => 4, 'name' => 'Example Person', 'email' => 'person@example.test',
-        ])->assertHeader('Cache-Control', 'no-store, private');
+            'contract_version' => 1, 'active' => true, 'subject' => (string) $user->id, 'credential_version' => 4,
+        ])->assertHeader('Cache-Control', 'no-store, private')->assertJsonMissingPath('name')->assertJsonMissingPath('email');
         foreach (['0'.$user->id, $user->id.'suffix', ' '.$user->id.' '] as $subject) {
             $this->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson($inactive);
         }
