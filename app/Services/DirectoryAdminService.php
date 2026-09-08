@@ -75,8 +75,12 @@ class DirectoryAdminService
             $locked = $this->lock($target);
 
             if ($locked->name !== $name) {
+                $previous = $locked->name;
                 $locked->forceFill(['name' => $name])->save();
-                $this->audit->record($request, $actor, $locked, self::EVENT_NAME_CHANGED);
+                // Consumers project this name, so a rename can impersonate. Keep both
+                // values so the audit trail shows what changed and can be reverted.
+                $this->audit->record($request, $actor, $locked, self::EVENT_NAME_CHANGED,
+                    ['previous_name' => $previous, 'name' => $name]);
             }
 
             return $locked;

@@ -6,6 +6,7 @@ use App\Http\Controllers\OAuthUserController;
 use App\Http\Middleware\EnsureCredentialVersion;
 use App\Models\User;
 use App\Services\DirectoryAdminService;
+use BWH\Auth\Models\AuthAuditLog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -132,8 +133,9 @@ class DirectoryAdminTest extends TestCase
             'acting_user_id' => $admin->id,
             'event' => DirectoryAdminService::EVENT_NAME_CHANGED,
             'succeeded' => true,
-            'metadata' => null,
         ]);
+        $this->assertSame(['previous_name' => 'Original Display', 'name' => $name],
+            AuthAuditLog::query()->where('event', DirectoryAdminService::EVENT_NAME_CHANGED)->sole()->metadata);
 
         // Preserve the authenticated token generation while checking payload without signing-key setup.
         $client = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Example Consumer', ['https://consumer.example.test/oauth/callback']);
