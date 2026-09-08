@@ -30,6 +30,7 @@
                         @foreach ($tombstone['applications'] as $application)
                             <li class="border-border rounded border p-3">
                                 <span class="font-medium">{{ $application['name'] }}</span>
+                                <span class="text-muted-foreground break-all">({{ $application['id'] }})</span>
                                 <span> — {{ $application['acknowledged_at'] ? 'Acknowledged at '.$application['acknowledged_at'] : 'Pending acknowledgement' }}</span>
                             </li>
                         @endforeach

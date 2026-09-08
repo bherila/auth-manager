@@ -33,11 +33,11 @@ class IdentityLifecycleTest extends TestCase
         $tombstone->update(['provider_purged_at' => now(), 'purge_reason' => 'retention_expired']);
         $pending = $tombstone->clients()->create([
             'oauth_client_id' => (string) Str::uuid(),
-            'oauth_client_name' => 'Example Pending Application',
+            'oauth_client_name' => 'Same Example Application',
         ]);
-        $tombstone->clients()->create([
+        $finished = $tombstone->clients()->create([
             'oauth_client_id' => (string) Str::uuid(),
-            'oauth_client_name' => 'Example Finished Application',
+            'oauth_client_name' => 'Same Example Application',
             'acknowledged_at' => now(),
         ]);
 
@@ -61,6 +61,8 @@ class IdentityLifecycleTest extends TestCase
             ->assertSee('1 pending of 2 expected')
             ->assertSee('Purged at')
             ->assertSee('Pending acknowledgement')
+            ->assertSee($pending->oauth_client_id)
+            ->assertSee($finished->oauth_client_id)
             ->assertDontSee($subject->name)
             ->assertDontSee($subject->email);
         $this->assertNull($pending->fresh()->acknowledged_at);
