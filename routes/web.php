@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountSettingsController;
+use App\Http\Controllers\ApplicationRegistryController;
 use App\Http\Controllers\DirectoryAdminController;
 use App\Http\Controllers\IdentityLifecycleController;
 use App\Http\Controllers\LoginController;
@@ -40,9 +41,12 @@ Route::view('/settings/passkeys', 'settings.passkeys')
 
 Route::middleware(['auth', RequireProviderAdmin::class])->group(function (): void {
     Route::view('/admin/users', 'admin.users')->name('admin.users');
+    Route::get('/admin/applications', [ApplicationRegistryController::class, 'page'])->name('admin.applications');
     Route::get('/admin/identity-lifecycle', [IdentityLifecycleController::class, 'page'])->name('admin.identity-lifecycle');
 
     Route::prefix('/api/admin')->group(function (): void {
+        Route::post('/applications', [ApplicationRegistryController::class, 'store'])->name('admin.applications.store');
+        Route::put('/applications/{application}', [ApplicationRegistryController::class, 'update'])->name('admin.applications.update');
         Route::get('/identity-lifecycle', [IdentityLifecycleController::class, 'index']);
         Route::get('/users', [DirectoryAdminController::class, 'index']);
         Route::post('/users', [DirectoryAdminController::class, 'store']);
