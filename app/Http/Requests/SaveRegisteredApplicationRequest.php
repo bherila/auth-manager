@@ -5,7 +5,9 @@ namespace App\Http\Requests;
 use App\Models\RegisteredApplication;
 use App\Support\AuthManagerProfile;
 use Closure;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Rule;
 use InvalidArgumentException;
 
@@ -21,6 +23,18 @@ class SaveRegisteredApplicationRequest extends FormRequest
         if (! $this->expectsJson() && ! $this->filled('client_ids')) {
             $this->merge(['client_ids' => []]);
         }
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        // The registry form posts to an /api/* URL, which the exception handler always
+        // renders as JSON. A browser submission needs the redirect the page repopulates from.
+        if (! $this->expectsJson()) {
+            throw new HttpResponseException(redirect()->route('admin.applications')
+                ->withErrors($validator)->withInput($this->except('_token')));
+        }
+
+        parent::failedValidation($validator);
     }
 
     public function rules(): array

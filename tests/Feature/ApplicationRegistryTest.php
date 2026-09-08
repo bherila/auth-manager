@@ -152,6 +152,21 @@ class ApplicationRegistryTest extends TestCase
         $this->assertDatabaseCount('registered_application_clients', 0);
     }
 
+    public function test_html_form_validation_failures_return_to_the_page_with_errors_and_input(): void
+    {
+        $admin = User::factory()->create(['user_role' => 'admin']);
+        $payload = [...$this->payload(), 'launch_url' => 'http://insecure.example.test', '_application_form' => 'new'];
+        unset($payload['client_ids']);
+        $this->actingAs($admin)->from('/admin/applications')->post('/api/admin/applications', $payload)
+            ->assertRedirect('/admin/applications');
+        $this->assertDatabaseMissing('registered_applications', ['key' => 'example-app']);
+        // Follow the redirect: the page must show the message and repopulate the submitted form.
+        $this->get('/admin/applications')->assertOk()->assertSee('The registration was not saved.')
+            ->assertSee('absolute HTTPS URL')->assertSee('value="http://insecure.example.test"', false)
+            ->assertSee('value="'.$payload['name'].'"', false);
+        $this->postJson('/api/admin/applications', $payload)->assertUnprocessable()->assertJsonValidationErrors('launch_url');
+    }
+
     public function test_registry_schema_relationships_and_launch_reads_use_the_passport_connection(): void
     {
         $admin = User::factory()->create(['user_role' => 'admin']);
