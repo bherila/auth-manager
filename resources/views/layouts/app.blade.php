@@ -4,12 +4,27 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', config('app.name'))</title>
+    @php
+        $branding = app(\App\Support\DeploymentBranding::class);
+        // yieldContent() already HTML-escapes both the section and the default, so this
+        // is safe to output raw; escaping again would render "&amp;amp;" for an ampersand.
+        $pageTitle = trim($__env->yieldContent('title', config('app.name')));
+    @endphp
+    <title>{!! $pageTitle !!}{{ $branding->enabled() && $pageTitle !== e(config('app.name')) ? ' — '.config('app.name') : '' }}</title>
     @include('layouts.theme-init')
     @stack('head')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @if ($favicon = $branding->asset('favicon'))
+        <link rel="icon" href="{{ $favicon }}" />
+    @endif
+    @if ($stylesheet = $branding->asset('stylesheet'))
+        <link rel="stylesheet" href="{{ $stylesheet }}" />
+    @endif
 </head>
-<body class="bg-background text-foreground min-h-screen antialiased">
+<body class="bg-background text-foreground min-h-screen antialiased {{ $branding->enabled() ? 'provider-branded' : '' }}">
+    @if ($branding->enabled())
+        <x-deployment-brand />
+    @endif
     @yield('content')
     @stack('scripts')
 </body>

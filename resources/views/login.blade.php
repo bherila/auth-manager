@@ -21,7 +21,9 @@
 
 @section('content')
     <main class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-10 sm:px-6">
-        <p class="text-muted-foreground mb-3 text-center text-sm font-medium">{{ config('app.name') }}</p>
+        @unless (app(\App\Support\DeploymentBranding::class)->enabled())
+            <p class="text-muted-foreground mb-3 text-center text-sm font-medium">{{ config('app.name') }}</p>
+        @endunless
 
         <div class="bg-card text-card-foreground border-border rounded-xl border p-6 shadow-sm sm:p-8">
             <h1 class="text-2xl font-semibold tracking-tight">Sign in</h1>

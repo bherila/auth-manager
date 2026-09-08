@@ -28,3 +28,6 @@ Thumbs.db
 
 .db-credentials
 /storage/framework/testing/legacy.sqlite
+
+# Deployment-owned branding is supplied privately, never checked in.
+/public/branding/

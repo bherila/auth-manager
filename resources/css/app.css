@@ -199,3 +199,8 @@
 
 /* ----------------------------- */
 
+
+/* A shared deployment masthead occupies six rem on full-height auth pages. */
+.provider-branded main.min-h-screen {
+  min-height: calc(100svh - 6rem);
+}
