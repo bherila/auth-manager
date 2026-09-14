@@ -34,3 +34,21 @@ last-administrator safeguards and audit commits. This UI does not provision
 application accounts, copy domain data into the provider directory or infer
 permissions from a provider role. Consumer rollout and retirement of duplicate
 forms remain tracked separately from this provider surface.
+
+## Version 2 applications
+
+For an application configured with `contract_version: 2`:
+
+- **Roles.** Workspace access is edited with the application's own role labels. A membership the
+  application reports as not editable is shown read-only, and posted back unchanged. An empty role
+  removes a membership. A role the application did not advertise is refused before anything is sent.
+- **Directory picker.** When the application advertises provisioning, **Give access to someone new**
+  lists people who can sign in to that application through this provider. That means they hold a
+  current grant to a static client mapped to it, and their account is active. It searches their
+  name and email. Nobody else is listed, so the picker is not a general directory search.
+- **Provisioning.** Choosing a person reads their access. When the application reports them
+  unprovisioned with `provision` allowed, the page offers **Create account and give access** with
+  one workspace and role. Submitting re-checks the grant, the application's offer and the role, then
+  sends an `update` with a null revision and the person's name as `display_name`. The application
+  creates the account bound to this provider's issuer and the exact subject. Writes need recent
+  identity confirmation, as for every other change.

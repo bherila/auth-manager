@@ -2,9 +2,9 @@
 
 namespace Tests\Fixtures;
 
-use App\Services\DelegatedAccess\ActorAssertionVerifier;
-use App\Services\DelegatedAccess\DelegatedAccessException;
-use App\Services\DelegatedAccess\DelegatedContract;
+use BWH\Auth\OAuth\DelegatedAccess\ActorAssertionVerifier;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;

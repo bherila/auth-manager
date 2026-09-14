@@ -10,6 +10,8 @@ use App\Models\User;
 use App\Support\AuthManagerProfile;
 use App\Support\StaticApplicationClients;
 use BWH\Auth\Models\AuthAuditLog;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -26,7 +28,8 @@ final class DelegatedAccessTransport
         if (! config('delegated-access.enabled', false)) {
             throw new DelegatedAccessException('integration_disabled');
         }
-        $payload = $this->contract->request($application, $operation);
+        $version = self::contractVersion($application);
+        $payload = $this->contract->request($application, $operation, $version);
         $write = $payload['operation'] === 'update';
         $actor = $this->actor($request, $application, $write);
         $configuration = config('delegated-access');
@@ -74,6 +77,20 @@ final class DelegatedAccessTransport
         }
 
         return $result;
+    }
+
+    /**
+     * The contract version agreed with this application, from deployment configuration.
+     *
+     * Never negotiated at runtime and never taken from a response: an application that could
+     * choose the version could choose which rules its answers are checked against. An unknown
+     * value is refused by the contract before anything is signed or sent.
+     */
+    public static function contractVersion(string $application): int
+    {
+        $version = config('delegated-access.applications.'.$application.'.contract_version', DelegatedContract::VERSION_1);
+
+        return is_int($version) ? $version : (ctype_digit((string) $version) ? (int) $version : 0);
     }
 
     private function audit(User $actor, string $application, string $target, string $correlation, string $outcome): void
@@ -153,7 +170,7 @@ final class DelegatedAccessTransport
                     throw new DelegatedAccessException('invalid_response');
                 }
 
-                return $this->contract->response(json_decode($bytes, true, 64, JSON_THROW_ON_ERROR), $application, $payload['operation'], $payload['subject'] ?? null);
+                return $this->contract->response(json_decode($bytes, true, 64, JSON_THROW_ON_ERROR), $application, $payload['operation'], $payload['subject'] ?? null, $payload['contract_version']);
             } catch (Throwable) {
                 throw new DelegatedAccessException($write ? 'unknown_outcome' : 'invalid_response');
             }

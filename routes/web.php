@@ -80,6 +80,8 @@ Route::middleware(['auth', RequireActiveUser::class, ApplicationAccessResponse::
         Route::get('/', [ApplicationAccessController::class, 'index'])->name('applications.access');
         Route::post('/browse', [ApplicationAccessController::class, 'browse'])->name('applications.access.browse');
         Route::post('/update', [ApplicationAccessController::class, 'update'])->name('applications.access.update');
+        // Contract version 2 only: create an application account for a grant holder.
+        Route::post('/provision', [ApplicationAccessController::class, 'provision'])->name('applications.access.provision');
         Route::post('/confirm', ConfirmApplicationAccessController::class)
             ->middleware('throttle:5,1')->name('applications.access.confirm');
     });
