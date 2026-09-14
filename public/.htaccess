@@ -1,3 +1,11 @@
+# PHP limits for the web handler. The default memory_limit (128M) is too small for this
+# application, so it is raised here. php_value in .htaccess is the mechanism that works under
+# LiteSpeed, which parses these directives itself and does not read .user.ini. Cron and other
+# CLI runs do not read this file; they set -d memory_limit on their own command lines.
+<IfModule LiteSpeed>
+    php_value memory_limit 1024M
+</IfModule>
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes
