@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Services\DelegatedAccess\DelegatedAccessException;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -32,7 +32,7 @@ class ApplicationAccessResponse
         // A failed write must land on a GET page. Rendering it at the POST-only update
         // URL invites a refresh, which resubmits the write; when the first outcome is
         // unknown, that second write is exactly the retry the contract forbids.
-        if ($request->routeIs('applications.access.update')) {
+        if ($request->routeIs('applications.access.update', 'applications.access.provision')) {
             $subject = $request->input('subject');
 
             return redirect()->route('applications.access', array_filter([

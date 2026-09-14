@@ -2,7 +2,7 @@
 
 namespace Tests\Fixtures;
 
-use App\Services\DelegatedAccess\DatabaseNonceStore;
+use BWH\Auth\OAuth\DelegatedAccess\DatabaseNonceStore;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;

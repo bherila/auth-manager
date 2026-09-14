@@ -2,6 +2,7 @@
 
 namespace App\Services\DelegatedAccess;
 
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use DateTimeImmutable;
 use Lcobucci\JWT\Encoding\ChainedFormatter;
 use Lcobucci\JWT\Encoding\JoseEncoder;

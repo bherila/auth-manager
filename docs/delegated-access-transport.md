@@ -27,3 +27,25 @@ Writes additionally require the trusted actor-bound `RequireRecentPasskeyAuthent
 Provider identity and application authorization remain separate. Consumer adapters own permission semantics, display-name/alias conversion, account provisioning, and domain models. This foundation does not copy credentials, WebAuthn records, or application tables into the provider.
 
 Provider writes append an audit attempt before transmission and a separate result afterward, recording only actor, target, application, operation, outcome, and a server-generated correlation equal to the signed nonce. The reference adapter stores the same correlation after verification. Calls inside an active provider/audit database transaction are rejected before transmission so caller rollback cannot erase the trail. Failed attempt persistence prevents transmission; failed result persistence returns an unknown outcome and leaves the durable attempt for reconciliation. Audit records never contain assertions, keys, or request bodies.
+
+## Contract version 2
+
+Each application's contract version is deployment configuration:
+`delegated-access.applications.<key>.contract_version`, `1` (the default) or `2`. The transport
+sends that version and checks every answer against it, using `bherila/auth-laravel`'s
+`DelegatedContract`, the same validator applications use. The version is never negotiated at
+runtime and never taken from a response. An answer in another version is `invalid_response`.
+
+Version 2 ([auth-laravel#42](https://github.com/bherila/auth-laravel/issues/42)) carries:
+
+- **Roles.** Application-defined workspace roles in `capabilities.controls.workspace_roles`, and
+  `{id, role, editable}` memberships.
+- **Provisioning.** A `provision` allowed edit, and an `update` whose `expected_revision` is `null`,
+  optionally with a `display_name`. Such an update creates an account for an unprovisioned subject.
+
+The provider checks that every role it sends was advertised (`rolesAreAdvertised()`) before
+transmitting. The application still decides every authorization, tenant and last-owner rule.
+
+The delegated access classes (`ActorAssertionVerifier`, `DatabaseNonceStore`, `NonceStore`,
+`DelegatedContract`, `DelegatedAccessException`) now come from the package. Only the signing side,
+`ActorAssertion`, and the transport stay in this repository.

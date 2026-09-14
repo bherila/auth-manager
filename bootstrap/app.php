@@ -3,7 +3,7 @@
 use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\ApplicationAccessResponse;
 use App\Http\Middleware\EnsureCredentialVersion;
-use App\Services\DelegatedAccess\DelegatedAccessException;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Foundation\Configuration\Exceptions;
