@@ -130,7 +130,7 @@ class ApplicationAccessController extends Controller
         }
 
         $access = ['application_admin' => (bool) $input['application_admin'], 'workspaces' => $workspaces];
-        $this->assertRolesAdvertised($request, $application, $access, $back);
+        $this->assertRolesAdvertised($request, $application, $input['subject'], $access, $back);
 
         $this->transport->send($request, $application, [
             'operation' => 'update',
@@ -162,13 +162,17 @@ class ApplicationAccessController extends Controller
         $back = route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
 
         $registration = RegisteredApplication::query()->where('key', $application)->where('enabled', true)->firstOrFail();
+
+        // The application authorizes the actor first. Only then is the target looked up, so somebody
+        // the application does not let manage access learns nothing about who holds a grant.
+        $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
+
         $person = $this->grantHolders->person($registration, $input['subject']);
         if ($person === null) {
             throw ValidationException::withMessages(['subject' => 'Choose someone who can sign in to this application.'])
                 ->redirectTo($back);
         }
 
-        $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
         $state = $this->transport->send($request, $application, ['operation' => 'read', 'subject' => $input['subject']]);
         if (($capabilities['controls']['provisioning'] ?? false) !== true || $state['provisioned'] || ! $state['allowed_edits']['provision']) {
             return redirect()->to($back)
@@ -191,10 +195,26 @@ class ApplicationAccessController extends Controller
         return redirect()->to($back)->with('access_updated', true);
     }
 
-    private function assertRolesAdvertised(Request $request, string $application, array $access, string $back): void
+    /**
+     * Every membership this update adds or changes names a role the application advertises.
+     *
+     * A membership kept exactly as the application reports it is not checked: it may hold a role the
+     * application has since retired, posted back unchanged from a hidden field, and that must not
+     * block saving anything else. The application still refuses an update that changes one.
+     */
+    private function assertRolesAdvertised(Request $request, string $application, string $subject, array $access, string $back): void
     {
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
-        if (! (new DelegatedContract)->rolesAreAdvertised($capabilities, $access)) {
+        $current = $this->transport->send($request, $application, ['operation' => 'read', 'subject' => $subject]);
+
+        $kept = [];
+        foreach ($current['access']['workspaces'] ?? [] as $membership) {
+            $kept[$membership['id']."\0".$membership['role']] = true;
+        }
+        $changed = [...$access, 'workspaces' => array_values(array_filter($access['workspaces'],
+            fn (array $membership): bool => ! isset($kept[$membership['id']."\0".$membership['role']])))];
+
+        if (! (new DelegatedContract)->rolesAreAdvertised($capabilities, $changed)) {
             throw ValidationException::withMessages(['workspaces' => 'Choose roles the application offers.'])->redirectTo($back);
         }
     }

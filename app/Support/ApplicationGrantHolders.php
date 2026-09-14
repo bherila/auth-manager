@@ -82,7 +82,9 @@ final class ApplicationGrantHolders
 
         $user = $this->holders($clientIds)->whereKey((int) $subject)->first();
 
-        return $user instanceof User && $user->canLogin() ? $user : null;
+        // Only the subject this provider issues. "001" finds user 1 too, and the application would
+        // bind an account to a subject no sign-in ever presents.
+        return $user instanceof User && (string) $user->getKey() === $subject && $user->canLogin() ? $user : null;
     }
 
     /**

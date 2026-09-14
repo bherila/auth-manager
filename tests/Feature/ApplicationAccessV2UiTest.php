@@ -178,6 +178,45 @@ class ApplicationAccessV2UiTest extends TestCase
             ->assertDontSee('<select name="workspaces[0][role]"', false);
     }
 
+    /** A retired role posted back unchanged does not block saving another membership (#57 review). */
+    public function test_an_unchanged_retired_role_does_not_block_saving_another_membership(): void
+    {
+        $this->memberships = [
+            ['id' => 'workspace-a', 'role' => 'sender', 'editable' => true],
+            ['id' => 'workspace-b', 'role' => 'retired-role', 'editable' => true],
+        ];
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'auditor'], ['id' => 'workspace-b', 'role' => 'retired-role']],
+        ])->assertRedirect()->assertSessionHas('access_updated', true);
+
+        Http::assertSent(fn ($request) => $request['operation'] === 'update'
+            && $request['access']['workspaces'] === [['id' => 'workspace-a', 'role' => 'auditor'], ['id' => 'workspace-b', 'role' => 'retired-role']]);
+
+        // Changing a membership to the retired role is still refused.
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'retired-role'], ['id' => 'workspace-b', 'role' => 'retired-role']],
+        ])->assertRedirect()->assertSessionHasErrors('workspaces');
+    }
+
+    /** A subject is provisioned only in the exact form this provider issues it (#57 review). */
+    public function test_provisioning_refuses_a_noncanonical_subject(): void
+    {
+        $holder = User::factory()->create(['name' => 'Example Holder', 'user_role' => 'user']);
+        $this->grant($holder);
+        $this->provisioned = false;
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/provision', [
+            'subject' => '00'.$holder->id, 'new_workspace' => 'workspace-a', 'new_role' => 'sender',
+        ])->assertRedirect()->assertSessionHasErrors('subject');
+
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+    }
+
     /** Workspaces past the first page can be reached while provisioning (#57 review). */
     public function test_provisioning_can_page_through_workspaces(): void
     {
@@ -253,6 +292,8 @@ class ApplicationAccessV2UiTest extends TestCase
         ])->assertRedirect()->assertSessionHasErrors('subject');
 
         $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+        // The application authorized the actor before anybody was looked up (#57 review).
+        Http::assertSent(fn ($request) => $request['operation'] === 'capabilities');
     }
 
     public function test_provisioning_refuses_an_account_the_application_no_longer_offers_to_create(): void
