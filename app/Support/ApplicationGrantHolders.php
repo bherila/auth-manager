@@ -5,7 +5,7 @@ namespace App\Support;
 use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * The people who can sign in to one registered application through this provider.
@@ -15,8 +15,11 @@ use Illuminate\Support\Facades\DB;
  * it, so an account there would be one nobody can use; and listing anyone else would turn the
  * picker into a general directory search for whoever the application lets manage access.
  *
- * Grants live on the provider connection and registry mappings on the Passport connection, so the
- * mapped client ids are read first and the grants queried separately, never joined.
+ * Registry mappings live on the Passport connection, so the mapped client ids are read first. They
+ * are few — an application maps a handful of static clients — and they are the only values bound
+ * into the people query. Grant holders are matched with a correlated subquery against the grants
+ * table, never materialised into an `IN` list, so a page costs the same however many people hold a
+ * grant.
  */
 final class ApplicationGrantHolders
 {
@@ -31,18 +34,22 @@ final class ApplicationGrantHolders
      */
     public function search(RegisteredApplication $application, string $search, int $page = 1): array
     {
-        $subjects = $this->subjects($application);
-        if ($subjects === []) {
+        $clientIds = $this->clientIds($application);
+        if ($clientIds === []) {
             return ['people' => [], 'next_page' => null];
         }
 
         $page = max(1, $page);
-        $query = User::query()->whereIn('id', $subjects)->whereNull('disabled_at');
+        $query = $this->holders($clientIds)->whereNull('disabled_at');
 
         $search = trim($search);
         if ($search !== '') {
-            $pattern = '%'.addcslashes($search, '\\%_').'%';
-            $query->where(fn ($inner) => $inner->where('name', 'like', $pattern)->orWhere('email', 'like', $pattern));
+            // `!` as the escape character, stated explicitly: SQLite gives backslash no meaning in
+            // LIKE, and MySQL's reading of a backslash literal depends on the SQL mode.
+            $pattern = '%'.strtr($search, ['!' => '!!', '%' => '!%', '_' => '!_']).'%';
+            $query->where(fn (Builder $inner) => $inner
+                ->whereRaw("name like ? escape '!'", [$pattern])
+                ->orWhereRaw("email like ? escape '!'", [$pattern]));
         }
 
         $users = $query->orderBy('name')->orderBy('id')
@@ -68,35 +75,37 @@ final class ApplicationGrantHolders
      */
     public function person(RegisteredApplication $application, string $subject): ?User
     {
-        if (! ctype_digit($subject) || ! in_array($subject, $this->subjects($application), true)) {
+        $clientIds = $this->clientIds($application);
+        if ($clientIds === [] || ! ctype_digit($subject)) {
             return null;
         }
 
-        $user = User::query()->find((int) $subject);
+        $user = $this->holders($clientIds)->whereKey((int) $subject)->first();
 
         return $user instanceof User && $user->canLogin() ? $user : null;
     }
 
     /**
+     * @param  list<string>  $clientIds
+     * @return Builder<User>
+     */
+    private function holders(array $clientIds): Builder
+    {
+        return User::query()->whereExists(fn ($grants) => $grants
+            ->selectRaw('1')
+            ->from('oauth_client_grants')
+            ->whereColumn('oauth_client_grants.subject', 'users.id')
+            ->whereIn('oauth_client_grants.oauth_client_id', $clientIds));
+    }
+
+    /**
      * @return list<string>
      */
-    private function subjects(RegisteredApplication $application): array
+    private function clientIds(RegisteredApplication $application): array
     {
-        $clientIds = $application->clients()->get()
+        return $application->clients()->get()
             ->filter(fn (PassportClient $client): bool => $this->clients->eligible($client))
             ->map(fn (PassportClient $client): string => (string) $client->id)
-            ->values()
-            ->all();
-
-        if ($clientIds === []) {
-            return [];
-        }
-
-        return DB::table('oauth_client_grants')
-            ->whereIn('oauth_client_id', $clientIds)
-            ->distinct()
-            ->pluck('subject')
-            ->map(fn (mixed $subject): string => (string) $subject)
             ->values()
             ->all();
     }

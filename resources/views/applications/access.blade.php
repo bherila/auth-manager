@@ -103,6 +103,14 @@
                         <button class="rounded border px-4 py-2">Create account and give access</button>
                         <p class="text-sm">The application creates this person's account, bound to their sign-in here, with the workspace and role you choose. Saving requires a credential check within the last five minutes.</p>
                     </form>
+                    @if($workspaces['next_cursor'])
+                        <form method="post" action="{{ route('applications.access.browse', $application->key) }}">
+                            @csrf
+                            <input type="hidden" name="subject" value="{{ $subject }}">
+                            <input type="hidden" name="workspace_cursor" value="{{ $workspaces['next_cursor'] }}">
+                            <button class="underline">More workspaces</button>
+                        </form>
+                    @endif
                 @endif
             @else
                 <form method="post" action="{{ route('applications.access.update', $application->key) }}" class="space-y-4">
@@ -126,7 +134,9 @@
                             <div class="flex items-center gap-3">
                                 <input type="hidden" name="workspaces[{{ $index }}][id]" value="{{ $membership['id'] }}">
                                 <label>{{ $workspaceLabels[$membership['id']] ?? $membership['id'] }}
-                                    @if($state['allowed_edits']['workspaces'] && $membership['editable'])
+                                    {{-- A current role the application no longer advertises cannot be shown in a select without
+                                         the browser choosing another one, so that membership is read-only here. --}}
+                                    @if($state['allowed_edits']['workspaces'] && $membership['editable'] && array_key_exists($membership['role'], $roleLabels))
                                         <select name="workspaces[{{ $index }}][role]" class="rounded border bg-background p-2">
                                             @foreach($capabilities['controls']['workspace_roles'] as $role)
                                                 <option value="{{ $role['id'] }}" @selected($membership['role'] === $role['id'])>{{ $role['label'] }}</option>

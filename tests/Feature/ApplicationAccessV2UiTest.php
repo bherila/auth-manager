@@ -51,6 +51,8 @@ class ApplicationAccessV2UiTest extends TestCase
 
     private bool $provisioning = true;
 
+    private ?string $workspaceCursor = null;
+
     private array $memberships = [
         ['id' => 'workspace-a', 'role' => 'owner', 'editable' => false],
         ['id' => 'workspace-b', 'role' => 'sender', 'editable' => true],
@@ -160,6 +162,58 @@ class ApplicationAccessV2UiTest extends TestCase
             ->assertDontSee('Example Actor (');
     }
 
+    /**
+     * An editable membership whose role the application no longer advertises stays as it is (#57 review).
+     *
+     * A select without that option would have the browser pick the first advertised role, so saving
+     * any other change would silently change this membership too.
+     */
+    public function test_a_current_role_no_longer_advertised_is_read_only_and_echoed(): void
+    {
+        $this->memberships = [['id' => 'workspace-b', 'role' => 'retired-role', 'editable' => true]];
+
+        $this->browse(['subject' => 'subject-example'])->assertOk()
+            ->assertSee('retired-role (not editable here)')
+            ->assertSee('<input type="hidden" name="workspaces[0][role]" value="retired-role">', false)
+            ->assertDontSee('<select name="workspaces[0][role]"', false);
+    }
+
+    /** Workspaces past the first page can be reached while provisioning (#57 review). */
+    public function test_provisioning_can_page_through_workspaces(): void
+    {
+        $holder = User::factory()->create(['name' => 'Example Holder', 'user_role' => 'user']);
+        $this->grant($holder);
+        $this->provisioned = false;
+        $this->workspaceCursor = 'next-workspaces';
+
+        $this->browse(['subject' => (string) $holder->id])->assertOk()
+            ->assertSee('Create account and give access')
+            ->assertSee('<input type="hidden" name="workspace_cursor" value="next-workspaces">', false)
+            ->assertSee('More workspaces');
+    }
+
+    /**
+     * Wildcard characters in a search are literal on every database (#57 review).
+     *
+     * SQLite gives backslash no meaning in LIKE, so a backslash-escaped `_` matched nothing and an
+     * unescaped one matched any character.
+     */
+    public function test_a_search_treats_wildcard_characters_literally(): void
+    {
+        $underscored = User::factory()->create(['name' => 'Example Underscore', 'email' => 'first_last@example.test', 'user_role' => 'user']);
+        $this->grant($underscored);
+        $lookalike = User::factory()->create(['name' => 'Example Lookalike', 'email' => 'firstXlast@example.test', 'user_role' => 'user']);
+        $this->grant($lookalike);
+
+        $this->browse(['directory_search' => 'first_last'])->assertOk()
+            ->assertSee('Example Underscore')
+            ->assertDontSee('Example Lookalike');
+
+        $this->browse(['directory_search' => '100%'])->assertOk()
+            ->assertDontSee('Example Underscore')
+            ->assertSee('No one who can sign in to this application matches.');
+    }
+
     public function test_the_directory_is_absent_when_the_application_does_not_offer_provisioning(): void
     {
         $this->provisioning = false;
@@ -247,7 +301,7 @@ class ApplicationAccessV2UiTest extends TestCase
                 'workspaces' => ['workspaces' => [
                     ['id' => 'workspace-a', 'label' => 'Workspace A'], ['id' => 'workspace-b', 'label' => 'Workspace B'],
                     ['id' => 'workspace-c', 'label' => 'Workspace C'],
-                ], 'next_cursor' => null],
+                ], 'next_cursor' => $this->workspaceCursor],
                 'update' => ['subject' => $request['subject'], 'provisioned' => true, 'revision' => 'revision-after',
                     'access' => ['application_admin' => false, 'workspaces' => array_map(
                         fn (array $membership): array => [...$membership, 'editable' => true], $request['access']['workspaces'])],
