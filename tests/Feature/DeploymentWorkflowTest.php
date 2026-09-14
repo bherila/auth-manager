@@ -50,18 +50,70 @@ class DeploymentWorkflowTest extends TestCase
         $this->assertLessThan($applicationDeployStep, $migrationCommand);
     }
 
-    public function test_deployment_installs_and_verifies_the_scheduler_without_replacing_other_cron_entries(): void
+    /**
+     * Both deployments install the scheduler through the shared-crontab script, never by text matching.
+     *
+     * The account crontab is shared with other applications. Matching the scheduler line by exact text
+     * and appending it when "missing" duplicated the scheduler once a hand edit changed the line, and
+     * writing back `$(crontab -l || true)` plus one line would empty the crontab on a failed read.
+     */
+    public function test_deployment_installs_the_scheduler_through_the_shared_crontab_script(): void
     {
         $workflow = file_get_contents(__DIR__.'/../../.github/workflows/ci.yml');
         $this->assertIsString($workflow);
 
-        $this->assertStringContainsString('- name: Install and verify Laravel scheduler cron', $workflow);
-        $this->assertStringContainsString('existing="$(crontab -l 2>/dev/null || true)"', $workflow);
-        $this->assertStringContainsString('artisan schedule:run > /dev/null 2>&1', $workflow);
         $this->assertSame(2, substr_count($workflow, '- name: Install and verify Laravel scheduler cron'));
-        $this->assertSame(4, substr_count($workflow, 'grep -Fqx "$scheduler_line"'));
-        $this->assertStringContainsString('{ printf', $workflow);
-        $this->assertStringContainsString('| crontab -', $workflow);
-        $this->assertGreaterThanOrEqual(4, substr_count($workflow, 'crontab -l'));
+        $this->assertSame(2, substr_count($workflow, 'bash scripts/deploy/test-install-cron.sh'));
+        $this->assertSame(2, substr_count($workflow, '< scripts/deploy/install-cron.sh'));
+        $this->assertSame(2, substr_count(
+            $workflow,
+            '\'* * * * * cd "$HOME/auth-manager" && /opt/cpanel/ea-php85/root/usr/bin/php -d memory_limit=1G artisan schedule:run > /dev/null 2>&1 # JOB:auth-manager-scheduler\'',
+        ));
+
+        $this->assertStringNotContainsString('crontab -l 2>/dev/null || true', $workflow);
+        $this->assertStringNotContainsString('| crontab -', $workflow);
+        $this->assertStringNotContainsString('grep -Fqx "$scheduler_line"', $workflow);
+
+        $harness = strpos($workflow, 'bash scripts/deploy/test-install-cron.sh');
+        $install = strpos($workflow, '< scripts/deploy/install-cron.sh');
+        $this->assertLessThan($install, $harness, 'The harness must run before the crontab is touched.');
+    }
+
+    public function test_the_crontab_script_refuses_unsafe_rewrites(): void
+    {
+        $script = file_get_contents(__DIR__.'/../../scripts/deploy/install-cron.sh');
+        $this->assertIsString($script);
+
+        $this->assertStringContainsString('flock -w', $script);
+        $this->assertStringContainsString('refusing to rewrite it', $script);
+        $this->assertStringContainsString('crontab "$work/next"', $script);
+        $this->assertStringContainsString('.crontab-backups', $script);
+        $this->assertStringNotContainsString('| crontab -', $script);
+    }
+
+    /**
+     * The harness runs the real script against a fake `crontab`: an empty crontab, a failed read,
+     * replacing only this application's lines, idempotency, refused input, and quoting over ssh.
+     */
+    public function test_the_crontab_script_harness_passes(): void
+    {
+        exec('command -v bash', $found, $status);
+        if ($status !== 0) {
+            $this->markTestSkipped('bash is not available.');
+        }
+
+        exec('bash '.escapeshellarg(__DIR__.'/../../scripts/deploy/test-install-cron.sh').' 2>&1', $output, $status);
+
+        $this->assertSame(0, $status, implode("\n", $output));
+    }
+
+    public function test_both_deployments_verify_the_web_handlers_php_limits(): void
+    {
+        $workflow = file_get_contents(__DIR__.'/../../.github/workflows/ci.yml');
+        $this->assertIsString($workflow);
+
+        $this->assertSame(2, substr_count($workflow, "- name: Verify the web handler's PHP version and memory limit"));
+        $this->assertSame(2, substr_count($workflow, 'bash scripts/deploy/verify-web-php.sh'));
+        $this->assertSame(2, substr_count($workflow, ' 8.5 1024M '));
     }
 }
