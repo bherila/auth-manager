@@ -60,14 +60,20 @@ def top_level_blocks(css):
 
 def theme_stylesheet(css):
     """Extract a small value allowlist, never copy selectors, rules or imports."""
-    css = re.sub(r'/\*.*?\*/', '', css, flags=re.S)
+    # A CSS comment separates adjacent tokens. Preserve that boundary so removing a
+    # comment cannot turn an invalid value such as `2/**/10` into `210`.
+    css = re.sub(r'/\*.*?\*/', ' ', css, flags=re.S)
     blocks = top_level_blocks(css)
     themes = []
     for selector in (':root', '.dark'):
         body = next((body for name, body in blocks if name == selector), None)
         if body is None or '{' in body or '}' in body:
             raise ValueError('Required standalone light/dark theme block is missing')
-        declarations = re.findall(r'--([a-z-]+)\s*:\s*([^;]+);', body)
+        declarations = []
+        for declaration in body.split(';'):
+            match = re.fullmatch(r'\s*--([a-z-]+)\s*:\s*(.*?)\s*', declaration, re.S)
+            if match:
+                declarations.append(match.groups())
         lines = []
         for token in TOKENS:
             values = [value.strip() for name, value in declarations if name == token]
@@ -83,7 +89,7 @@ def theme_stylesheet(css):
     families = [family.strip() for family in font[1].split(',')] if font else []
     if not families or any(FONT_FAMILY.fullmatch(family) is None for family in families):
         raise ValueError('Expected a plain local font family stack')
-    stack = ', '.join(' '.join(family.split()) for family in families)
+    stack = ', '.join(families)
     themes.append(':root { --font-sans: ' + stack + '; }\nbody { font-family: var(--font-sans); }')
     return '\n\n'.join(themes) + '\n'
 
@@ -91,7 +97,11 @@ def theme_stylesheet(css):
 def local_path(value):
     # Normalize relative paths lexically, then reject symlinks in any component.
     path = Path(os.path.abspath(value))
-    if path.resolve() != path:
+    try:
+        resolved = path.resolve()
+    except RuntimeError as error:
+        raise ValueError('Branding paths must not traverse filesystem aliases') from error
+    if resolved != path:
         raise ValueError('Branding paths must not traverse filesystem aliases')
     return path
 

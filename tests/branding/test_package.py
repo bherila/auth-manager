@@ -106,6 +106,16 @@ class BrandingPackageTest(unittest.TestCase):
             self.package()
         self.assertEqual([], list(outside.iterdir()))
 
+    def test_symlink_loop_is_rejected_without_disclosing_its_path(self):
+        loop = self.root / 'private-loop'
+        loop.symlink_to(loop)
+        command = self.command()
+        command[command.index('--identity') + 1] = str(loop)
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertNotIn(str(loop), result.stderr)
+        self.assertNotIn('Traceback', result.stderr)
+
     def test_invalid_theme_and_mislabeled_asset_fail_before_creating_output(self):
         self.css.write_text(self.stylesheet().replace('210 40% 20%', 'url(https://assets.example.test/x)'))
         with self.assertRaises(ValueError):
@@ -136,6 +146,15 @@ class BrandingPackageTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.theme_stylesheet(self.stylesheet().replace('  --primary: 210 40% 20%;', ''))
 
+    def test_token_names_and_comments_cannot_create_required_colors(self):
+        embedded = self.stylesheet().replace('--primary: 210 40% 20%;',
+                                             '--brand1--primary: 210 40% 20%;', 1)
+        with self.assertRaises(ValueError):
+            MODULE.theme_stylesheet(embedded)
+        joined_by_comment = self.stylesheet().replace('210 40% 20%', '2/**/10 40% 20%', 1)
+        with self.assertRaises(ValueError):
+            MODULE.theme_stylesheet(joined_by_comment)
+
     def test_font_stack_rejects_expressions_and_unbalanced_or_empty_families(self):
         for font in ('url(https://assets.example.test)', 'var(--other)', "'Unclosed", 'Example,,sans-serif', 'Example,', 'Example\\22'):
             with self.subTest(font=font), self.assertRaises(ValueError):
@@ -143,6 +162,12 @@ class BrandingPackageTest(unittest.TestCase):
         css = MODULE.theme_stylesheet('/* --font-sans: unsafe(); */\n' + self.stylesheet())
         self.assertNotIn('unsafe', css)
         self.assertIn('Example Sans', css)
+
+    def test_quoted_font_family_whitespace_is_preserved(self):
+        css = MODULE.theme_stylesheet(
+            self.stylesheet().replace("'Example Sans'", "'Example  Sans'", 1)
+        )
+        self.assertIn("--font-sans: 'Example  Sans', ui-sans-serif, system-ui;", css)
 
     def test_cli_uses_explicit_paths_and_redacts_private_path_failures(self):
         result = subprocess.run(self.command(), capture_output=True, text=True)
