@@ -72,9 +72,11 @@ delegated access on both sides, verification, and rollback.
 
 ## Deployment
 
-Merges to `main` that pass CI deploy automatically. The deploy destination is
-hard-coded; runtime configuration and database credentials live on the server
-outside the repository and are never committed.
+Merges to `main` that pass CI deploy automatically through the pinned shared cPanel action.
+Each protected GitHub environment supplies its site URL and exact deployment profile; runtime
+configuration, database credentials, signing keys and optional branding sources live on the server
+outside the repository and are never committed. Candidate migrations run against the previous
+release before application code is uploaded.
 
 The host invokes `php artisan schedule:run` every minute. The application
 scheduler runs identity-tombstone retention hourly and prevents overlapping

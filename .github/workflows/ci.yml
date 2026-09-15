@@ -62,8 +62,18 @@ jobs:
     environment: web1
     permissions:
       contents: read
+    env:
+      DEPLOY_PROFILE: ${{ vars.AUTH_MANAGER_PROFILE }}
+      DEPLOY_SITE_URL: ${{ vars.SITE_URL }}
 
     steps:
+      - name: Validate deployment profile and route
+        run: |
+          test "$DEPLOY_PROFILE" = 'bherila'
+          test -n "$DEPLOY_SITE_URL"
+          test "${DEPLOY_SITE_URL#https://}" != "$DEPLOY_SITE_URL"
+          test "${DEPLOY_SITE_URL%/}" = "$DEPLOY_SITE_URL"
+
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,140 +95,24 @@ jobs:
           name: frontend-build
           path: public/build/
 
-      # cPanel stores the vhost's PHP-version handler inside public/.htaccess, which the
-      # deploy overwrites. Re-append it so the vhost keeps resolving PHP 8.5.
-      - name: Append cPanel PHP handler to .htaccess
-        run: cat htaccess-append.txt >> public/.htaccess
-
-      - name: Set up pinned SSH credentials
-        run: |
-          install -d -m 700 ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ecdsa
-          chmod 600 ~/.ssh/id_ecdsa
-          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
-      # Migrations must be backward-compatible and land before the application code that
-      # consumes them. Copying only the migration files first prevents a live request from
-      # reaching new code while its required table is still absent. A failed migration
-      # stops the deployment before the guarded application rsync begins.
-      - name: Apply backward-compatible database migrations
-        run: |
-          rsync -av \
-            -e "ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes" \
-            database/migrations/ \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/auth-manager/database/migrations/
-          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "set -eu; \
-             test -f ~/.config/auth-manager/deployment.env; \
-             test -f ~/.config/auth-manager/database.env; \
-             install -m 600 ~/.config/auth-manager/deployment.env ~/auth-manager/.env; \
-             install -m 600 ~/.config/auth-manager/database.env ~/auth-manager/.db-credentials; \
-             cd ~/auth-manager; \
-             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear; \
-             /opt/cpanel/ea-php85/root/usr/bin/php artisan migrate --force"
-
-      # The destination is intentionally hard-coded. This hosting account serves several
-      # independent applications from sibling directories, and --delete makes an
-      # interpolated, empty, or broad destination catastrophic. Never target the account
-      # home or a shared webroot.
-      #
-      # The --exclude list is what --delete must not touch. Excluded paths are hidden from
-      # the transfer entirely, so rsync also refuses to delete them on the receiver.
-      #
-      # Everything under storage/ that holds runtime state must be excluded. The repository
-      # ships those directories empty, so transferring them with --delete destroys whatever
-      # the running application has put there: signing keys, uploaded files, the log the
-      # last failure was written to, and any file-backed session. A session wiped mid-flow
-      # surfaces as an unrelated-looking error — a passkey ceremony, for instance, reports
-      # that it has no pending challenge — which is why this is worth being explicit about.
-      - name: Deploy application with guarded rsync
-        run: |
-          rsync -av --delete \
-            --exclude='.env' \
-            --exclude='/public/branding/' \
-            --exclude='.db-credentials' \
-            --exclude='/storage/app/' \
-            --exclude='/storage/logs/' \
-            --exclude='/storage/framework/sessions/' \
-            --exclude='/storage/framework/cache/' \
-            -e "ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes" \
-            app \
-            bootstrap \
-            config \
-            database \
-            public \
-            resources \
-            routes \
-            storage \
-            vendor \
-            artisan \
-            composer.json \
-            composer.lock \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/auth-manager/
-
-      # Signing keys must persist across deploys: rotating them invalidates every
-      # issued token. Create them only when neither half exists, and refuse to act on a
-      # half-present pair rather than silently regenerating over a live key.
-      - name: Create or verify persistent OAuth signing keys
-        run: |
-          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "cd ~/auth-manager && \
-             install -d -m 700 storage/app/private/oauth && \
-             if [ -s storage/app/private/oauth/oauth-private.key ] && [ -s storage/app/private/oauth/oauth-public.key ]; then \
-               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
-             elif [ ! -e storage/app/private/oauth/oauth-private.key ] && [ ! -e storage/app/private/oauth/oauth-public.key ]; then \
-               /opt/cpanel/ea-php85/root/usr/bin/php artisan passport:keys --force && \
-               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
-             else \
-               echo 'OAuth signing key pair is incomplete; refusing to rotate it automatically.' >&2; \
-               exit 1; \
-             fi"
-
-      - name: Install private configuration and refresh config cache
-        run: |
-          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "set -eu; \
-             test -f ~/.config/auth-manager/deployment.env; \
-             test -f ~/.config/auth-manager/database.env; \
-             install -m 600 ~/.config/auth-manager/deployment.env ~/auth-manager/.env; \
-             install -m 600 ~/.config/auth-manager/database.env ~/auth-manager/.db-credentials; \
-             cd ~/auth-manager; \
-             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear; \
-             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:cache"
-
-      # Keep the platform trigger declarative and deploy-owned. The account crontab is shared
-      # with every other application on this account; the script replaces only this
-      # application's lines (its header says how they are recognised), so a hand-edited line —
-      # say, one given a memory flag — is replaced rather than duplicated, and a failed
-      # `crontab -l` stops the deploy instead of writing back a crontab with only this line in
-      # it. Its harness runs first, so a regression in the script fails here instead.
-      - name: Install and verify Laravel scheduler cron
-        run: |
-          bash scripts/deploy/test-install-cron.sh
-          # shellcheck disable=SC2016 # $HOME is for cron to expand on the host, not this shell.
-          lines=(
-            '* * * * * cd "$HOME/auth-manager" && /opt/cpanel/ea-php85/root/usr/bin/php -d memory_limit=1G artisan schedule:run > /dev/null 2>&1 # JOB:auth-manager-scheduler'
-          )
-          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
-            "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}" \
-            "bash -s -- $(printf '%q ' auth-manager "${lines[@]}")" < scripts/deploy/install-cron.sh
-
-      - name: Verify public health
-        run: |
-          curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
-            https://id.bherila.net/up > /dev/null
-
-      # The web handler's limits cannot be read from the CLI, and LiteSpeed silently ignores
-      # .user.ini, so ask the running site. Fails the deploy when the vhost runs another PHP
-      # version or a memory_limit below the php_value that public/.htaccess sets.
-      - name: Verify the web handler's PHP version and memory limit
-        run: |
-          bash scripts/deploy/verify-web-php.sh "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}" \
-            auth-manager https://id.bherila.net 8.5 1024M -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes
+      - name: Deploy with the shared cPanel action
+        uses: bherila/shared-cpanel-deployment@182ba6cf1834f75173b454ff01cfad0732ba9c2a # v1.1.0
+        with:
+          ssh-host: ${{ secrets.SSH_HOST }}
+          ssh-username: ${{ secrets.SSH_USERNAME }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          deploy-dir: auth-manager
+          site-url: ${{ env.DEPLOY_SITE_URL }}
+          env-source: .config/auth-manager/deployment.env
+          env-assert: AUTH_MANAGER_PROFILE=${{ env.DEPLOY_PROFILE }}
+          excludes: |
+            .db-credentials
+            /public/branding/
+          run-migrations: true
+          migration-order: before-upload
+          passport-key-directory: storage/app/private/oauth
+          branding-source: ${{ vars.BRANDING_SOURCE }}
 
   deploy_resource:
     name: Deploy resource profile to web1
@@ -261,110 +155,21 @@ jobs:
           name: frontend-build
           path: public/build/
 
-      - name: Append cPanel PHP handler to .htaccess
-        run: cat htaccess-append.txt >> public/.htaccess
-
-      - name: Set up pinned SSH credentials
-        run: |
-          install -d -m 700 ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ecdsa
-          chmod 600 ~/.ssh/id_ecdsa
-          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
-      - name: Apply backward-compatible database migrations
-        run: |
-          rsync -av \
-            -e "ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes" \
-            database/migrations/ \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/auth-manager/database/migrations/
-          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "set -eu; \
-             test -f ~/.config/auth-manager/deployment.env; \
-             test -f ~/.config/auth-manager/database.env; \
-             grep -Fqx 'AUTH_MANAGER_PROFILE=resource' ~/.config/auth-manager/deployment.env; \
-             install -m 600 ~/.config/auth-manager/deployment.env ~/auth-manager/.env; \
-             install -m 600 ~/.config/auth-manager/database.env ~/auth-manager/.db-credentials; \
-             cd ~/auth-manager; \
-             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear; \
-             /opt/cpanel/ea-php85/root/usr/bin/php artisan migrate --force"
-
-      # The destination stays literal so a missing environment value can never widen the
-      # destructive rsync target to the account home or another application directory.
-      - name: Deploy application with guarded rsync
-        run: |
-          rsync -av --delete \
-            --exclude='.env' \
-            --exclude='/public/branding/' \
-            --exclude='.db-credentials' \
-            --exclude='/storage/app/' \
-            --exclude='/storage/logs/' \
-            --exclude='/storage/framework/sessions/' \
-            --exclude='/storage/framework/cache/' \
-            -e "ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes" \
-            app \
-            bootstrap \
-            config \
-            database \
-            public \
-            resources \
-            routes \
-            storage \
-            vendor \
-            artisan \
-            composer.json \
-            composer.lock \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/auth-manager/
-
-      - name: Create or verify persistent OAuth signing keys
-        run: |
-          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "cd ~/auth-manager && \
-             install -d -m 700 storage/app/private/oauth && \
-             if [ -s storage/app/private/oauth/oauth-private.key ] && [ -s storage/app/private/oauth/oauth-public.key ]; then \
-               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
-             elif [ ! -e storage/app/private/oauth/oauth-private.key ] && [ ! -e storage/app/private/oauth/oauth-public.key ]; then \
-               /opt/cpanel/ea-php85/root/usr/bin/php artisan passport:keys --force && \
-               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
-             else \
-               echo 'OAuth signing key pair is incomplete; refusing to rotate it automatically.' >&2; \
-               exit 1; \
-             fi"
-
-      - name: Install private configuration and refresh config cache
-        run: |
-          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "set -eu; \
-             test -f ~/.config/auth-manager/deployment.env; \
-             test -f ~/.config/auth-manager/database.env; \
-             grep -Fqx 'AUTH_MANAGER_PROFILE=resource' ~/.config/auth-manager/deployment.env; \
-             install -m 600 ~/.config/auth-manager/deployment.env ~/auth-manager/.env; \
-             install -m 600 ~/.config/auth-manager/database.env ~/auth-manager/.db-credentials; \
-             cd ~/auth-manager; \
-             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear; \
-             /opt/cpanel/ea-php85/root/usr/bin/php artisan config:cache"
-
-      # Same shared-crontab script as the primary deployment; see that step for why.
-      - name: Install and verify Laravel scheduler cron
-        run: |
-          bash scripts/deploy/test-install-cron.sh
-          # shellcheck disable=SC2016 # $HOME is for cron to expand on the host, not this shell.
-          lines=(
-            '* * * * * cd "$HOME/auth-manager" && /opt/cpanel/ea-php85/root/usr/bin/php -d memory_limit=1G artisan schedule:run > /dev/null 2>&1 # JOB:auth-manager-scheduler'
-          )
-          ssh -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes \
-            "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}" \
-            "bash -s -- $(printf '%q ' auth-manager "${lines[@]}")" < scripts/deploy/install-cron.sh
-
-      - name: Verify public health
-        run: |
-          curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
-            "$DEPLOY_SITE_URL/up" > /dev/null
-
-      - name: Verify the web handler's PHP version and memory limit
-        run: |
-          bash scripts/deploy/verify-web-php.sh "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}" \
-            auth-manager "$DEPLOY_SITE_URL" 8.5 1024M -i ~/.ssh/id_ecdsa -o IdentitiesOnly=yes
+      - name: Deploy with the shared cPanel action
+        uses: bherila/shared-cpanel-deployment@182ba6cf1834f75173b454ff01cfad0732ba9c2a # v1.1.0
+        with:
+          ssh-host: ${{ secrets.SSH_HOST }}
+          ssh-username: ${{ secrets.SSH_USERNAME }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          deploy-dir: auth-manager
+          site-url: ${{ env.DEPLOY_SITE_URL }}
+          env-source: .config/auth-manager/deployment.env
+          env-assert: AUTH_MANAGER_PROFILE=${{ env.DEPLOY_PROFILE }}
+          excludes: |
+            .db-credentials
+            /public/branding/
+          run-migrations: true
+          migration-order: before-upload
+          passport-key-directory: storage/app/private/oauth
+          branding-source: ${{ vars.BRANDING_SOURCE }}

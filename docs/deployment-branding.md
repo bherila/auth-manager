@@ -14,7 +14,18 @@ AUTH_BRANDING_FAVICON=/branding/favicon.ico
 AUTH_BRANDING_STYLESHEET=/branding/theme.css
 ```
 
-Supply these files privately in `public/branding/`. They are ignored by Git and preserved by both deployment jobs' guarded `rsync --delete` operations. A deployment that packages branding separately must copy its approved assets into that directory after application transfer, and verify the files are served with the correct MIME types. Refresh Laravel's configuration cache after changing server environment configuration. This feature does not provision hosts or deploy assets.
+For a cPanel deployment, keep the canonical files in a private server directory such as
+`~/.config/auth-manager/branding/`, beside `deployment.env`. Set the protected GitHub
+environment variable `BRANDING_SOURCE` to that account-home-relative path. The shared deployment
+action validates every source file, copies it through a same-directory temporary file into
+`public/branding/`, and then rebuilds Laravel's configuration cache. Leave the variable unset for
+the default theme. The private source remains outside the guarded `rsync --delete` target and must
+be included in the server's protected configuration backup.
+
+The standard bundle contains `logo-light.svg`, `logo-dark.svg`, `favicon.ico` and `theme.css`.
+The packager below can create that layout for an operator to transfer into the private server
+directory. VM or container orchestration may instead package it into an unserved release build.
+In either mode, verify that the files are served with the correct MIME types after deployment.
 
 Only root-relative `/branding/` paths are accepted. Each path segment permits letters, digits, underscores and hyphens; extensions are restricted to image types for logos/icons and `.css` for stylesheets. External URLs, query strings, fragments, encoded paths and traversal are ignored. Files are maintained by deployment operators: there is no asset-upload endpoint, inline SVG inclusion, custom JavaScript or HTML theme mechanism. Review SVG and CSS as trusted deployment material; omit scripts, remote imports, tracking and external font dependencies.
 
