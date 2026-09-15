@@ -171,15 +171,18 @@ the value.
 
 ### Check the value and rebuild the configuration cache
 
-With the new environment in place, check the list first. The check reads the process
-environment and the environment file directly, so it sees the new value even while an older
-configuration cache is still in place:
+With the new environment in place, check the list first. The check builds the list the way
+the next `config:cache` will: it loads `config/delegated-access.php` afresh, with the process
+environment and the environment file as they are now, so an older configuration cache cannot
+hide a change. It applies the same precedence as the running provider: a literal
+`delegated-access.applications` map in that file wins over the environment variable.
 
 ```sh
-php artisan auth-manager:delegated-access:check
+php artisan auth-manager:delegated-access:check --show
 ```
 
-It exits non-zero and prints the same position-and-rule message if the value is malformed.
+It exits non-zero and prints the same position-and-rule message if the list is malformed.
+`--show` prints each resolved application key, endpoint and contract version.
 Only if it succeeds, rebuild the cache and reload the PHP workers the way the deployment
 normally does:
 
@@ -251,8 +254,10 @@ provider never follows redirects.
 
 ## 7. Verify
 
-1. On the provider, confirm the map loaded as intended:
-   `php artisan config:show delegated-access.applications`.
+1. On the provider, confirm the resolved map lists each intended application key, endpoint
+   and contract version: `php artisan auth-manager:delegated-access:check --show`. (With an
+   environment-based setup, `config:show delegated-access.applications` stays empty; the
+   entries live in `applications_environment` until they are resolved.)
 2. Turn on `AUTH_MANAGER_DELEGATED_ACCESS_ENABLED`, check and rebuild the configuration
    cache (section 5).
 3. Sign in to the provider as a test account that holds the client grant and is an
