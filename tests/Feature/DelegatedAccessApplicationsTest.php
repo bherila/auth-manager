@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Support\DelegatedAccessApplications;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\Exceptions;
 use InvalidArgumentException;
 use Tests\TestCase;
@@ -146,7 +147,12 @@ class DelegatedAccessApplicationsTest extends TestCase
             $this->assertSame([], $configuration['applications']);
             $this->assertSame(self::MALFORMED, $configuration['applications_environment']);
 
-            $this->refreshApplication();
+            // Boot a fresh application with the value in place. phpdotenv may overwrite variables it
+            // loaded itself, so re-apply the value once the environment file has been read.
+            $app = require base_path('bootstrap/app.php');
+            $app->afterLoadingEnvironment(fn () => $this->setApplicationsEnvironment(self::MALFORMED));
+            $app->make(Kernel::class)->bootstrap();
+            $this->app = $app;
             $this->assertSame(self::MALFORMED, config('delegated-access.applications_environment'));
             $this->get('/login')->assertOk();
             $this->assertTrue(app(DelegatedAccessApplications::class)->malformed());
@@ -186,13 +192,19 @@ class DelegatedAccessApplicationsTest extends TestCase
         }
     }
 
+    private function setApplicationsEnvironment(string $value): void
+    {
+        $key = DelegatedAccessApplications::ENVIRONMENT;
+        putenv($key.'='.$value);
+        $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
+    }
+
     private function withApplicationsEnvironment(string $value, callable $callback): void
     {
         $key = DelegatedAccessApplications::ENVIRONMENT;
         $previous = [getenv($key), $_ENV[$key] ?? null, array_key_exists($key, $_ENV), $_SERVER[$key] ?? null, array_key_exists($key, $_SERVER)];
-        putenv($key.'='.$value);
-        $_ENV[$key] = $value;
-        $_SERVER[$key] = $value;
+        $this->setApplicationsEnvironment($value);
 
         try {
             $callback();
