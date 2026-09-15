@@ -8,6 +8,7 @@ use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Support\AuthManagerProfile;
+use App\Support\DelegatedAccessApplications;
 use App\Support\StaticApplicationClients;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
@@ -28,12 +29,14 @@ final class DelegatedAccessTransport
         if (! config('delegated-access.enabled', false)) {
             throw new DelegatedAccessException('integration_disabled');
         }
-        $version = self::contractVersion($application);
+        // A malformed application map refuses every call here, before anything is signed or sent.
+        $entry = app(DelegatedAccessApplications::class)->find($application);
+        $version = $entry['contract_version'] ?? DelegatedContract::VERSION_1;
         $payload = $this->contract->request($application, $operation, $version);
         $write = $payload['operation'] === 'update';
         $actor = $this->actor($request, $application, $write);
         $configuration = config('delegated-access');
-        $endpoint = $configuration['applications'][$application]['endpoint'] ?? null;
+        $endpoint = $entry['endpoint'] ?? null;
         $issuer = $configuration['issuer'] ?? null;
         $keyPath = $configuration['private_key_path'] ?? null;
         $keyId = $configuration['key_id'] ?? null;
@@ -84,13 +87,13 @@ final class DelegatedAccessTransport
      *
      * Never negotiated at runtime and never taken from a response: an application that could
      * choose the version could choose which rules its answers are checked against. An unknown
-     * value is refused by the contract before anything is signed or sent.
+     * value makes the whole map malformed, which refuses the call with `invalid_configuration`.
+     *
+     * @throws DelegatedAccessException when the application map is malformed
      */
     public static function contractVersion(string $application): int
     {
-        $version = config('delegated-access.applications.'.$application.'.contract_version', DelegatedContract::VERSION_1);
-
-        return is_int($version) ? $version : (ctype_digit((string) $version) ? (int) $version : 0);
+        return app(DelegatedAccessApplications::class)->contractVersion($application);
     }
 
     private function audit(User $actor, string $application, string $target, string $correlation, string $outcome): void

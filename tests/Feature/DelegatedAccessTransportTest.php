@@ -25,6 +25,7 @@ use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -234,6 +235,31 @@ class DelegatedAccessTransportTest extends TestCase
         config(['delegated-access.enabled' => false]);
         $this->refused(fn () => $transport->send($this->request, 'example-app', ['operation' => 'capabilities']), 'integration_disabled', 503);
         Http::assertNothingSent();
+    }
+
+    public function test_a_malformed_application_map_refuses_every_call_before_anything_is_sent(): void
+    {
+        Http::swap(new Factory);
+        Http::fake();
+        Exceptions::fake();
+        $transport = app(DelegatedAccessTransport::class);
+        // The first entry is valid and matches the configured application; it is not partly honoured.
+        config(['delegated-access.applications' => [],
+            'delegated-access.applications_environment' => 'example-app|https://app.example.test/access|1,other-app|https://app.example.test/access|7']);
+        // The refusal comes first: even input the contract would reject as invalid_request is refused as configuration.
+        foreach ([['operation' => 'capabilities'], ['operation' => 'read', 'subject' => 'target-a'], $this->update('revision-a'),
+            ['operation' => 'subjects', 'limit' => 51]] as $input) {
+            $this->refused(fn () => $transport->send($this->request, 'example-app', $input), 'invalid_configuration', 503);
+        }
+        Exceptions::assertReportedCount(1);
+        $this->refused(fn () => DelegatedAccessTransport::contractVersion('example-app'), 'invalid_configuration', 503);
+        Http::assertNothingSent();
+        $this->assertSame(0, AuthAuditLog::query()->where('event', 'like', 'delegated_access_%')->count());
+        Exceptions::assertReportedCount(1);
+
+        // A disabled integration is refused as disabled, without resolving the map.
+        config(['delegated-access.enabled' => false]);
+        $this->refused(fn () => $transport->send($this->request, 'example-app', ['operation' => 'capabilities']), 'integration_disabled', 503);
     }
 
     public function test_response_size_bound_is_enforced_before_the_body_is_read_under_either_handler(): void

@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -226,6 +227,31 @@ class ApplicationAccessUiTest extends TestCase
         $this->post('/applications/example-app/access/update', [...$this->update(), 'workspaces' => $replacement])
             ->assertRedirect()->assertSessionHas('access_updated', true);
         Http::assertSent(fn ($request) => $request['operation'] === 'update' && count($request['access']['workspaces']) === 100);
+    }
+
+    public function test_a_malformed_application_map_shows_the_unavailable_state_and_sends_nothing(): void
+    {
+        Exceptions::fake();
+        config(['delegated-access.applications' => [],
+            'delegated-access.applications_environment' => 'example-app|https://app.example.test/access|1,example-app|https://app.example.test/access|1']);
+        // Confirmation itself asks the application for capabilities, so it is refused too.
+        $this->post('/applications/example-app/access/confirm', ['password' => 'current-password-example'])
+            ->assertStatus(503)->assertSee('unavailable');
+
+        $this->get('/applications/manage')->assertOk()
+            ->assertSee('No application access integrations are available')->assertDontSee('Example Application');
+        $this->get('/applications/example-app/access')->assertStatus(503)->assertSee('unavailable');
+        $this->get('/applications/example-app/access?subject=subject-example')->assertStatus(503)->assertSee('unavailable');
+        $failure = $this->post('/applications/example-app/access/update', $this->update())->assertRedirect()
+            ->assertSessionHas('access_failure', 'Application access is unavailable. Try again later; saved results are not being shown as current.');
+        $this->get($failure->headers->get('Location'))->assertStatus(503)->assertSee('unavailable');
+
+        Http::assertNothingSent();
+        Exceptions::assertReported(fn (\InvalidArgumentException $exception): bool => str_contains($exception->getMessage(), 'entry 2 repeats an application key'));
+
+        // Sign-in and the rest of the provider are unaffected.
+        auth()->logout();
+        $this->get('/login')->assertOk();
     }
 
     private function browse(array $input): TestResponse

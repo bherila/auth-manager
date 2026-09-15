@@ -63,6 +63,13 @@ profile. See [`docs/deployment-profiles.md`](docs/deployment-profiles.md) for
 the environment contract, OAuth metadata, dynamic client registration, and
 introspection configuration.
 
+## Connecting an application
+
+[`docs/connecting-an-application.md`](docs/connecting-an-application.md) is the
+operator runbook for connecting an application: choosing a shared or dedicated
+instance, registering its OAuth client, granting users, the application registry,
+delegated access on both sides, verification, and rollback.
+
 ## Deployment
 
 Merges to `main` that pass CI deploy automatically. The deploy destination is
