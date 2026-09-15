@@ -125,6 +125,8 @@ final class DelegatedAccessTransport
             // The bounded read below assumes a lazy stream, which Guzzle only provides when
             // its stream handler is selected (allow_url_fopen). Under curl the body would buffer
             // first, so also refuse a declared oversize body before it is read and cap curl itself.
+            // The cap is sent only when curl serves the request: Guzzle's stream handler refuses
+            // any curl option, which would fail every exchange before it reached the network.
             $response = Http::connectTimeout(3)->timeout(10)->withoutRedirecting()
                 ->withOptions(['stream' => true, 'read_timeout' => 1,
                     'on_headers' => static function (ResponseInterface $headers): void {
@@ -133,7 +135,7 @@ final class DelegatedAccessTransport
                             throw new RuntimeException('The application response exceeds the contract size limit.');
                         }
                     },
-                    'curl' => [CURLOPT_MAXFILESIZE => DelegatedContract::MAX_RESPONSE_BYTES]])
+                ] + (ini_get('allow_url_fopen') ? [] : ['curl' => [CURLOPT_MAXFILESIZE => DelegatedContract::MAX_RESPONSE_BYTES]]))
                 ->withHeaders(['Authorization' => 'Bearer '.$assertion, 'Accept' => 'application/json'])
                 ->withBody($body, 'application/json')->post($endpoint);
         } catch (Throwable) {

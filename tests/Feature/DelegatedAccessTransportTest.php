@@ -19,6 +19,7 @@ use GuzzleHttp\Psr7\Utils;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Events\ConnectionFailed;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Http\Request;
@@ -247,7 +248,9 @@ class DelegatedAccessTransportTest extends TestCase
                 'controls' => ['application_admin' => true, 'workspace_permissions' => ['read', 'write']]]);
         });
         $transport->send($this->request, 'example-app', ['operation' => 'capabilities']);
-        $this->assertSame(DelegatedContract::MAX_RESPONSE_BYTES, $captured['curl'][CURLOPT_MAXFILESIZE]);
+        // Guzzle serves a streamed request with its stream handler whenever allow_url_fopen is on,
+        // and that handler rejects any curl option, so the curl cap is sent only when curl serves it.
+        $this->assertSame(ini_get('allow_url_fopen') ? null : DelegatedContract::MAX_RESPONSE_BYTES, $captured['curl'][CURLOPT_MAXFILESIZE] ?? null);
         $onHeaders = $captured['on_headers'];
         $onHeaders(new Response(200, ['Content-Length' => (string) DelegatedContract::MAX_RESPONSE_BYTES]));
         $onHeaders(new Response(200, ['Transfer-Encoding' => 'chunked']));
@@ -259,6 +262,22 @@ class DelegatedAccessTransportTest extends TestCase
                 $this->addToAssertionCount(1);
             }
         }
+    }
+
+    public function test_the_selected_http_handler_accepts_the_transport_options(): void
+    {
+        // Http::fake replaces Guzzle's handler, so only an unfaked send shows that the handler
+        // Guzzle selects for a streamed request accepts these options. A closed local port makes
+        // the attempt fail as a connection failure; a rejected option never reaches the network.
+        config(['delegated-access.applications.example-app.endpoint' => 'https://127.0.0.1:1/access']);
+        $events = app('events');
+        Http::swap(new Factory($events));
+        $failures = 0;
+        $events->listen(ConnectionFailed::class, function () use (&$failures): void {
+            $failures++;
+        });
+        $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', ['operation' => 'capabilities']), 'unavailable', 503);
+        $this->assertSame(1, $failures, 'The request must reach a connection attempt rather than be rejected by the HTTP handler.');
     }
 
     public function test_slow_response_cannot_extend_absolute_deadline_and_is_closed(): void
