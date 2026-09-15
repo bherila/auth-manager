@@ -34,9 +34,10 @@ credentials, administrators, clients, registry entries or keys.
 Weigh:
 
 - **Blast radius.** A shared instance is a single point of failure and compromise for every
-  application behind it. An outage, a malformed configuration value (which stops the whole
-  instance loading, see section 5) or a leaked integration key affects all of them. A
-  dedicated instance limits each to one organisation.
+  application behind it. An outage, a bad deployment or a leaked integration key affects all
+  of them, and so does a malformed delegated access application list: it disables delegated
+  access for every application on the instance (sign-in keeps working, see section 5). A
+  dedicated instance limits each of these to one organisation.
 - **Directories and administrators.** A shared instance has one directory and one group of
   provider administrators, who can see every person and manage every application's grants.
   Use a dedicated instance when an organisation must own its own directory and administrators,
@@ -161,23 +162,26 @@ AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS=example-app|https://app.example.test/
 Leave `ENABLED` off until the application side (section 6) is deployed, and leave
 `WRITES_ENABLED` off until reads are verified (section 7).
 
-**A malformed `AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS` value prevents the whole
-instance's configuration from loading**, exactly like an unrecognized
-`AUTH_MANAGER_PROFILE`. No entry is silently skipped. The error names the entry position and
-the rule it breaks, never the value.
+**A malformed `AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS` value disables delegated access
+for every application on the instance.** No entry is partly honoured: one bad entry refuses
+every delegated call with a configuration outcome, and the access pages show their
+unavailable state. Sign-in, the registry and the rest of the provider keep working. The
+problem is reported to the error log with the entry position and the rule it breaks, never
+the value.
 
-### Rebuild the configuration cache
+### Check the value and rebuild the configuration cache
 
-`config:cache` clears the existing cache before it loads the new configuration, so a
-malformed value would leave the instance without a working configuration. Check first, into
-a scratch cache file, with the new environment in place:
+With the new environment in place, check the list first. The check reads the process
+environment and the environment file directly, so it sees the new value even while an older
+configuration cache is still in place:
 
 ```sh
-APP_CONFIG_CACHE="$(mktemp -d)/config-check.php" php artisan config:cache
+php artisan auth-manager:delegated-access:check
 ```
 
-Only if that succeeds, rebuild the real cache and reload the PHP workers the way the
-deployment normally does:
+It exits non-zero and prints the same position-and-rule message if the value is malformed.
+Only if it succeeds, rebuild the cache and reload the PHP workers the way the deployment
+normally does:
 
 ```sh
 php artisan config:cache
@@ -273,8 +277,8 @@ provider never follows redirects.
   or remove the application's entry from `AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS`, then
   check and rebuild the configuration cache. On the application, set
   `DELEGATED_ACCESS_ENABLED=false` and rebuild its configuration.
-- **A malformed value stopped the instance loading:** restore the previous value and rebuild
-  the configuration cache.
+- **A malformed value disabled delegated access:** restore the previous value, run
+  `php artisan auth-manager:delegated-access:check`, and rebuild the configuration cache.
 - Keep the application's nonce table; do not roll back its migration.
 - Registry navigation and sign-in are separate: disable the registry entry or launch flag as
   described in [the application registry](application-registry.md), and revoke client grants
