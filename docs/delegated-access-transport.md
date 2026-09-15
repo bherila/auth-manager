@@ -10,7 +10,7 @@ Responses echo version, application, and operation. Read/update must also echo t
 
 ## Trust and rollout
 
-Configure the deployment-owned `delegated-access.applications` map with stable registry keys and exact HTTPS endpoints. Never derive management endpoints from registry launch URLs, OAuth redirect URIs, dynamic registrations, or browser input. Leave both environment flags off until the consumer adapter and protected browser flow are independently verified.
+Configure the deployment-owned `delegated-access.applications` map with stable registry keys and exact HTTPS endpoints, normally through `AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS` (comma-separated `key|https://endpoint|contract_version` entries). A malformed value prevents configuration from loading, like an unrecognized profile; no entry is silently dropped. The step-by-step operator procedure is [connecting an application](connecting-an-application.md). Never derive management endpoints from registry launch URLs, OAuth redirect URIs, dynamic registrations, or browser input. Leave both environment flags off until the consumer adapter and protected browser flow are independently verified.
 
 Use a dedicated integration RS256 key pair, separate from OAuth signing keys. Set the provider issuer, integration key ID, and private-key path; consumers pin issuer, exact endpoint audience, application key, and a local key-ID/public-key map. No key discovery or redirects occur. Rotation can temporarily pin both dedicated public keys before switching the sender key ID.
 
