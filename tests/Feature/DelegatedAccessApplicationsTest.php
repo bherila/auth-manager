@@ -175,11 +175,132 @@ class DelegatedAccessApplicationsTest extends TestCase
                 ->doesntExpectOutputToContain('synthetic-secret-host')
                 ->assertExitCode(1);
         });
-        $this->withApplicationsEnvironment('example-app|https://app.example.test/application-access|2', function (): void {
-            config(['delegated-access.applications' => ['example-app' => ['endpoint' => 'http://app.example.test/access']]]);
-            $this->artisan('auth-manager:delegated-access:check')
-                ->expectsOutputToContain('delegated-access.applications entry 1 endpoint')->assertExitCode(1);
+    }
+
+    public function test_the_check_command_applies_literal_precedence_like_runtime(): void
+    {
+        $this->withCheckFixture(
+            "['example-app' => ['endpoint' => 'https://literal.example.test/access', 'contract_version' => 2]]",
+            self::MALFORMED,
+            function (): void {
+                $this->artisan('auth-manager:delegated-access:check', ['--show' => true])
+                    ->expectsOutputToContain('takes precedence')
+                    ->expectsTable(['Application', 'Endpoint', 'Contract version'], [['example-app', 'https://literal.example.test/access', '2']])
+                    ->assertExitCode(0);
+                // The environment file's values are applied only while the file loads.
+                $this->assertArrayNotHasKey(DelegatedAccessApplications::ENVIRONMENT, $_SERVER);
+                $this->assertArrayNotHasKey(DelegatedAccessApplications::ENVIRONMENT, $_ENV);
+            },
+        );
+
+        $this->withCheckFixture(
+            "['example-app' => ['endpoint' => 'http://literal.example.test/access']]",
+            'example-app|https://app.example.test/access|2',
+            function (): void {
+                $this->artisan('auth-manager:delegated-access:check')
+                    ->expectsOutputToContain('delegated-access.applications entry 1 endpoint')->assertExitCode(1);
+            },
+        );
+    }
+
+    public function test_the_check_command_ignores_a_stale_configuration_cache(): void
+    {
+        // The cache holds an old valid literal; the file no longer has it and the environment file is now malformed.
+        $this->withCheckFixture('[]', self::MALFORMED, function (): void {
+            $this->withStaleConfigurationCache(['example-app' => ['endpoint' => 'https://old.example.test/access']], function (): void {
+                $this->artisan('auth-manager:delegated-access:check')
+                    ->expectsOutputToContain('entry 2 endpoint must be an absolute HTTPS URL')
+                    ->doesntExpectOutputToContain('synthetic-secret-host')
+                    ->assertExitCode(1);
+            });
         });
+
+        // The cache holds an old malformed literal; the file no longer has it and the environment file is now valid.
+        $this->withCheckFixture('[]', 'example-app|https://app.example.test/application-access|2', function (): void {
+            $this->withStaleConfigurationCache(['example-app' => ['endpoint' => 'http://old.example.test/access']], function (): void {
+                $this->artisan('auth-manager:delegated-access:check', ['--show' => true])
+                    ->expectsTable(['Application', 'Endpoint', 'Contract version'], [['example-app', 'https://app.example.test/application-access', '2']])
+                    ->assertExitCode(0);
+            });
+        });
+    }
+
+    public function test_the_check_command_lets_the_process_environment_win_over_the_environment_file(): void
+    {
+        $this->withCheckFixture('[]', self::MALFORMED, function (): void {
+            $this->setApplicationsEnvironment('example-app|https://app.example.test/application-access|1');
+            $this->artisan('auth-manager:delegated-access:check', ['--show' => true])
+                ->expectsTable(['Application', 'Endpoint', 'Contract version'], [['example-app', 'https://app.example.test/application-access', '1']])
+                ->assertExitCode(0);
+        });
+    }
+
+    /**
+     * Run the check against a temporary copy of config/delegated-access.php whose literal
+     * `applications` is replaced, and a temporary environment file defining the list, with the
+     * list absent from the process environment.
+     */
+    private function withCheckFixture(string $literalPhp, string $environmentFileValue, callable $callback): void
+    {
+        $key = DelegatedAccessApplications::ENVIRONMENT;
+        $directory = sys_get_temp_dir().'/delegated-access-check-'.bin2hex(random_bytes(6));
+        mkdir($directory);
+        $configuration = str_replace("'applications' => [],", "'applications' => {$literalPhp},", (string) file_get_contents(config_path('delegated-access.php')));
+        $this->assertStringContainsString("'applications' => {$literalPhp},", $configuration);
+        file_put_contents($directory.'/delegated-access.php', $configuration);
+        file_put_contents($directory.'/.env.check', $key.'="'.$environmentFileValue."\"\n");
+
+        $configPath = $this->app->configPath();
+        $environmentPath = $this->app->environmentPath();
+        $environmentFile = $this->app->environmentFile();
+        $previous = [getenv($key), $_ENV[$key] ?? null, array_key_exists($key, $_ENV), $_SERVER[$key] ?? null, array_key_exists($key, $_SERVER)];
+        putenv($key);
+        unset($_ENV[$key], $_SERVER[$key]);
+        $this->app->useConfigPath($directory);
+        $this->app->useEnvironmentPath($directory);
+        $this->app->loadEnvironmentFrom('.env.check');
+
+        try {
+            $callback();
+        } finally {
+            $this->app->useConfigPath($configPath);
+            $this->app->useEnvironmentPath($environmentPath);
+            $this->app->loadEnvironmentFrom($environmentFile);
+            putenv($previous[0] === false ? $key : $key.'='.$previous[0]);
+            if ($previous[2]) {
+                $_ENV[$key] = $previous[1];
+            } else {
+                unset($_ENV[$key]);
+            }
+            if ($previous[4]) {
+                $_SERVER[$key] = $previous[3];
+            } else {
+                unset($_SERVER[$key]);
+            }
+            @unlink($directory.'/delegated-access.php');
+            @unlink($directory.'/.env.check');
+            @rmdir($directory);
+        }
+    }
+
+    /**
+     * The application as it runs with a configuration cache: the repository was loaded from the
+     * cache (Laravel's own `config_loaded_from_cache` flag) and holds an old literal map.
+     */
+    private function withStaleConfigurationCache(array $literal, callable $callback): void
+    {
+        $loadedFromCache = $this->app->bound('config_loaded_from_cache') ? $this->app->make('config_loaded_from_cache') : null;
+        $stale = [config('delegated-access.applications'), config('delegated-access.applications_environment')];
+        $this->app->instance('config_loaded_from_cache', true);
+        config(['delegated-access.applications' => $literal, 'delegated-access.applications_environment' => null]);
+
+        try {
+            $this->assertTrue($this->app->configurationIsCached());
+            $callback();
+        } finally {
+            config(['delegated-access.applications' => $stale[0], 'delegated-access.applications_environment' => $stale[1]]);
+            $this->app->instance('config_loaded_from_cache', $loadedFromCache ?? false);
+        }
     }
 
     private function assertRefused(callable $parse, string $label): void
