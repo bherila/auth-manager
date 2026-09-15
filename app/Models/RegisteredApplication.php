@@ -7,6 +7,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class RegisteredApplication extends Model
 {
+    /** Registry key format, shared by the administration form and delegated access configuration. */
+    public const KEY_PATTERN = '/^[a-z][a-z0-9-]*$/D';
+
+    public const KEY_MAX_LENGTH = 64;
+
     protected $fillable = ['key', 'name', 'launch_url', 'enabled'];
 
     public function getConnectionName(): ?string
