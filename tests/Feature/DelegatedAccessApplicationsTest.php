@@ -3,11 +3,15 @@
 namespace Tests\Feature;
 
 use App\Support\DelegatedAccessApplications;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use Illuminate\Support\Facades\Exceptions;
 use InvalidArgumentException;
 use Tests\TestCase;
 
 class DelegatedAccessApplicationsTest extends TestCase
 {
+    private const MALFORMED = 'example-app|https://app.example.test/access|2,other-app|http://synthetic-secret-host.example.test/access|1';
+
     public function test_valid_entries_become_the_transport_map(): void
     {
         $this->assertSame([
@@ -57,14 +61,14 @@ class DelegatedAccessApplicationsTest extends TestCase
         ];
 
         foreach ($cases as $label => $value) {
-            $this->assertRefused($value, $label);
+            $this->assertRefused(fn () => DelegatedAccessApplications::parse($value), $label);
         }
     }
 
     public function test_duplicate_keys_are_malformed_even_with_identical_entries(): void
     {
-        $this->assertRefused('example-app|https://app.example.test/access|2,example-app|https://app.example.test/access|2', 'identical duplicate');
-        $this->assertRefused('example-app|https://app.example.test/access|1,example-app|https://other.example.test/access|2', 'conflicting duplicate');
+        $this->assertRefused(fn () => DelegatedAccessApplications::parse('example-app|https://app.example.test/access|2,example-app|https://app.example.test/access|2'), 'identical duplicate');
+        $this->assertRefused(fn () => DelegatedAccessApplications::parse('example-app|https://app.example.test/access|1,example-app|https://other.example.test/access|2'), 'conflicting duplicate');
     }
 
     public function test_non_https_endpoints_are_refused_including_local_loopback(): void
@@ -76,48 +80,106 @@ class DelegatedAccessApplicationsTest extends TestCase
             'HTTPS://app.example.test/access',
             'ftp://app.example.test/access',
         ] as $endpoint) {
-            $this->assertRefused("example-app|{$endpoint}|2", $endpoint);
+            $this->assertRefused(fn () => DelegatedAccessApplications::parse("example-app|{$endpoint}|2"), $endpoint);
         }
     }
 
-    public function test_refusal_messages_never_echo_the_configured_value(): void
+    public function test_a_literal_configuration_map_takes_precedence_and_obeys_the_same_rules(): void
     {
-        try {
-            DelegatedAccessApplications::parse('example-app|https://user:synthetic-password@app.example.test/access|2');
-            $this->fail('Expected credentials in the endpoint to be refused.');
-        } catch (InvalidArgumentException $exception) {
-            $this->assertStringContainsString('AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS entry 1', $exception->getMessage());
-            $this->assertStringNotContainsString('synthetic-password', $exception->getMessage());
-            $this->assertStringNotContainsString('app.example.test', $exception->getMessage());
+        $this->assertSame(
+            ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 1]],
+            DelegatedAccessApplications::fromConfiguration(['example-app' => ['endpoint' => 'https://app.example.test/access']], self::MALFORMED),
+        );
+        $this->assertSame(
+            ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 2]],
+            DelegatedAccessApplications::fromConfiguration([], 'example-app|https://app.example.test/access|2'),
+        );
+
+        foreach ([
+            'not a map' => 'example-app',
+            'list entry' => [['endpoint' => 'https://app.example.test/access']],
+            'missing endpoint' => ['example-app' => ['contract_version' => 2]],
+            'invalid key' => ['Example_App' => ['endpoint' => 'https://app.example.test/access']],
+            'string version' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => '2']],
+            'unknown version' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 3]],
+            'non-https endpoint' => ['example-app' => ['endpoint' => 'http://app.example.test/access']],
+        ] as $label => $literal) {
+            $this->assertRefused(fn () => DelegatedAccessApplications::fromConfiguration($literal, 'example-app|https://app.example.test/access|2'), $label);
         }
     }
 
-    public function test_the_configuration_file_reads_the_environment_and_refuses_to_load_when_malformed(): void
+    public function test_a_malformed_value_disables_every_entry_and_is_reported_once_without_the_value(): void
     {
-        $this->assertSame([], config('delegated-access.applications'));
+        Exceptions::fake();
+        config(['delegated-access.applications' => [], 'delegated-access.applications_environment' => self::MALFORMED]);
+        $applications = app(DelegatedAccessApplications::class);
 
-        $this->withApplicationsEnvironment('example-app|https://app.example.test/application-access|2', function (): void {
-            $configuration = require config_path('delegated-access.php');
-            $this->assertSame(
-                ['example-app' => ['endpoint' => 'https://app.example.test/application-access', 'contract_version' => 2]],
-                $configuration['applications'],
-            );
-        });
-
-        $this->withApplicationsEnvironment('example-app|http://app.example.test/application-access|2', function (): void {
+        $this->assertTrue($applications->malformed());
+        // The valid first entry is not partly honoured.
+        foreach ([fn () => $applications->all(), fn () => $applications->find('example-app'), fn () => $applications->contractVersion('example-app')] as $call) {
             try {
-                require config_path('delegated-access.php');
-                $this->fail('Expected a malformed value to prevent configuration from loading.');
-            } catch (InvalidArgumentException) {
-                $this->addToAssertionCount(1);
+                $call();
+                $this->fail('Expected a malformed map to refuse every delegated lookup.');
+            } catch (DelegatedAccessException $exception) {
+                $this->assertSame('invalid_configuration', $exception->outcome);
+                $this->assertSame(503, $exception->status);
             }
+        }
+        $this->assertTrue(app(DelegatedAccessApplications::class)->malformed());
+
+        Exceptions::assertReportedCount(1);
+        Exceptions::assertReported(fn (InvalidArgumentException $failure): bool => $failure->getMessage()
+            === 'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS entry 2 endpoint must be an absolute HTTPS URL without credentials, query, or fragment.');
+
+        // Correcting configuration takes effect without a stale refusal.
+        config(['delegated-access.applications_environment' => 'example-app|https://app.example.test/access|2']);
+        $this->assertFalse($applications->malformed());
+        $this->assertSame(2, $applications->contractVersion('example-app'));
+        $this->assertSame(1, $applications->contractVersion('unconfigured-app'));
+        Exceptions::assertReportedCount(1);
+    }
+
+    public function test_configuration_loading_never_throws_and_a_malformed_value_still_boots_the_application(): void
+    {
+        $this->withApplicationsEnvironment(self::MALFORMED, function (): void {
+            $configuration = require config_path('delegated-access.php');
+            $this->assertSame([], $configuration['applications']);
+            $this->assertSame(self::MALFORMED, $configuration['applications_environment']);
+
+            $this->refreshApplication();
+            $this->assertSame(self::MALFORMED, config('delegated-access.applications_environment'));
+            $this->get('/login')->assertOk();
+            $this->assertTrue(app(DelegatedAccessApplications::class)->malformed());
         });
     }
 
-    private function assertRefused(mixed $value, string $label): void
+    public function test_the_check_command_exits_non_zero_with_the_rule_and_never_the_value(): void
+    {
+        $this->withApplicationsEnvironment('example-app|https://app.example.test/application-access|2', function (): void {
+            $this->artisan('auth-manager:delegated-access:check')
+                ->expectsOutputToContain('1 configured')->assertExitCode(0);
+        });
+        $this->withApplicationsEnvironment('', function (): void {
+            $this->artisan('auth-manager:delegated-access:check')
+                ->expectsOutputToContain('0 configured')->assertExitCode(0);
+        });
+        $this->withApplicationsEnvironment(self::MALFORMED, function (): void {
+            $this->artisan('auth-manager:delegated-access:check')
+                ->expectsOutputToContain('entry 2 endpoint must be an absolute HTTPS URL')
+                ->doesntExpectOutputToContain('synthetic-secret-host')
+                ->assertExitCode(1);
+        });
+        $this->withApplicationsEnvironment('example-app|https://app.example.test/application-access|2', function (): void {
+            config(['delegated-access.applications' => ['example-app' => ['endpoint' => 'http://app.example.test/access']]]);
+            $this->artisan('auth-manager:delegated-access:check')
+                ->expectsOutputToContain('delegated-access.applications entry 1 endpoint')->assertExitCode(1);
+        });
+    }
+
+    private function assertRefused(callable $parse, string $label): void
     {
         try {
-            DelegatedAccessApplications::parse($value);
+            $parse();
             $this->fail("Expected the {$label} case to be refused.");
         } catch (InvalidArgumentException) {
             $this->addToAssertionCount(1);

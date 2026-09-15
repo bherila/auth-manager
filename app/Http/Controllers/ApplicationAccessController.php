@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\RegisteredApplication;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Support\ApplicationGrantHolders;
+use App\Support\DelegatedAccessApplications;
 use App\Support\RelyingApplications;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use Illuminate\Contracts\View\View;
@@ -19,13 +20,14 @@ class ApplicationAccessController extends Controller
         private readonly ApplicationGrantHolders $grantHolders,
     ) {}
 
-    public function directory(Request $request, RelyingApplications $applications): View
+    public function directory(Request $request, RelyingApplications $applications, DelegatedAccessApplications $delegated): View
     {
         abort_unless(config('delegated-access.enabled') && config('application-registry.launch_enabled'), 404);
 
-        return view('applications.manage', ['applications' => array_values(array_filter(
+        // A malformed application map lists nothing: the page's existing no-integrations state.
+        return view('applications.manage', ['applications' => $delegated->malformed() ? [] : array_values(array_filter(
             $applications->forSubject((string) $request->user()->getAuthIdentifier()),
-            fn (array $application): bool => is_string(config('delegated-access.applications.'.$application['key'].'.endpoint')),
+            fn (array $application): bool => $delegated->find($application['key']) !== null,
         ))]);
     }
 
