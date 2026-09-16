@@ -148,9 +148,10 @@ def validate_target(root, environment, release_id, sha, url, database, engine_sh
 
 
 def deploy(root, environment, release_id, sha, url, database, engine_sha, on_success=None):
-    root, policy = validate_target(root, environment, release_id, sha, url, database, engine_sha)
+    root = validate_location(root, release_id, sha, engine_sha)
     with (root / '.deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        root, policy = validate_target(root, environment, release_id, sha, url, database, engine_sha)
         activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success)
 
 
@@ -415,10 +416,10 @@ def worker(root, environment, release_id, sha, url, database, engine_sha):
         os.umask(0o077)
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, terminate)
-        root, policy = validate_target(root, environment, release_id, sha, url, database, engine_sha)
-        write_status(root, release_id, sha, 'running', engine_sha)
         with (root / '.deploy.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            root, policy = validate_target(root, environment, release_id, sha, url, database, engine_sha)
+            write_status(root, release_id, sha, 'running', engine_sha)
             activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success=complete)
     except BaseException:
         if not committed:
