@@ -49,19 +49,23 @@ def unique_object(pairs):
 
 def load_policy(root):
     path = root / '.deployment-policy.json'
-    if not path.is_file() or path.resolve() != path or path.stat().st_mode & 0o022:
+    if (not path.is_file() or path.resolve() != path or path.stat().st_mode & 0o022
+            or path.stat().st_uid == os.geteuid()):
         raise RuntimeError('A protected server-owned deployment policy is required')
     with path.open('rb') as handle:
         content = handle.read(16385)
     if len(content) > 16384:
         raise RuntimeError('Deployment policy exceeds the supported size')
     policy = json.loads(content.decode('utf-8'), object_pairs_hook=unique_object)
-    fields = {'contract_version', 'environment', 'url', 'database', 'database_user', 'application_name', 'profile', 'branding'}
+    fields = {'contract_version', 'environment', 'url', 'database', 'database_user', 'database_host', 'database_port', 'database_socket', 'application_name', 'profile', 'branding'}
     if (not isinstance(policy, dict) or set(policy) != fields
-            or type(policy['contract_version']) is not int or policy['contract_version'] != 2
+            or type(policy['contract_version']) is not int or policy['contract_version'] != 3
             or policy['environment'] not in ('staging', 'prod')
             or not isinstance(policy['url'], str) or not re.fullmatch(r'https://[A-Za-z0-9.-]+', policy['url'])
             or any(not isinstance(policy[key], str) or not re.fullmatch(r'auth_manager_[A-Za-z0-9_]+', policy[key]) for key in ('database', 'database_user'))
+            or not isinstance(policy['database_host'], str) or not policy['database_host']
+            or type(policy['database_port']) is not int or not 1 <= policy['database_port'] <= 65535
+            or policy['database_socket'] is not None and (not isinstance(policy['database_socket'], str) or not policy['database_socket'].startswith('/'))
             or not isinstance(policy['application_name'], str) or not policy['application_name'].strip()
             or len(policy['application_name']) > 100 or re.search(r'[\x00-\x1f\x7f]', policy['application_name'])
             or policy['profile'] not in ('bherila', 'resource')):
@@ -87,7 +91,7 @@ def load_policy(root):
 
 
 def status_record(release_id, sha, state, engine_sha):
-    return {'contract_version': 2, 'state': state, 'revision': sha,
+    return {'contract_version': 3, 'state': state, 'revision': sha,
             'engine_revision': engine_sha, 'release_id': release_id}
 
 def run(*args, cwd=None):
@@ -189,6 +193,8 @@ def activate(root, environment, release_id, sha, url, database, engine_sha, poli
             if path.is_absolute() or '..' in path.parts or not (member.isfile() or member.isdir()):
                 raise RuntimeError('Unsafe archive member')
         bundle.extractall(candidate, members=members)
+    if (candidate / 'bootstrap/cache/config.php').exists():
+        raise RuntimeError('Bundle must not contain a prebuilt configuration cache')
     # The worker keeps runtime/status files private, but nginx runs as a separate
     # principal. Expose only traversal into this release and its public assets.
     candidate.chmod(0o755)
@@ -226,9 +232,14 @@ $valid = config('database.default') === 'mysql'
     && empty($c['url'])
     && ($c['database'] ?? null) === $argv[1]
     && ($c['username'] ?? null) === $policy['database_user']
+    && ($c['host'] ?? null) === $policy['database_host']
+    && ($c['port'] ?? null) === $policy['database_port']
+    && ($c['unix_socket'] ?? null) === $policy['database_socket']
     && rtrim(config('app.url', ''), '/') === $argv[2]
     && config('app.env') === $argv[3]
+    && ($argv[3] !== 'production' || config('app.debug') === false)
     && config('app.key')
+    && $app->make(Illuminate\Contracts\Encryption\Encrypter::class)
     && config('app.name') === $policy['application_name']
     && config('auth-manager.profile') === $policy['profile']
     && $brandingValid
@@ -309,15 +320,13 @@ def write_status(root, release_id, sha, state, engine_sha):
 
 def reserve_status(root, release_id, sha, engine_sha):
     path = status_path(root, release_id)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, 'O_NOFOLLOW'):
-        flags |= os.O_NOFOLLOW
-    descriptor = os.open(path, flags, 0o600)
+    descriptor, temporary = tempfile.mkstemp(prefix='.' + release_id + '.', suffix='.tmp', dir=path.parent)
     try:
         with os.fdopen(descriptor, 'w') as handle:
             json.dump(status_record(release_id, sha, 'queued', engine_sha), handle)
             handle.flush()
             os.fsync(handle.fileno())
+        os.link(temporary, path)
         fsync_directory(path.parent)
     except BaseException:
         try:
@@ -325,6 +334,11 @@ def reserve_status(root, release_id, sha, engine_sha):
         except FileNotFoundError:
             pass
         raise
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
 
 
 def launch_worker(root, environment, release_id, sha, url, database, engine_sha):

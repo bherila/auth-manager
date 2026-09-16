@@ -42,8 +42,9 @@ class IdentityDeployTest(unittest.TestCase):
         (self.root / 'current').symlink_to(self.previous)
         (self.root / 'incoming').mkdir()
         self.policy = {
-            'contract_version': 2, 'environment': 'staging', 'url': self.url,
+            'contract_version': 3, 'environment': 'staging', 'url': self.url,
             'database': 'auth_manager_staging', 'database_user': 'auth_manager_staging',
+            'database_host': '127.0.0.1', 'database_port': 3306, 'database_socket': None,
             'application_name': 'Example Identity', 'profile': 'bherila', 'branding': {
                 'enabled': True, 'logo_light': '/branding/logo-light.svg',
                 'logo_dark': '/branding/logo-dark.svg', 'favicon': '/branding/favicon.ico',
@@ -53,6 +54,9 @@ class IdentityDeployTest(unittest.TestCase):
         self.policy_path = self.root / '.deployment-policy.json'
         self.policy_path.write_text(json.dumps(self.policy))
         self.policy_path.chmod(0o600)
+        policy_owner = patch.object(MODULE.os, 'geteuid', return_value=self.policy_path.stat().st_uid + 1)
+        policy_owner.start()
+        self.addCleanup(policy_owner.stop)
         self.engine_path = self.root / 'incoming' / (self.release_id + '.engine-' + self.engine_sha + '.py')
         self.engine_path.write_text('# synthetic engine fixture')
         self.engine_path.chmod(0o400)
@@ -257,7 +261,7 @@ class IdentityDeployTest(unittest.TestCase):
         run.assert_not_called()
 
     def test_php_preflight_rejects_url_shared_cache_profile_and_cookie_overrides(self):
-        for override in ({'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_staging', 'url': 'mysql://other.example.test/shared'}}, {'cache.default': 'redis'}, {'session.connection': 'shared'}, {'auth-manager.profile': 'resource'}, {'session.secure': False}, {'session.http_only': False}):
+        for override in ({'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_staging', 'host': '127.0.0.1', 'port': 3306, 'unix_socket': None, 'url': 'mysql://other.example.test/shared'}}, {'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_staging', 'host': 'other.example.test', 'port': 3306, 'unix_socket': None, 'url': None}}, {'cache.default': 'redis'}, {'session.connection': 'shared'}, {'auth-manager.profile': 'resource'}, {'session.secure': False}, {'session.http_only': False}):
             with self.subTest(override=override):
                 self.assert_php_preflight(override, expected_success=False)
 
@@ -274,8 +278,8 @@ class IdentityDeployTest(unittest.TestCase):
             'branding.logo_light': '/branding/logo-light.svg', 'branding.logo_dark': '/branding/logo-dark.svg',
             'branding.favicon': '/branding/favicon.ico', 'branding.stylesheet': '/branding/theme.css',
             'database.default': 'mysql',
-            'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_staging', 'url': None},
-            'app.url': self.url, 'app.env': 'staging', 'app.key': 'synthetic-key',
+            'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_staging', 'host': '127.0.0.1', 'port': 3306, 'unix_socket': None, 'url': None},
+            'app.url': self.url, 'app.env': 'staging', 'app.debug': False, 'app.key': 'synthetic-key',
             'auth-manager.profile': 'bherila',
             'session.driver': 'database', 'session.connection': None,
             'session.domain': None, 'session.cookie': 'auth_manager_staging_session',
@@ -342,7 +346,7 @@ class IdentityDeployTest(unittest.TestCase):
         with patch.object(MODULE, 'run'), patch.object(MODULE, 'health'), patch.object(MODULE.signal, 'signal'):
             MODULE.worker(self.root, 'staging', self.release_id, self.sha, self.url, 'auth_manager_staging', self.engine_sha)
         status = json.loads(MODULE.status_path(self.root, self.release_id).read_text())
-        self.assertEqual(status, {'contract_version': 2, 'state': 'succeeded', 'revision': self.sha, 'engine_revision': self.engine_sha, 'release_id': self.release_id})
+        self.assertEqual(status, {'contract_version': 3, 'state': 'succeeded', 'revision': self.sha, 'engine_revision': self.engine_sha, 'release_id': self.release_id})
         self.assertEqual((self.root / 'current').resolve().name, self.release_id)
 
     def test_interrupted_worker_rolls_back_and_persists_failure(self):
@@ -485,7 +489,7 @@ class IdentityDeployTest(unittest.TestCase):
 
     def test_policy_mismatch_prevents_commands_and_public_switch(self):
         for field, value in (('environment', 'prod'), ('url', 'https://other.example.test'),
-                             ('database', 'auth_manager_other'), ('contract_version', 1)):
+                             ('database', 'auth_manager_other'), ('contract_version', 2)):
             with self.subTest(field=field):
                 self.policy_path.write_text(json.dumps({**self.policy, field: value}))
                 with patch.object(MODULE, 'run') as run:
@@ -525,13 +529,13 @@ class IdentityDeployTest(unittest.TestCase):
                 self.policy_path.write_text(json.dumps(value))
                 with self.assertRaises(RuntimeError):
                     self.deploy()
-        self.policy_path.write_text(json.dumps(self.policy).replace('"contract_version": 2', '"contract_version": 2, "contract_version": 2'))
+        self.policy_path.write_text(json.dumps(self.policy).replace('"contract_version": 3', '"contract_version": 3, "contract_version": 3'))
         with self.assertRaises(ValueError):
             self.deploy()
 
     def test_policy_checks_exact_database_principal_and_application_name(self):
         for override in ({'app.name': 'Different Identity'},
-                         {'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_other', 'url': None}}):
+                         {'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_other', 'host': '127.0.0.1', 'port': 3306, 'unix_socket': None, 'url': None}}):
             self.assert_php_preflight(override, expected_success=False)
 
     def test_stock_branding_keeps_bundled_styles_without_requiring_custom_assets(self):
@@ -561,7 +565,7 @@ class IdentityDeployTest(unittest.TestCase):
         status = json.loads(MODULE.status_path(self.root, self.release_id).read_text())
         self.assertEqual(self.sha, status['revision'])
         self.assertEqual(self.engine_sha, status['engine_revision'])
-        self.assertEqual(2, status['contract_version'])
+        self.assertEqual(3, status['contract_version'])
 
     def test_status_publication_uses_a_secure_unique_temporary(self):
         fixed_temporary = MODULE.status_path(self.root, self.release_id).with_suffix('.tmp')
