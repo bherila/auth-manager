@@ -42,9 +42,9 @@ class IdentityDeployTest(unittest.TestCase):
         (self.root / 'current').symlink_to(self.previous)
         (self.root / 'incoming').mkdir()
         self.policy = {
-            'contract_version': 1, 'environment': 'staging', 'url': self.url,
+            'contract_version': 2, 'environment': 'staging', 'url': self.url,
             'database': 'auth_manager_staging', 'database_user': 'auth_manager_staging',
-            'application_name': 'Example Identity', 'branding': {
+            'application_name': 'Example Identity', 'profile': 'bherila', 'branding': {
                 'enabled': True, 'logo_light': '/branding/logo-light.svg',
                 'logo_dark': '/branding/logo-dark.svg', 'favicon': '/branding/favicon.ico',
                 'stylesheet': '/branding/theme.css',
@@ -256,8 +256,8 @@ class IdentityDeployTest(unittest.TestCase):
                 self.deploy()
         run.assert_not_called()
 
-    def test_php_preflight_rejects_url_and_shared_cache_overrides(self):
-        for override in ({'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_staging', 'url': 'mysql://other.example.test/shared'}}, {'cache.default': 'redis'}, {'session.connection': 'shared'}):
+    def test_php_preflight_rejects_url_shared_cache_profile_and_cookie_overrides(self):
+        for override in ({'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_staging', 'url': 'mysql://other.example.test/shared'}}, {'cache.default': 'redis'}, {'session.connection': 'shared'}, {'auth-manager.profile': 'resource'}, {'session.secure': False}, {'session.http_only': False}):
             with self.subTest(override=override):
                 self.assert_php_preflight(override, expected_success=False)
 
@@ -276,8 +276,10 @@ class IdentityDeployTest(unittest.TestCase):
             'database.default': 'mysql',
             'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_staging', 'url': None},
             'app.url': self.url, 'app.env': 'staging', 'app.key': 'synthetic-key',
+            'auth-manager.profile': 'bherila',
             'session.driver': 'database', 'session.connection': None,
             'session.domain': None, 'session.cookie': 'auth_manager_staging_session',
+            'session.secure': True, 'session.http_only': True,
             'cache.default': 'database', 'cache.stores.database.connection': None,
             'queue.default': 'database', 'queue.connections.database.connection': None,
         }
@@ -328,7 +330,7 @@ class IdentityDeployTest(unittest.TestCase):
         command = launch.call_args.args[0]
         self.assertEqual(command[:4], ['systemd-run', '--user', '--quiet', '--collect'])
         self.assertIn('--property=RuntimeMaxSec=900', command)
-        self.assertIn('--property=TimeoutStopSec=120', command)
+        self.assertIn('--property=TimeoutStopSec=900', command)
         self.assertIn('worker', command)
         self.assertEqual(json.loads(MODULE.status_path(self.root, self.release_id).read_text())['state'], 'queued')
         with patch.object(MODULE.subprocess, 'run') as duplicate:
@@ -340,7 +342,7 @@ class IdentityDeployTest(unittest.TestCase):
         with patch.object(MODULE, 'run'), patch.object(MODULE, 'health'), patch.object(MODULE.signal, 'signal'):
             MODULE.worker(self.root, 'staging', self.release_id, self.sha, self.url, 'auth_manager_staging', self.engine_sha)
         status = json.loads(MODULE.status_path(self.root, self.release_id).read_text())
-        self.assertEqual(status, {'contract_version': 1, 'state': 'succeeded', 'revision': self.sha, 'engine_revision': self.engine_sha, 'release_id': self.release_id})
+        self.assertEqual(status, {'contract_version': 2, 'state': 'succeeded', 'revision': self.sha, 'engine_revision': self.engine_sha, 'release_id': self.release_id})
         self.assertEqual((self.root / 'current').resolve().name, self.release_id)
 
     def test_interrupted_worker_rolls_back_and_persists_failure(self):
@@ -483,7 +485,7 @@ class IdentityDeployTest(unittest.TestCase):
 
     def test_policy_mismatch_prevents_commands_and_public_switch(self):
         for field, value in (('environment', 'prod'), ('url', 'https://other.example.test'),
-                             ('database', 'auth_manager_other'), ('contract_version', 2)):
+                             ('database', 'auth_manager_other'), ('contract_version', 1)):
             with self.subTest(field=field):
                 self.policy_path.write_text(json.dumps({**self.policy, field: value}))
                 with patch.object(MODULE, 'run') as run:
@@ -514,6 +516,7 @@ class IdentityDeployTest(unittest.TestCase):
         values = [{**self.policy, 'unexpected': True},
                   {**self.policy, 'contract_version': True},
                   {**self.policy, 'database_user': 'shared_application'},
+                  {**self.policy, 'profile': 'other'},
                   {**self.policy, 'branding': {'enabled': 'false'}},
                   {**self.policy, 'branding': {**self.policy['branding'], 'stylesheet': 'https://assets.example.test/theme.css'}},
                   {**self.policy, 'branding': {**self.policy['branding'], 'logo_light': '/branding/../other.svg'}}]
@@ -522,7 +525,7 @@ class IdentityDeployTest(unittest.TestCase):
                 self.policy_path.write_text(json.dumps(value))
                 with self.assertRaises(RuntimeError):
                     self.deploy()
-        self.policy_path.write_text(json.dumps(self.policy).replace('"contract_version": 1', '"contract_version": 1, "contract_version": 1'))
+        self.policy_path.write_text(json.dumps(self.policy).replace('"contract_version": 2', '"contract_version": 2, "contract_version": 2'))
         with self.assertRaises(ValueError):
             self.deploy()
 
@@ -558,7 +561,29 @@ class IdentityDeployTest(unittest.TestCase):
         status = json.loads(MODULE.status_path(self.root, self.release_id).read_text())
         self.assertEqual(self.sha, status['revision'])
         self.assertEqual(self.engine_sha, status['engine_revision'])
-        self.assertEqual(1, status['contract_version'])
+        self.assertEqual(2, status['contract_version'])
+
+    def test_status_publication_uses_a_secure_unique_temporary(self):
+        fixed_temporary = MODULE.status_path(self.root, self.release_id).with_suffix('.tmp')
+        outside = self.root.parent / 'outside-status'
+        outside.write_text('unchanged')
+        fixed_temporary.symlink_to(outside)
+        MODULE.write_status(self.root, self.release_id, self.sha, 'succeeded', self.engine_sha)
+        self.assertEqual(outside.read_text(), 'unchanged')
+        self.assertEqual(json.loads(MODULE.status_path(self.root, self.release_id).read_text())['state'], 'succeeded')
+
+    def test_failed_status_reservation_leaves_no_stale_lockout(self):
+        with patch.object(MODULE.json, 'dump', side_effect=OSError('synthetic status write failure')):
+            with self.assertRaises(OSError):
+                MODULE.reserve_status(self.root, self.release_id, self.sha, self.engine_sha)
+        self.assertFalse(MODULE.status_path(self.root, self.release_id).exists())
+        MODULE.reserve_status(self.root, self.release_id, self.sha, self.engine_sha)
+        self.assertEqual(json.loads(MODULE.status_path(self.root, self.release_id).read_text())['state'], 'queued')
+
+    def test_worker_uses_one_validated_policy_snapshot(self):
+        with patch.object(MODULE, 'load_policy', wraps=MODULE.load_policy) as load, patch.object(MODULE, 'run'), patch.object(MODULE, 'health'), patch.object(MODULE.signal, 'signal'):
+            MODULE.worker(self.root, 'staging', self.release_id, self.sha, self.url, 'auth_manager_staging', self.engine_sha)
+        load.assert_called_once_with(self.root)
 
     def test_wrong_mutable_or_aliased_engine_never_starts_or_reserves_status(self):
         for engine_sha in ('bad-revision', 'd' * 40):

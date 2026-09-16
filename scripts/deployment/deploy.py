@@ -10,6 +10,7 @@ import subprocess
 import sys
 import signal
 import tarfile
+import tempfile
 from urllib.parse import urlsplit
 
 
@@ -55,14 +56,15 @@ def load_policy(root):
     if len(content) > 16384:
         raise RuntimeError('Deployment policy exceeds the supported size')
     policy = json.loads(content.decode('utf-8'), object_pairs_hook=unique_object)
-    fields = {'contract_version', 'environment', 'url', 'database', 'database_user', 'application_name', 'branding'}
+    fields = {'contract_version', 'environment', 'url', 'database', 'database_user', 'application_name', 'profile', 'branding'}
     if (not isinstance(policy, dict) or set(policy) != fields
-            or type(policy['contract_version']) is not int or policy['contract_version'] != 1
+            or type(policy['contract_version']) is not int or policy['contract_version'] != 2
             or policy['environment'] not in ('staging', 'prod')
             or not isinstance(policy['url'], str) or not re.fullmatch(r'https://[A-Za-z0-9.-]+', policy['url'])
             or any(not isinstance(policy[key], str) or not re.fullmatch(r'auth_manager_[A-Za-z0-9_]+', policy[key]) for key in ('database', 'database_user'))
             or not isinstance(policy['application_name'], str) or not policy['application_name'].strip()
-            or len(policy['application_name']) > 100 or re.search(r'[\x00-\x1f\x7f]', policy['application_name'])):
+            or len(policy['application_name']) > 100 or re.search(r'[\x00-\x1f\x7f]', policy['application_name'])
+            or policy['profile'] not in ('bherila', 'resource')):
         raise RuntimeError('Invalid deployment policy')
     branding = policy['branding']
     if not isinstance(branding, dict) or type(branding.get('enabled')) is not bool:
@@ -85,7 +87,7 @@ def load_policy(root):
 
 
 def status_record(release_id, sha, state, engine_sha):
-    return {'contract_version': 1, 'state': state, 'revision': sha,
+    return {'contract_version': 2, 'state': state, 'revision': sha,
             'engine_revision': engine_sha, 'release_id': release_id}
 
 def run(*args, cwd=None):
@@ -142,18 +144,17 @@ def validate_target(root, environment, release_id, sha, url, database, engine_sh
     policy = load_policy(root)
     if any(policy[key] != value for key, value in (('environment', environment), ('url', url), ('database', database))):
         raise RuntimeError('Deployment policy does not match the requested target')
-    return root
+    return root, policy
 
 
 def deploy(root, environment, release_id, sha, url, database, engine_sha, on_success=None):
-    root = validate_target(root, environment, release_id, sha, url, database, engine_sha)
+    root, policy = validate_target(root, environment, release_id, sha, url, database, engine_sha)
     with (root / '.deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        activate(root, environment, release_id, sha, url, database, engine_sha, on_success)
+        activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success)
 
 
-def activate(root, environment, release_id, sha, url, database, engine_sha, on_success=None):
-    policy = load_policy(root)
+def activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success=None):
     shared = root / 'shared'
     if not (shared / '.env').is_file() or (shared / '.env').is_symlink():
         raise RuntimeError('A server-owned environment file is required')
@@ -228,6 +229,7 @@ $valid = config('database.default') === 'mysql'
     && config('app.env') === $argv[3]
     && config('app.key')
     && config('app.name') === $policy['application_name']
+    && config('auth-manager.profile') === $policy['profile']
     && $brandingValid
     && config('session.driver') === 'database'
     && in_array(config('session.connection'), [null, 'mysql'], true)
@@ -236,7 +238,9 @@ $valid = config('database.default') === 'mysql'
     && config('queue.default') === 'database'
     && in_array(config('queue.connections.database.connection'), [null, 'mysql'], true)
     && config('session.domain') === null
-    && str_starts_with(config('session.cookie', ''), 'auth_manager_');
+    && str_starts_with(config('session.cookie', ''), 'auth_manager_')
+    && config('session.secure') === true
+    && config('session.http_only') === true;
 exit($valid ? 0 : 1);
 '''
     run('php', '-r', verification, database, url,
@@ -276,35 +280,72 @@ def status_path(root, release_id):
     return Path(root) / 'incoming' / (release_id + '.status.json')
 
 
+def fsync_directory(directory):
+    descriptor = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def write_status(root, release_id, sha, state, engine_sha):
     root = validate_location(root, release_id, sha, engine_sha)
     path = status_path(root, release_id)
-    temporary = path.with_suffix('.tmp')
-    with temporary.open('w') as handle:
-        json.dump(status_record(release_id, sha, state, engine_sha), handle)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    descriptor, temporary = tempfile.mkstemp(prefix='.' + release_id + '.', suffix='.tmp', dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'w') as handle:
+            json.dump(status_record(release_id, sha, state, engine_sha), handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def reserve_status(root, release_id, sha, engine_sha):
+    path = status_path(root, release_id)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, 'O_NOFOLLOW'):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, 'w') as handle:
+            json.dump(status_record(release_id, sha, 'queued', engine_sha), handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        fsync_directory(path.parent)
+    except BaseException:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def launch_worker(root, environment, release_id, sha, url, database, engine_sha):
-    root = validate_target(root, environment, release_id, sha, url, database, engine_sha)
+    root, _policy = validate_target(root, environment, release_id, sha, url, database, engine_sha)
     engine = validate_engine(root, release_id, engine_sha)
     os.umask(0o077)
     # Reserving a release status prevents a duplicate launch after transport loss.
-    with status_path(root, release_id).open('x') as handle:
-        json.dump(status_record(release_id, sha, 'queued', engine_sha), handle)
+    reserve_status(root, release_id, sha, engine_sha)
     requested = False
     try:
         log = root / 'incoming' / (release_id + '.log')
-        with log.open('x'):
-            pass
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, 'O_NOFOLLOW'):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(log, flags, 0o600)
+        os.close(descriptor)
         requested = True
         subprocess.run([
             'systemd-run', '--user', '--quiet', '--collect',
             '--unit=auth-manager-' + environment + '-' + release_id,
             '--property=Type=exec', '--property=RuntimeMaxSec=900',
-            '--property=TimeoutStopSec=120', '--property=UMask=0077',
+            '--property=TimeoutStopSec=900', '--property=UMask=0077',
             '--property=StandardOutput=append:' + str(log),
             '--property=StandardError=append:' + str(log),
             sys.executable, str(engine), 'worker', '--root', str(root), '--environment', environment,
@@ -374,9 +415,11 @@ def worker(root, environment, release_id, sha, url, database, engine_sha):
         os.umask(0o077)
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, terminate)
-        root = validate_target(root, environment, release_id, sha, url, database, engine_sha)
+        root, policy = validate_target(root, environment, release_id, sha, url, database, engine_sha)
         write_status(root, release_id, sha, 'running', engine_sha)
-        deploy(root, environment, release_id, sha, url, database, engine_sha, on_success=complete)
+        with (root / '.deploy.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success=complete)
     except BaseException:
         if not committed:
             publish_failure(root, release_id, sha, engine_sha)

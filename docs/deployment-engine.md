@@ -29,17 +29,18 @@ A synthetic policy using the provider's bundled light/dark defaults:
 
 ```json
 {
-  "contract_version": 1,
+  "contract_version": 2,
   "environment": "staging",
   "url": "https://identity.example.test",
   "database": "auth_manager_staging",
   "database_user": "auth_manager_staging",
   "application_name": "Example Identity",
+  "profile": "bherila",
   "branding": { "enabled": false }
 }
 ```
 
-The requested environment, HTTPS origin and database must exactly match the policy and instance marker. Database names/users retain the `auth_manager_` namespace. The PHP preflight compares the exact database principal, application name/URL/environment and branding settings without printing runtime configuration. It requires MySQL without a URL override, database-backed sessions/cache/queues on the default connection, a host-only session cookie with the dedicated prefix, a configured application key and isolated OAuth signing keys. The engine always controls the fixed `auth-manager-queue.service`; it accepts no arbitrary service names or shell commands.
+The requested environment, HTTPS origin and database must exactly match the policy and instance marker. Database names/users retain the `auth_manager_` namespace. `profile` is either `bherila` or `resource` and must exactly match the booted provider profile. The PHP preflight compares the exact database principal, application name/URL/environment, profile and branding settings without printing runtime configuration. It requires MySQL without a URL override, database-backed sessions/cache/queues on the default connection, a host-only session cookie with the dedicated prefix, `secure` and `http_only` cookie flags, a configured application key and isolated OAuth signing keys. The engine always controls the fixed `auth-manager-queue.service`; it accepts no arbitrary service names or shell commands.
 
 Default branding is automatic: `branding.enabled=false` requires no custom files and preserves the bundled light/dark stylesheet. Custom branding is an explicit policy choice. Replace the branding object with:
 
@@ -71,7 +72,7 @@ python3 "$ROOT/incoming/$RELEASE_ID.engine-$ENGINE_SHA.py" start \
   --url "$IDENTITY_URL" --database "$IDENTITY_DATABASE"
 ```
 
-The `worker` subcommand is internal to the detached user-systemd service; orchestration calls `start`. The start command reserves status exclusively, preventing duplicate launches after a lost acknowledgement. The worker has a 900-second runtime limit and a 120-second stop allowance. The provisioned deployment principal needs user-systemd availability, Python 3.10+, PHP, curl and narrowly scoped sudo permissions for the fixed queue unit. An orchestration-level environment approval and backward-compatible-schema decision must precede this command.
+The `worker` subcommand is internal to the detached user-systemd service; orchestration calls `start`. The start command reserves status exclusively, preventing duplicate launches after a lost acknowledgement. The worker has a 900-second runtime limit and a separate 900-second stop allowance so rollback cannot be killed before restoring the previous release. The provisioned deployment principal needs user-systemd availability, Python 3.10+, PHP, curl and narrowly scoped sudo permissions for the fixed queue unit. An orchestration-level environment approval and backward-compatible-schema decision must precede this command.
 
 ## Completion and rollback
 
@@ -81,7 +82,7 @@ Poll `ROOT/incoming/RELEASE_ID.status.json`, verifying all identifiers against t
 
 ```json
 {
-  "contract_version": 1,
+  "contract_version": 2,
   "state": "succeeded",
   "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "engine_revision": "cccccccccccccccccccccccccccccccccccccccc",
@@ -91,6 +92,6 @@ Poll `ROOT/incoming/RELEASE_ID.status.json`, verifying all identifiers against t
 
 States are `queued`, `running`, `succeeded` and `failed`. Only the detached worker decides terminal status after an ambiguous launch acknowledgement. Success publication is the last fallible commit step; a publication failure rolls back. Rollback protects itself from repeated SIGTERM, then persists failure. A definitive local spawn failure can immediately publish `failed`. A transport timeout or polling timeout is an **unobserved outcome**, not proof of failure: inspect persisted status and `current` before attempting another release. `failed` requires protected-log inspection, particularly if rollback itself encountered an error; it does not universally prove the old release is healthy.
 
-Status/log files remain private under `incoming/`. Their durability covers process termination and transport loss, not a guarantee against host or filesystem failure. Invalid release paths cannot create status outside the validated instance. Secrets and provisioning policy never belong in the public repository or application archive.
+Status/log files remain private under `incoming/`. Status reservation is exclusive and durable; later updates use a securely created unique temporary followed by an atomic replace, so a planted fixed temporary cannot redirect a write. Their durability covers process termination and transport loss, not a guarantee against host or filesystem failure. Invalid release paths cannot create status outside the validated instance. Secrets and provisioning policy never belong in the public repository or application archive.
 
 Run synthetic regressions with `python3 -m unittest discover -s tests/deployment`; `composer ci:check` includes them. Unit tests exercise activation ordering, release identity, rollback/signals/status, aliases, policy mismatches, engine identity and default/custom branding. Actual host provisioning, systemd/sudo access and transport behavior still require a staging deployment and a post-switch rollback exercise before adopting a new engine pin.
