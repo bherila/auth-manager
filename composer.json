@@ -84,6 +84,7 @@
             "pnpm run scan-sensitive:test",
             "pnpm run scan-sensitive",
             "python3 -m unittest discover -s tests/branding",
+            "python3 -m unittest discover -s tests/deployment",
             "@php artisan test"
         ]
     },
