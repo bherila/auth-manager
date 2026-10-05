@@ -96,7 +96,7 @@ jobs:
           path: public/build/
 
       - name: Deploy with the shared cPanel action
-        uses: bherila/shared-cpanel-deployment@182ba6cf1834f75173b454ff01cfad0732ba9c2a # v1.1.0
+        uses: bherila/shared-cpanel-deployment@6803f4584c5600441caab2da074eee155217eddf # v1.1.4
         with:
           ssh-host: ${{ secrets.SSH_HOST }}
           ssh-username: ${{ secrets.SSH_USERNAME }}
@@ -156,7 +156,7 @@ jobs:
           path: public/build/
 
       - name: Deploy with the shared cPanel action
-        uses: bherila/shared-cpanel-deployment@182ba6cf1834f75173b454ff01cfad0732ba9c2a # v1.1.0
+        uses: bherila/shared-cpanel-deployment@6803f4584c5600441caab2da074eee155217eddf # v1.1.4
         with:
           ssh-host: ${{ secrets.SSH_HOST }}
           ssh-username: ${{ secrets.SSH_USERNAME }}
