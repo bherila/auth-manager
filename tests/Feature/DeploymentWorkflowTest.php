@@ -20,7 +20,7 @@ class DeploymentWorkflowTest extends TestCase
     public function test_both_deployments_pin_the_shared_action_and_migrate_before_upload(): void
     {
         $this->assertSame(2, preg_match_all(
-            '/uses: bherila\/shared-cpanel-deployment@[a-f0-9]{40} # v1\.1\.0/',
+            '/uses: bherila\/shared-cpanel-deployment@[a-f0-9]{40} # v1\.1\.4/',
             $this->workflow,
         ));
         $this->assertSame(2, substr_count($this->workflow, 'migration-order: before-upload'));
