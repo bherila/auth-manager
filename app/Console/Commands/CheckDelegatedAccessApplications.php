@@ -45,6 +45,12 @@ class CheckDelegatedAccessApplications extends Command
         if ($literal !== null && $literal !== []) {
             $this->components->warn('A literal delegated-access.applications map is configured and takes precedence over '.DelegatedAccessApplications::ENVIRONMENT.'.');
         }
+        $writable = $configuration['writes_applications'] ?? [];
+        foreach (is_array($writable) ? $writable : [] as $application) {
+            if (! array_key_exists($application, $keys)) {
+                $this->components->warn("Writes are listed for {$application}, but it has no key of its own in ".DelegatedAccessKeys::ENVIRONMENT.', so its writes stay off.');
+            }
+        }
         $this->components->info(sprintf('Delegated access applications are valid: %d configured, %d with their own signing key.', count($applications), count($keys)));
 
         if ($this->option('show')) {

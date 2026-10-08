@@ -89,6 +89,17 @@ class DelegatedAccessKeysTest extends TestCase
         });
 
         $this->withEnvironment([
+            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|2,other-app|https://other.example.test/access|2',
+            'AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS' => 'example-app,other-app',
+            DelegatedAccessKeys::ENVIRONMENT => 'example-app|example-v2|/keys/synthetic-private.pem',
+        ], function (): void {
+            $this->artisan('auth-manager:delegated-access:check')
+                ->expectsOutputToContain('Writes are listed for other-app, but it has no key of its own')
+                ->doesntExpectOutputToContain('Writes are listed for example-app')
+                ->assertExitCode(0);
+        });
+
+        $this->withEnvironment([
             'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|2',
             DelegatedAccessKeys::ENVIRONMENT => 'missing-app|missing-v1|/keys/synthetic-private.pem',
         ], function (): void {
