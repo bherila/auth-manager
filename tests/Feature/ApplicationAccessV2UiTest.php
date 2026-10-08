@@ -8,7 +8,9 @@ use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
+use App\Support\DelegatedAccessKeys;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\Client\Factory;
@@ -400,6 +402,33 @@ class ApplicationAccessV2UiTest extends TestCase
 
         $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
         Http::assertSent(fn ($request) => $this->keyId($request) === 'example-v1');
+    }
+
+    /** A malformed key list is a configuration problem, reported once, not a refusal of the actor. */
+    public function test_a_malformed_key_list_refuses_writes_as_unavailable_and_reports_once(): void
+    {
+        $this->provisioned = false;
+        $this->confirm();
+        $sent = count(Http::recorded());
+        config(['delegated-access.keys_environment' => 'example-app|example-v1']);
+        $reports = 0;
+        $this->app->make(ExceptionHandler::class)->reportable(function (\InvalidArgumentException $failure) use (&$reports): bool {
+            $reports += str_contains($failure->getMessage(), DelegatedAccessKeys::ENVIRONMENT) ? 1 : 0;
+
+            return false;
+        });
+
+        // Provisioning checks write permission before anything else is sent.
+        $this->post('/applications/example-app/access/provision', [
+            'subject' => 'subject-example', 'new_workspace' => 'workspace-a', 'new_role' => 'sender',
+        ])->assertRedirect()->assertSessionHas('access_failure', 'Application access is unavailable. Try again later; saved results are not being shown as current.');
+        $this->assertCount($sent, Http::recorded(), 'Nothing is sent');
+        $this->assertSame(1, $reports, 'Reported once for the request');
+
+        $reports = 0;
+        $this->app->forgetScopedInstances();
+        $this->get('/applications/example-app/access');
+        $this->assertSame(1, $reports, 'A page that checks writes and reads repeatedly reports once');
     }
 
     public function test_assertions_name_the_applications_own_key(): void

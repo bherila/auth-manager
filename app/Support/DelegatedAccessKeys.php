@@ -25,6 +25,12 @@ final class DelegatedAccessKeys
 {
     public const ENVIRONMENT = 'AUTH_MANAGER_DELEGATED_ACCESS_KEYS';
 
+    /** The configuration values the current result was resolved from. */
+    private ?array $source = null;
+
+    /** @var array<string, array{key_id: string, private_key_path: string}>|InvalidArgumentException|null */
+    private array|InvalidArgumentException|null $resolved = null;
+
     /**
      * The key this application is signed with: its own, or the instance-wide fallback.
      *
@@ -48,19 +54,23 @@ final class DelegatedAccessKeys
      */
     public function own(string $application): ?array
     {
-        try {
-            $keys = self::assertDistinct(
-                self::parse(config('delegated-access.keys_environment')),
-                config('delegated-access.key_id'),
-                config('delegated-access.private_key_path'),
-            );
-
-            return $keys[$application] ?? null;
-        } catch (InvalidArgumentException $failure) {
-            report($failure);
-
+        $source = [config('delegated-access.keys_environment'), config('delegated-access.key_id'), config('delegated-access.private_key_path')];
+        if ($source !== $this->source) {
+            // Resolved, and a problem reported, once per request (the service is scoped), unless
+            // the configuration itself changes.
+            $this->source = $source;
+            try {
+                $this->resolved = self::assertDistinct(self::parse($source[0]), $source[1], $source[2]);
+            } catch (InvalidArgumentException $failure) {
+                $this->resolved = $failure;
+                report($failure);
+            }
+        }
+        if ($this->resolved instanceof InvalidArgumentException) {
             throw new DelegatedAccessException('invalid_configuration');
         }
+
+        return $this->resolved[$application] ?? null;
     }
 
     /**

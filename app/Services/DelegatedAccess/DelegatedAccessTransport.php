@@ -36,13 +36,15 @@ final class DelegatedAccessTransport
         $version = $entry['contract_version'] ?? DelegatedContract::VERSION_1;
         $payload = $this->contract->request($application, $operation, $version);
         $write = $payload['operation'] === 'update';
+        // A malformed key list is a configuration problem for reads and writes alike; resolved
+        // first so a write is not refused as though the actor lacked permission.
+        $signing = app(DelegatedAccessKeys::class)->for($application);
         $actor = $this->actor($request, $application, $write);
         $configuration = config('delegated-access');
         $endpoint = $entry['endpoint'] ?? null;
         $issuer = $configuration['issuer'] ?? null;
         // The application's own key when it has one; the instance-wide key otherwise, which
         // writesEnabled() has already refused for a write.
-        $signing = app(DelegatedAccessKeys::class)->for($application);
         if ($write && ! $signing['own']) {
             throw new DelegatedAccessException('not_authorized', 403);
         }
@@ -110,6 +112,7 @@ final class DelegatedAccessTransport
      */
     public function authorizeWrite(Request $request, string $application): void
     {
+        app(DelegatedAccessKeys::class)->for($application);
         $this->actor($request, $application, true);
     }
 
