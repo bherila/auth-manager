@@ -9,6 +9,7 @@ use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Services\DelegatedAccess\TransportClock;
+use App\Support\DelegatedAccessPermissions;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\ActorAssertionVerifier;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
@@ -70,7 +71,8 @@ class DelegatedAccessTransportTest extends TestCase
         chmod($this->keyPath, 0600);
         config(['delegated-access' => [
             'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'],
-            'issuer' => 'https://identity.example.test', 'key_id' => 'integration-v1', 'private_key_path' => $this->keyPath,
+            'issuer' => 'https://identity.example.test', 'key_id' => null, 'private_key_path' => null,
+            'keys_environment' => 'example-app|integration-v1|'.$this->keyPath,
             'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access']],
         ]]);
         $this->actor = User::factory()->create(['user_role' => 'user,access-manage:example-app']);
@@ -183,6 +185,29 @@ class DelegatedAccessTransportTest extends TestCase
         $this->client->update(['revoked' => true]);
         $this->refused(fn () => $transport->send($this->request, 'example-app', ['operation' => 'capabilities']), 'not_authorized', 403);
         Http::assertNothingSent();
+    }
+
+    /** The transport refuses a write signed with the shared key even if the permission check were to allow it. */
+    public function test_a_write_is_never_signed_with_the_shared_key(): void
+    {
+        Http::swap(new Factory);
+        Http::fake();
+        config(['delegated-access.key_id' => 'shared-v1', 'delegated-access.private_key_path' => $this->keyPath, 'delegated-access.keys_environment' => null]);
+        $this->app->instance(DelegatedAccessPermissions::class, new class extends DelegatedAccessPermissions
+        {
+            public function writesEnabled(string $application): bool
+            {
+                return true;
+            }
+        });
+        $this->request->session()->put(RequireRecentPasskeyAuthentication::SESSION_KEY, ['user_id' => (string) $this->actor->id, 'authenticated_at' => time()]);
+        $transport = app(DelegatedAccessTransport::class);
+
+        $this->refused(fn () => $transport->send($this->request, 'example-app', $this->update('revision-initial')), 'not_authorized', 403);
+        Http::assertNothingSent();
+        // Reads still use the shared key while the application has none of its own.
+        $this->refused(fn () => $transport->send($this->request, 'example-app', ['operation' => 'capabilities']), 'invalid_response', 503);
+        Http::assertSentCount(1);
     }
 
     public function test_timeouts_and_malformed_success_never_retry_or_claim_a_write_succeeded(): void

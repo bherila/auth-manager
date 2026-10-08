@@ -10,6 +10,7 @@ use App\OAuth\GrantAwareAuthCodeRepository;
 use App\OAuth\GrantAwareRefreshTokenRepository;
 use App\Services\OAuthCredentialGenerationContext;
 use App\Support\DelegatedAccessApplications;
+use App\Support\DelegatedAccessKeys;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -39,6 +40,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(OAuthCredentialGenerationContext::class);
         // Resolved and, when malformed, reported once per request.
         $this->app->scoped(DelegatedAccessApplications::class);
+        $this->app->scoped(DelegatedAccessKeys::class);
     }
 
     /**

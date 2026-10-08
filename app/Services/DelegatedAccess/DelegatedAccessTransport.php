@@ -9,6 +9,7 @@ use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Support\AuthManagerProfile;
 use App\Support\DelegatedAccessApplications;
+use App\Support\DelegatedAccessKeys;
 use App\Support\DelegatedAccessPermissions;
 use App\Support\StaticApplicationClients;
 use BWH\Auth\Models\AuthAuditLog;
@@ -35,12 +36,20 @@ final class DelegatedAccessTransport
         $version = $entry['contract_version'] ?? DelegatedContract::VERSION_1;
         $payload = $this->contract->request($application, $operation, $version);
         $write = $payload['operation'] === 'update';
+        // A malformed key list is a configuration problem for reads and writes alike; resolved
+        // first so a write is not refused as though the actor lacked permission.
+        $signing = app(DelegatedAccessKeys::class)->for($application);
         $actor = $this->actor($request, $application, $write);
         $configuration = config('delegated-access');
         $endpoint = $entry['endpoint'] ?? null;
         $issuer = $configuration['issuer'] ?? null;
-        $keyPath = $configuration['private_key_path'] ?? null;
-        $keyId = $configuration['key_id'] ?? null;
+        // The application's own key when it has one; the instance-wide key otherwise, which
+        // writesEnabled() has already refused for a write.
+        if ($write && ! $signing['own']) {
+            throw new DelegatedAccessException('not_authorized', 403);
+        }
+        $keyPath = $signing['private_key_path'];
+        $keyId = $signing['key_id'];
         try {
             AuthManagerProfile::validatedAbsoluteUrl($endpoint, 'Delegated endpoint');
             $issuer = AuthManagerProfile::validatedIssuerUrl($issuer, 'Delegated issuer');
@@ -103,6 +112,7 @@ final class DelegatedAccessTransport
      */
     public function authorizeWrite(Request $request, string $application): void
     {
+        app(DelegatedAccessKeys::class)->for($application);
         $this->actor($request, $application, true);
     }
 

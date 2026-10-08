@@ -185,7 +185,7 @@ class DelegatedAccessApplicationsTest extends TestCase
             function (): void {
                 $this->artisan('auth-manager:delegated-access:check', ['--show' => true])
                     ->expectsOutputToContain('takes precedence')
-                    ->expectsTable(['Application', 'Endpoint', 'Contract version'], [['example-app', 'https://literal.example.test/access', '2']])
+                    ->expectsTable(['Application', 'Endpoint', 'Contract version', 'Signing key'], [['example-app', 'https://literal.example.test/access', '2', 'shared (reads only)']])
                     ->assertExitCode(0);
                 // The environment file's values are applied only while the file loads.
                 $this->assertArrayNotHasKey(DelegatedAccessApplications::ENVIRONMENT, $_SERVER);
@@ -219,7 +219,7 @@ class DelegatedAccessApplicationsTest extends TestCase
         $this->withCheckFixture('[]', 'example-app|https://app.example.test/application-access|2', function (): void {
             $this->withStaleConfigurationCache(['example-app' => ['endpoint' => 'http://old.example.test/access']], function (): void {
                 $this->artisan('auth-manager:delegated-access:check', ['--show' => true])
-                    ->expectsTable(['Application', 'Endpoint', 'Contract version'], [['example-app', 'https://app.example.test/application-access', '2']])
+                    ->expectsTable(['Application', 'Endpoint', 'Contract version', 'Signing key'], [['example-app', 'https://app.example.test/application-access', '2', 'shared (reads only)']])
                     ->assertExitCode(0);
             });
         });
@@ -230,7 +230,7 @@ class DelegatedAccessApplicationsTest extends TestCase
         $this->withCheckFixture('[]', self::MALFORMED, function (): void {
             $this->setApplicationsEnvironment('example-app|https://app.example.test/application-access|1');
             $this->artisan('auth-manager:delegated-access:check', ['--show' => true])
-                ->expectsTable(['Application', 'Endpoint', 'Contract version'], [['example-app', 'https://app.example.test/application-access', '1']])
+                ->expectsTable(['Application', 'Endpoint', 'Contract version', 'Signing key'], [['example-app', 'https://app.example.test/application-access', '1', 'shared (reads only)']])
                 ->assertExitCode(0);
         });
     }

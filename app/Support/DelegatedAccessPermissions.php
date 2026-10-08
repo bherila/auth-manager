@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\User;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 
 /**
  * Who may use delegated administration here, per application and operation.
@@ -22,7 +23,7 @@ use App\Models\User;
  * These are narrow delegated-administration permissions, not provider
  * administration: a workspace administrator needs no other provider role.
  */
-final class DelegatedAccessPermissions
+class DelegatedAccessPermissions
 {
     public function canView(User $user, string $application): bool
     {
@@ -39,13 +40,25 @@ final class DelegatedAccessPermissions
         return $this->canManage($user, $application) && $this->holds($user, 'access-directory', $application);
     }
 
-    /** Writes for this application are switched on here, not only globally. */
+    /**
+     * Writes for this application are switched on here, not only globally, and it is signed with
+     * its own key. This provider then never signs its writes with a key another application
+     * holds; the application must also stop trusting the instance-wide public key, or a holder of
+     * that private key can still mint writes it accepts.
+     */
     public function writesEnabled(string $application): bool
     {
         $applications = config('delegated-access.writes_applications', []);
+        if (! (bool) config('delegated-access.writes_enabled', false)
+            || ! is_array($applications) || ! in_array($application, $applications, true)) {
+            return false;
+        }
 
-        return (bool) config('delegated-access.writes_enabled', false)
-            && is_array($applications) && in_array($application, $applications, true);
+        try {
+            return app(DelegatedAccessKeys::class)->own($application) !== null;
+        } catch (DelegatedAccessException) {
+            return false;
+        }
     }
 
     private function holds(User $user, string $permission, string $application): bool

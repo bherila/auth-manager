@@ -14,13 +14,13 @@ The examples use:
 | Application | `https://app.example.test` |
 | Registry key | `example-app` |
 | Delegated access endpoint | `https://app.example.test/application-access` |
-| Integration key ID | `integration-2026-09` |
+| Application's key ID | `example-app-2026-10` |
 
 ## 1. Choose an instance
 
 Each provider instance is a complete, separate identity boundary: one directory of people,
 one set of provider administrators, one audit trail, one issuer, one
-`AUTH_MANAGER_PROFILE`, one branding and one delegated access integration key.
+`AUTH_MANAGER_PROFILE`, one branding and its delegated access keys.
 
 **Shared instance.** One provider serves several first-party applications. Each
 application gets its own static OAuth client, and people hold per-client grants, so signing
@@ -34,7 +34,7 @@ credentials, administrators, clients, registry entries or keys.
 Weigh:
 
 - **Blast radius.** A shared instance is a single point of failure and compromise for every
-  application behind it. An outage, a bad deployment or a leaked integration key affects all
+  application behind it. An outage, a bad deployment or a leaked shared integration key affects all
   of them, and so does a malformed delegated access application list: it disables delegated
   access for every application on the instance (sign-in keeps working, see section 5). A
   dedicated instance limits each of these to one organisation.
@@ -119,22 +119,40 @@ and change a person's access in that application. See
 [the delegated access transport](delegated-access-transport.md) and
 [application access controls](application-access-ui.md) for the design.
 
-### Generate a dedicated integration key pair
+### Generate a key pair per application
 
-Use a new RS256 key pair for this purpose only. Never reuse, copy or derive it from the
-provider's OAuth signing keys.
+Each connected application gets its own RS256 key pair, used for this purpose only. Never
+reuse, copy or derive it from the provider's OAuth signing keys, or share it between
+applications.
 
 ```sh
 umask 077
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
-  -out "$PRIVATE_DIR/delegated-access-integration-2026-09.key"
-openssl pkey -in "$PRIVATE_DIR/delegated-access-integration-2026-09.key" -pubout \
-  -out "$PRIVATE_DIR/delegated-access-integration-2026-09.pub.pem"
+  -out "$PRIVATE_DIR/delegated-access-example-app-2026-10.key"
+openssl pkey -in "$PRIVATE_DIR/delegated-access-example-app-2026-10.key" -pubout \
+  -out "$PRIVATE_DIR/delegated-access-example-app-2026-10.pub.pem"
 ```
 
 The private key stays on the provider instance, outside the web root and every repository,
-readable only by the account the provider runs as. The public key is copied to each
-connected application. One instance uses one integration key for all of its applications.
+readable only by the account the provider runs as. Its public key is copied to that one
+application only.
+
+With one key for every application, whoever holds it can mint an assertion any of them
+accepts, and rotating it touches all of them. **Writes therefore need the application's own
+key:** an application without an entry in `AUTH_MANAGER_DELEGATED_ACCESS_KEYS` can be read
+with the instance-wide `KEY_ID`/`PRIVATE_KEY_PATH` pair while it moves over, but its write
+controls stay hidden and any write is refused before anything is signed.
+
+Moving an application from the instance-wide key to its own:
+
+1. Generate its key pair and add its public key to the application's
+   `DELEGATED_ACCESS_PUBLIC_KEYS` alongside the shared one; deploy the application.
+2. Add its entry to the provider's `KEYS`, check, rebuild the configuration cache and verify
+   (section 7).
+3. **Remove the shared public key from the application's `DELEGATED_ACCESS_PUBLIC_KEYS`** and
+   deploy it. Until then the shared private key can still mint writes it accepts.
+4. Once no application trusts the shared key, unset the provider's `KEY_ID` and
+   `PRIVATE_KEY_PATH` and destroy the shared private key.
 
 ### Configure the provider
 
@@ -147,11 +165,17 @@ AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS=
 AUTH_MANAGER_DELEGATED_ACCESS_ISSUER=https://identity.example.test
 AUTH_MANAGER_DELEGATED_ACCESS_KEY_ID=integration-2026-09
 AUTH_MANAGER_DELEGATED_ACCESS_PRIVATE_KEY_PATH=/path/to/delegated-access-integration-2026-09.key
+AUTH_MANAGER_DELEGATED_ACCESS_KEYS=example-app|example-app-2026-10|/path/to/delegated-access-example-app-2026-10.key
 AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS=example-app|https://app.example.test/application-access|2
 ```
 
 - `ISSUER` is the provider's root HTTPS URL with no path. The application pins it exactly.
-- `KEY_ID` names the key pair; the application maps the same ID to the public key.
+- `KEYS` is a comma-separated list of `application|key-id|/absolute/private/key/path`
+  entries, one per application. The application maps the same key ID to its public key. Each
+  application appears once and must also be in `APPLICATIONS`; the check command refuses
+  otherwise. A malformed value refuses every delegated call, like a malformed `APPLICATIONS`.
+- `KEY_ID` and `PRIVATE_KEY_PATH` are the instance-wide fallback, for reads of an application
+  without its own entry. Leave them unset once every application has one.
 - `APPLICATIONS` is a comma-separated list of `key|https://endpoint|contract_version`
   entries, for example
   `example-app|https://app.example.test/application-access|2,other-app|https://other.example.test/application-access|1`.
@@ -204,19 +228,23 @@ normally does:
 php artisan config:cache
 ```
 
-### Rotate the integration key
+### Rotate an application's key
 
-1. Generate a new key pair with a new key ID, for example `integration-2027-03`.
-2. Add the new public key to every connected application alongside the old one
-   (`DELEGATED_ACCESS_PUBLIC_KEYS=integration-2026-09|/path/old.pub.pem,integration-2027-03|/path/new.pub.pem`)
-   and deploy each application.
-3. Switch the provider's `KEY_ID` and `PRIVATE_KEY_PATH` to the new pair, check and rebuild
-   the configuration cache, and verify (section 7).
+Rotation touches one application.
+
+1. Generate a new key pair with a new key ID, for example `example-app-2027-03`.
+2. Add the new public key to the application alongside the old one
+   (`DELEGATED_ACCESS_PUBLIC_KEYS=example-app-2026-10|/path/old.pub.pem,example-app-2027-03|/path/new.pub.pem`)
+   and deploy it.
+3. Switch that application's entry in the provider's `KEYS` to the new key ID and path, check
+   and rebuild the configuration cache, and verify (section 7).
 4. After a few minutes (assertions live at most 60 seconds), remove the old public key from
-   every application, then destroy the old private key.
+   the application, then destroy the old private key.
 
-If the old private key may be compromised, turn the provider's `ENABLED` flag off first,
-remove the old public key from every application immediately, and then continue from step 3.
+If the old private key may be compromised, remove the old public key from that application
+first (it then refuses delegated calls until step 3), then continue from step 3. Other
+applications are unaffected. If the instance-wide fallback key may be compromised, remove it
+from every application that still trusts it.
 
 ## 6. Delegated access: the application
 
@@ -232,7 +260,7 @@ DELEGATED_ACCESS_ENABLED=true
 DELEGATED_ACCESS_ISSUER=https://identity.example.test
 DELEGATED_ACCESS_ENDPOINT=https://app.example.test/application-access
 DELEGATED_ACCESS_APPLICATION=example-app
-DELEGATED_ACCESS_PUBLIC_KEYS=integration-2026-09|/path/to/delegated-access-integration-2026-09.pub.pem
+DELEGATED_ACCESS_PUBLIC_KEYS=example-app-2026-10|/path/to/delegated-access-example-app-2026-10.pub.pem
 ```
 
 plus `OAUTH_PROVIDER`, set explicitly (section 2).
@@ -244,11 +272,15 @@ These must match the provider exactly:
 | `DELEGATED_ACCESS_ISSUER` | `AUTH_MANAGER_DELEGATED_ACCESS_ISSUER` |
 | `DELEGATED_ACCESS_ENDPOINT` | the endpoint in the `APPLICATIONS` entry |
 | `DELEGATED_ACCESS_APPLICATION` | the key in the `APPLICATIONS` entry and the registry key |
-| a key ID in `DELEGATED_ACCESS_PUBLIC_KEYS` | `AUTH_MANAGER_DELEGATED_ACCESS_KEY_ID` |
+| a key ID in `DELEGATED_ACCESS_PUBLIC_KEYS` | that application's key ID in `AUTH_MANAGER_DELEGATED_ACCESS_KEYS` |
 | the contract version the application implements | the version in the `APPLICATIONS` entry |
 
 `DELEGATED_ACCESS_PUBLIC_KEYS` is a comma-separated list of `key-id|/path/to/public.pem`
-entries; it holds two entries only during rotation.
+entries. It holds this application's own public key only, and two entries only during
+rotation. **Never list the instance-wide key or another application's key here.** The
+provider refuses to sign writes with the instance-wide key, but anyone holding that private
+key can still mint an assertion for every application that trusts its public half, so the
+per-application key protects an application only once it stops trusting the shared one.
 
 The application publishes the package's delegated access nonce migration and applies it
 through its normal reviewed deployment before enabling the endpoint:
