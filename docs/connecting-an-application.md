@@ -143,6 +143,7 @@ In the instance's private environment configuration:
 ```dotenv
 AUTH_MANAGER_DELEGATED_ACCESS_ENABLED=false
 AUTH_MANAGER_DELEGATED_ACCESS_WRITES_ENABLED=false
+AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS=
 AUTH_MANAGER_DELEGATED_ACCESS_ISSUER=https://identity.example.test
 AUTH_MANAGER_DELEGATED_ACCESS_KEY_ID=integration-2026-09
 AUTH_MANAGER_DELEGATED_ACCESS_PRIVATE_KEY_PATH=/path/to/delegated-access-integration-2026-09.key
@@ -159,8 +160,21 @@ AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS=example-app|https://app.example.test/
   The version is `1` or `2`, as agreed with the application; it is never negotiated. Empty
   or unset means no applications.
 
+- `WRITES_APPLICATIONS` is the comma-separated list of application keys whose writes are on.
+  `WRITES_ENABLED` is the instance-wide switch, and an application is writable only when both
+  allow it, so enabling one application's writes changes no other.
+
 Leave `ENABLED` off until the application side (section 6) is deployed, and leave
 `WRITES_ENABLED` off until reads are verified (section 7).
+
+### Grant the delegated-administration roles
+
+Nobody can use the access pages until granted, per application:
+- `access-view:<app>` for read only;
+- `access-manage:<app>` to change access;
+- `access-directory:<app>` to browse the application's grant holders when provisioning. Keep this to operators: it shows people across every workspace.
+
+Workspace administrators get `access-manage:<app>` only, and provision by exact email. See `docs/application-access-ui.md`.
 
 **A malformed `AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS` value disables delegated access
 for every application on the instance.** No entry is partly honoured: one bad entry refuses
@@ -260,24 +274,30 @@ provider never follows redirects.
    entries live in `applications_environment` until they are resolved.)
 2. Turn on `AUTH_MANAGER_DELEGATED_ACCESS_ENABLED`, check and rebuild the configuration
    cache (section 5).
-3. Sign in to the provider as a test account that holds the client grant and is an
-   administrator inside the application. Open `/applications/manage`; the application should
+3. Sign in to the provider as a test account that holds the client grant, holds
+   `access-manage:<app>`, and is an administrator inside the application. Open `/applications/manage`; the application should
    be listed and its accounts readable.
 4. Sign in as a granted account that is not an application administrator, and as an
    ungranted account. The first should see only what the application's adapter allows; the
-   second should not see the application at all.
+   second should not see the application at all. An account without an `access-*` role should
+   not see it either. A workspace-scoped manager without `access-directory` must not see
+   anyone outside their workspaces.
 5. If a call fails, the page shows a typed outcome. A configuration outcome points at the
    provider values; `unavailable` usually means the endpoint is unreachable or blocked at the
    application's edge; `not_authorized` is the application's (or the grant check's) refusal.
    The application should record a nonce for each accepted call.
-6. Only then turn on `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_ENABLED`, rebuild the
-   configuration cache, and make one intended change with recent identity confirmation.
+6. Only then turn on `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_ENABLED` and add the application
+   to `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS`, rebuild the configuration cache,
+   and make one intended change with recent identity confirmation.
    Confirm it in the application itself.
 
 ## Rollback
 
-- **Stop changes only:** set `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_ENABLED=false` on the
-  provider, check and rebuild the configuration cache.
+- **Stop changes for one application:** remove it from
+  `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS`, then check and rebuild the
+  configuration cache.
+- **Stop all changes:** set `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_ENABLED=false` on the
+  provider, then check and rebuild the configuration cache.
 - **Stop delegated access:** set `AUTH_MANAGER_DELEGATED_ACCESS_ENABLED=false` on the provider,
   or remove the application's entry from `AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS`, then
   check and rebuild the configuration cache. On the application, set

@@ -35,6 +35,22 @@ application accounts, copy domain data into the provider directory or infer
 permissions from a provider role. Consumer rollout and retirement of duplicate
 forms remain tracked separately from this provider surface.
 
+## Who may use these pages
+
+Delegated administration is **denied unless granted** by provider roles in `user_role`, scoped per application (`*` means every application):
+
+| Role | Allows |
+|---|---|
+| `access-view:<app>` | Read the application's access pages. |
+| `access-manage:<app>` | Read and change access there (includes view). |
+| `access-directory:<app>` | Browse the people who can sign in to the application when choosing whom to provision. It needs `access-manage` as well. |
+
+These are narrow delegated-administration permissions, not provider administration. A workspace administrator needs only these, and **the application still decides** what each actor may see and change: the provider's role is an extra restriction, never a substitute.
+
+**The directory is separate on purpose.** It lists grant holders across every workspace of the application, which a workspace-scoped administrator must not see. Without `access-directory`, **Give access to someone new** asks for the person's **exact email**. The answer is the same whether or not that person exists, can sign in, or was provisioned, so it can't be used to discover people. The new account then shows up in the account list.
+
+**Writes are switched on per application.** `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_ENABLED` must be on **and** the application must be listed in `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS`. Otherwise its pages are read-only, and a change is refused as not authorized.
+
 ## Version 2 applications
 
 For an application configured with `contract_version: 2`:
@@ -42,10 +58,12 @@ For an application configured with `contract_version: 2`:
 - **Roles.** Workspace access is edited with the application's own role labels. A membership the
   application reports as not editable is shown read-only, and posted back unchanged. An empty role
   removes a membership. A role the application did not advertise is refused before anything is sent.
-- **Directory picker.** When the application advertises provisioning, **Give access to someone new**
+- **Directory picker** (with `access-directory`). When the application advertises provisioning, **Give access to someone new**
   lists people who can sign in to that application through this provider. That means they hold a
   current grant to a static client mapped to it, and their account is active. It searches their
   name and email. Nobody else is listed, so the picker is not a general directory search.
+- **Roles are always chosen.** A new membership's role select starts empty and must be chosen; the
+  page never defaults to the first (usually most senior) role an application advertises.
 - **Provisioning.** Choosing a person reads their access. When the application reports them
   unprovisioned with `provision` allowed, the page offers **Create account and give access** with
   one workspace and role. Submitting re-checks the grant, the application's offer and the role, then
