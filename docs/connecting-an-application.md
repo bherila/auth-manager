@@ -200,6 +200,14 @@ Nobody can use the access pages until granted, per application:
 
 Workspace administrators get `access-manage:<app>` only, and provision by exact email. See `docs/application-access-ui.md`.
 
+Grant and revoke them on the provider host with the audited, idempotent command (by id or exact
+email; without `--add` or `--remove` it shows the current roles):
+
+```sh
+php artisan auth-manager:user-roles person@example.test --add=access-view:example-app
+php artisan auth-manager:user-roles person@example.test --remove=access-view:example-app
+```
+
 **A malformed `AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS` value disables delegated access
 for every application on the instance.** No entry is partly honoured: one bad entry refuses
 every delegated call with a configuration outcome, and the access pages show their
