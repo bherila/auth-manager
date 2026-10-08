@@ -42,7 +42,9 @@ final class DelegatedAccessPermissions
 
     /**
      * Writes for this application are switched on here, not only globally, and it is signed with
-     * its own key, so no other application's key can mint a write it accepts.
+     * its own key. This provider then never signs its writes with a key another application
+     * holds; the application must also stop trusting the instance-wide public key, or a holder of
+     * that private key can still mint writes it accepts.
      */
     public function writesEnabled(string $application): bool
     {

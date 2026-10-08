@@ -14,7 +14,7 @@ The examples use:
 | Application | `https://app.example.test` |
 | Registry key | `example-app` |
 | Delegated access endpoint | `https://app.example.test/application-access` |
-| Integration key ID | `integration-2026-09` |
+| Application's key ID | `example-app-2026-10` |
 
 ## 1. Choose an instance
 
@@ -143,6 +143,17 @@ key:** an application without an entry in `AUTH_MANAGER_DELEGATED_ACCESS_KEYS` c
 with the instance-wide `KEY_ID`/`PRIVATE_KEY_PATH` pair while it moves over, but its write
 controls stay hidden and any write is refused before anything is signed.
 
+Moving an application from the instance-wide key to its own:
+
+1. Generate its key pair and add its public key to the application's
+   `DELEGATED_ACCESS_PUBLIC_KEYS` alongside the shared one; deploy the application.
+2. Add its entry to the provider's `KEYS`, check, rebuild the configuration cache and verify
+   (section 7).
+3. **Remove the shared public key from the application's `DELEGATED_ACCESS_PUBLIC_KEYS`** and
+   deploy it. Until then the shared private key can still mint writes it accepts.
+4. Once no application trusts the shared key, unset the provider's `KEY_ID` and
+   `PRIVATE_KEY_PATH` and destroy the shared private key.
+
 ### Configure the provider
 
 In the instance's private environment configuration:
@@ -249,7 +260,7 @@ DELEGATED_ACCESS_ENABLED=true
 DELEGATED_ACCESS_ISSUER=https://identity.example.test
 DELEGATED_ACCESS_ENDPOINT=https://app.example.test/application-access
 DELEGATED_ACCESS_APPLICATION=example-app
-DELEGATED_ACCESS_PUBLIC_KEYS=integration-2026-09|/path/to/delegated-access-integration-2026-09.pub.pem
+DELEGATED_ACCESS_PUBLIC_KEYS=example-app-2026-10|/path/to/delegated-access-example-app-2026-10.pub.pem
 ```
 
 plus `OAUTH_PROVIDER`, set explicitly (section 2).
@@ -265,7 +276,11 @@ These must match the provider exactly:
 | the contract version the application implements | the version in the `APPLICATIONS` entry |
 
 `DELEGATED_ACCESS_PUBLIC_KEYS` is a comma-separated list of `key-id|/path/to/public.pem`
-entries; it holds two entries only during rotation.
+entries. It holds this application's own public key only, and two entries only during
+rotation. **Never list the instance-wide key or another application's key here.** The
+provider refuses to sign writes with the instance-wide key, but anyone holding that private
+key can still mint an assertion for every application that trusts its public half, so the
+per-application key protects an application only once it stops trusting the shared one.
 
 The application publishes the package's delegated access nonce migration and applies it
 through its normal reviewed deployment before enabling the endpoint:
