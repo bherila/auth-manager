@@ -10,6 +10,11 @@ return [
     'issuer' => env('AUTH_MANAGER_DELEGATED_ACCESS_ISSUER'),
     'key_id' => env('AUTH_MANAGER_DELEGATED_ACCESS_KEY_ID'),
     'private_key_path' => env('AUTH_MANAGER_DELEGATED_ACCESS_PRIVATE_KEY_PATH'),
+    // Per-application signing keys, comma-separated application|key-id|/absolute/private/key/path.
+    // A listed application is signed with its own key; the key_id/private_key_path pair above is a
+    // fallback for reads only, and writes need the application's own key. Validated at use time by
+    // App\Support\DelegatedAccessKeys.
+    'keys_environment' => env('AUTH_MANAGER_DELEGATED_ACCESS_KEYS'),
     // Deployment-owned map: application key => ['endpoint' => absolute HTTPS URL,
     // 'contract_version' => 1|2 (default 1)]. The version is agreed with the application and
     // never negotiated at runtime; see bherila/auth-laravel's delegated access contract.

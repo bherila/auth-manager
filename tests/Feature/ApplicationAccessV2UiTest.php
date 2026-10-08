@@ -73,7 +73,7 @@ class ApplicationAccessV2UiTest extends TestCase
         chmod($this->keyPath, 0600);
         config(['application-registry.launch_enabled' => true, 'delegated-access' => [
             'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'], 'issuer' => 'https://identity.example.test',
-            'key_id' => 'example-v1', 'private_key_path' => $this->keyPath,
+            'key_id' => 'example-v1', 'private_key_path' => $this->keyPath, 'keys_environment' => 'example-app|example-v1|'.$this->keyPath,
             'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 2]],
         ]]);
         $this->actor = User::factory()->create(['name' => 'Example Actor', 'user_role' => 'user,access-manage:example-app,access-directory:example-app', 'password' => Hash::make('current-password-example')]);
@@ -386,6 +386,34 @@ class ApplicationAccessV2UiTest extends TestCase
         $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
     }
 
+    /** Second-review M3: a write needs the application's own key; the shared key still serves reads. */
+    public function test_writes_need_the_applications_own_signing_key(): void
+    {
+        config(['delegated-access.keys_environment' => null]);
+
+        $this->browse(['subject' => 'subject-example'])->assertOk()->assertSee('Workspace A')->assertDontSee('Save access');
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'owner']],
+        ])->assertRedirect()->assertSessionHas('access_failure', 'The application has not authorized this account to manage the requested access.');
+
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+        Http::assertSent(fn ($request) => $this->keyId($request) === 'example-v1');
+    }
+
+    public function test_assertions_name_the_applications_own_key(): void
+    {
+        config(['delegated-access.key_id' => 'shared-v1', 'delegated-access.keys_environment' => 'example-app|example-own-v2|'.$this->keyPath]);
+
+        $this->browse(['subject' => 'subject-example'])->assertOk()->assertSee('Save access');
+
+        $this->assertNotEmpty(Http::recorded());
+        foreach (Http::recorded() as [$request]) {
+            $this->assertSame('example-own-v2', $this->keyId($request));
+        }
+    }
+
     /** Second-review M6: a new membership's role is chosen, never defaulted to the first (most senior) role. */
     public function test_a_new_membership_role_must_be_chosen(): void
     {
@@ -520,6 +548,14 @@ class ApplicationAccessV2UiTest extends TestCase
             is_array($errors) => array_keys($errors),
             default => null,
         };
+    }
+
+    private function keyId(\Illuminate\Http\Client\Request $request): ?string
+    {
+        $assertion = substr($request->header('Authorization')[0] ?? '', strlen('Bearer '));
+        $header = json_decode(base64_decode(strtr(explode('.', $assertion)[0], '-_', '+/')), true);
+
+        return is_array($header) ? ($header['kid'] ?? null) : null;
     }
 
     private function grant(User $user): void

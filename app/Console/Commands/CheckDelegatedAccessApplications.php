@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Support\DelegatedAccessApplications;
+use App\Support\DelegatedAccessKeys;
 use Dotenv\Dotenv;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
@@ -11,7 +12,7 @@ use Throwable;
 class CheckDelegatedAccessApplications extends Command
 {
     protected $signature = 'auth-manager:delegated-access:check
-        {--show : Print each resolved application key, endpoint and contract version}';
+        {--show : Print each resolved application key, endpoint, contract version and signing key id}';
 
     protected $description = 'Validate the delegated access application list before rebuilding the configuration cache';
 
@@ -24,6 +25,12 @@ class CheckDelegatedAccessApplications extends Command
                 $configuration['applications'] ?? null,
                 $configuration['applications_environment'] ?? null,
             );
+            $keys = DelegatedAccessKeys::parse($configuration['keys_environment'] ?? null);
+            foreach (array_keys($keys) as $application) {
+                if (! array_key_exists($application, $applications)) {
+                    throw new InvalidArgumentException(DelegatedAccessKeys::ENVIRONMENT." names an application that is not configured: {$application}.");
+                }
+            }
         } catch (InvalidArgumentException $failure) {
             $this->components->error($failure->getMessage());
 
@@ -34,12 +41,13 @@ class CheckDelegatedAccessApplications extends Command
         if ($literal !== null && $literal !== []) {
             $this->components->warn('A literal delegated-access.applications map is configured and takes precedence over '.DelegatedAccessApplications::ENVIRONMENT.'.');
         }
-        $this->components->info(sprintf('Delegated access applications are valid: %d configured.', count($applications)));
+        $this->components->info(sprintf('Delegated access applications are valid: %d configured, %d with their own signing key.', count($applications), count($keys)));
 
         if ($this->option('show')) {
             // Keys, endpoints and versions are deployment routing, not secrets.
-            $this->table(['Application', 'Endpoint', 'Contract version'], array_map(
-                static fn (string $key, array $entry): array => [$key, $entry['endpoint'], (string) $entry['contract_version']],
+            // Key ids name public keys; the private key paths are not printed.
+            $this->table(['Application', 'Endpoint', 'Contract version', 'Signing key'], array_map(
+                static fn (string $key, array $entry): array => [$key, $entry['endpoint'], (string) $entry['contract_version'], $keys[$key]['key_id'] ?? 'shared (reads only)'],
                 array_keys($applications),
                 $applications,
             ));

@@ -71,6 +71,7 @@ class DelegatedAccessTransportTest extends TestCase
         config(['delegated-access' => [
             'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'],
             'issuer' => 'https://identity.example.test', 'key_id' => 'integration-v1', 'private_key_path' => $this->keyPath,
+            'keys_environment' => 'example-app|integration-v1|'.$this->keyPath,
             'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access']],
         ]]);
         $this->actor = User::factory()->create(['user_role' => 'user,access-manage:example-app']);

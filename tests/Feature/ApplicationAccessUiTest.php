@@ -55,7 +55,7 @@ class ApplicationAccessUiTest extends TestCase
         chmod($this->keyPath, 0600);
         config(['application-registry.launch_enabled' => true, 'delegated-access' => [
             'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'], 'issuer' => 'https://identity.example.test',
-            'key_id' => 'example-v1', 'private_key_path' => $this->keyPath,
+            'key_id' => 'example-v1', 'private_key_path' => $this->keyPath, 'keys_environment' => 'example-app|example-v1|'.$this->keyPath,
             'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access']],
         ]]);
         $this->actor = User::factory()->create(['user_role' => 'user,access-manage:example-app,access-directory:example-app', 'password' => Hash::make('current-password-example')]);

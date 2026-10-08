@@ -9,6 +9,7 @@ use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Support\AuthManagerProfile;
 use App\Support\DelegatedAccessApplications;
+use App\Support\DelegatedAccessKeys;
 use App\Support\DelegatedAccessPermissions;
 use App\Support\StaticApplicationClients;
 use BWH\Auth\Models\AuthAuditLog;
@@ -39,8 +40,14 @@ final class DelegatedAccessTransport
         $configuration = config('delegated-access');
         $endpoint = $entry['endpoint'] ?? null;
         $issuer = $configuration['issuer'] ?? null;
-        $keyPath = $configuration['private_key_path'] ?? null;
-        $keyId = $configuration['key_id'] ?? null;
+        // The application's own key when it has one; the instance-wide key otherwise, which
+        // writesEnabled() has already refused for a write.
+        $signing = app(DelegatedAccessKeys::class)->for($application);
+        if ($write && ! $signing['own']) {
+            throw new DelegatedAccessException('not_authorized', 403);
+        }
+        $keyPath = $signing['private_key_path'];
+        $keyId = $signing['key_id'];
         try {
             AuthManagerProfile::validatedAbsoluteUrl($endpoint, 'Delegated endpoint');
             $issuer = AuthManagerProfile::validatedIssuerUrl($issuer, 'Delegated issuer');
