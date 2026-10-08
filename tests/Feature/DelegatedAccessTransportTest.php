@@ -69,11 +69,11 @@ class DelegatedAccessTransportTest extends TestCase
         file_put_contents($this->keyPath, $private);
         chmod($this->keyPath, 0600);
         config(['delegated-access' => [
-            'enabled' => true, 'writes_enabled' => true,
+            'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'],
             'issuer' => 'https://identity.example.test', 'key_id' => 'integration-v1', 'private_key_path' => $this->keyPath,
             'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access']],
         ]]);
-        $this->actor = User::factory()->create(['user_role' => 'user']);
+        $this->actor = User::factory()->create(['user_role' => 'user,access-manage:example-app']);
         $this->client = PassportClient::create(['id' => (string) Str::uuid(), 'name' => 'Example Client', 'secret' => 'synthetic-secret', 'grant_types' => ['authorization_code'], 'redirect_uris' => ['https://app.example.test/callback'], 'revoked' => false]);
         $application = RegisteredApplication::create(['key' => 'example-app', 'name' => 'Example Application', 'launch_url' => 'https://app.example.test', 'enabled' => true]);
         $application->clients()->attach($this->client->id);

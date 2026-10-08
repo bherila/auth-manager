@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ApplicationAccessController;
 use App\Http\Middleware\EnsureCredentialVersion;
 use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
@@ -68,11 +69,11 @@ class ApplicationAccessV2UiTest extends TestCase
         file_put_contents($this->keyPath, $private);
         chmod($this->keyPath, 0600);
         config(['application-registry.launch_enabled' => true, 'delegated-access' => [
-            'enabled' => true, 'writes_enabled' => true, 'issuer' => 'https://identity.example.test',
+            'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'], 'issuer' => 'https://identity.example.test',
             'key_id' => 'example-v1', 'private_key_path' => $this->keyPath,
             'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 2]],
         ]]);
-        $this->actor = User::factory()->create(['name' => 'Example Actor', 'user_role' => 'user', 'password' => Hash::make('current-password-example')]);
+        $this->actor = User::factory()->create(['name' => 'Example Actor', 'user_role' => 'user,access-manage:example-app,access-directory:example-app', 'password' => Hash::make('current-password-example')]);
         $this->client = PassportClient::create(['id' => (string) Str::uuid(), 'name' => 'Example Client',
             'secret' => 'example-secret', 'grant_types' => ['authorization_code'],
             'redirect_uris' => ['https://app.example.test/callback'], 'revoked' => false]);
@@ -251,6 +252,112 @@ class ApplicationAccessV2UiTest extends TestCase
         $this->browse(['directory_search' => '100%'])->assertOk()
             ->assertDontSee('Example Underscore')
             ->assertSee('No one who can sign in to this application matches.');
+    }
+
+    /**
+     * Second-review B1: the directory lists grant holders across every workspace, so a manager
+     * without the separate directory permission never sees it, not even with writes off. They
+     * name a person by exact email instead.
+     */
+    public function test_a_manager_without_directory_access_sees_no_one_else_and_provisions_by_exact_email(): void
+    {
+        $this->actor->update(['user_role' => 'user,access-manage:example-app']);
+        $other = User::factory()->create(['name' => 'Other Workspace Person', 'email' => 'other@example.test', 'user_role' => 'user']);
+        $this->grant($other);
+
+        config(['delegated-access.writes_enabled' => false]);
+        $this->get('/applications/example-app/access')->assertOk()
+            ->assertDontSee('Other Workspace Person')->assertDontSee('other@example.test');
+        config(['delegated-access.writes_enabled' => true]);
+        $this->get('/applications/example-app/access')->assertOk()
+            ->assertDontSee('Other Workspace Person')->assertDontSee('other@example.test')
+            ->assertSee('name="email"', false);
+
+        $this->provisioned = false;
+        $this->confirm();
+        $this->post('/applications/example-app/access/provision', [
+            'subject' => (string) $other->id, 'new_workspace' => 'workspace-a', 'new_role' => 'sender',
+        ])->assertSessionHasErrors(['subject', 'email']);
+
+        $this->post('/applications/example-app/access/provision', [
+            'email' => 'OTHER@example.test', 'new_workspace' => 'workspace-a', 'new_role' => 'sender',
+        ])->assertRedirect()->assertSessionHas('access_notice');
+        Http::assertSent(fn ($request) => $request['operation'] === 'update' && $request['subject'] === (string) $other->id);
+    }
+
+    /** The exact-email answer is the same whether or not the person exists or can be provisioned. */
+    public function test_exact_email_provisioning_reveals_nothing_about_who_exists(): void
+    {
+        $this->actor->update(['user_role' => 'user,access-manage:example-app']);
+        $this->provisioned = false;
+        $this->confirm();
+
+        $unknown = $this->post('/applications/example-app/access/provision', [
+            'email' => 'nobody@example.test', 'new_workspace' => 'workspace-a', 'new_role' => 'sender',
+        ]);
+        $stranger = User::factory()->create(['email' => 'stranger@example.test', 'user_role' => 'user']);
+        $ungranted = $this->post('/applications/example-app/access/provision', [
+            'email' => 'stranger@example.test', 'new_workspace' => 'workspace-a', 'new_role' => 'sender',
+        ]);
+
+        foreach ([$unknown, $ungranted] as $response) {
+            $response->assertRedirect('/applications/example-app/access')
+                ->assertSessionHas('access_notice', ApplicationAccessController::EMAIL_PROVISION_NOTICE)
+                ->assertSessionHasNoErrors();
+        }
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+        $this->assertNotNull($stranger->id);
+    }
+
+    public function test_without_a_delegated_permission_the_application_is_neither_listed_nor_reachable(): void
+    {
+        $this->actor->update(['user_role' => 'user']);
+
+        $this->get('/applications/manage')->assertOk()->assertDontSee('Example Application');
+        $this->get('/applications/example-app/access')->assertForbidden();
+        Http::assertNothingSent();
+    }
+
+    public function test_view_permission_reads_but_cannot_write(): void
+    {
+        $this->actor->update(['user_role' => 'user,access-view:example-app']);
+
+        $this->browse(['subject' => 'subject-example'])->assertOk()->assertSee('Workspace A')->assertDontSee('Save access');
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'owner']],
+        ])->assertRedirect()->assertSessionHas('access_failure', 'The application has not authorized this account to manage the requested access.');
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+    }
+
+    /** Second-review M3: writes switched on globally do not reach an application not listed for writes. */
+    public function test_writes_need_the_application_listed_for_writes(): void
+    {
+        config(['delegated-access.writes_applications' => ['another-app']]);
+
+        $this->browse(['subject' => 'subject-example'])->assertOk()->assertDontSee('Save access');
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'owner']],
+        ])->assertRedirect()->assertSessionHas('access_failure', 'The application has not authorized this account to manage the requested access.');
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+    }
+
+    /** Second-review M6: a new membership's role is chosen, never defaulted to the first (most senior) role. */
+    public function test_a_new_membership_role_must_be_chosen(): void
+    {
+        $this->browse(['subject' => 'subject-example'])->assertOk()
+            ->assertSeeInOrder(['name="new_role"', '<option value="">Choose a role</option>', '<option value="owner">'], false);
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'owner']],
+            'new_workspace' => 'workspace-c', 'new_role' => '',
+        ])->assertSessionHasErrors('new_role');
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
     }
 
     public function test_the_directory_is_absent_when_the_application_does_not_offer_provisioning(): void

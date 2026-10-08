@@ -12,6 +12,7 @@
     @if(session('status'))<p role="status">{{ session('status') }}</p>@endif
     @if($saved)<p role="status" class="rounded border p-3">The application confirmed the access update.</p>@endif
     @if(session('access_failure'))<p role="alert" class="rounded border p-3">{{ session('access_failure') }}</p>@endif
+    @if(session('access_notice'))<p role="status" class="rounded border p-3">{{ session('access_notice') }}</p>@endif
     @if($errors->any())
         <ul role="alert" class="list-disc rounded border p-3 pl-8">
             @foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach
@@ -39,6 +40,34 @@
             </form>
         @endif
     </section>
+    @if($provisionByEmail)
+        <section class="space-y-3 rounded border p-4">
+            <h2 class="text-lg font-semibold">Give access to someone new</h2>
+            <p>Enter the exact email address the person signs in with. If they can sign in to {{ $application->name }} and have no account there yet, the application creates it with the workspace and role you choose.</p>
+            <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
+                @csrf
+                <label class="block">Email <input type="email" name="email" required maxlength="255" autocomplete="off" class="rounded border bg-background p-2"></label>
+                <label class="block">Workspace
+                    <select name="new_workspace" required class="rounded border bg-background p-2">
+                        <option value="">Select a workspace</option>
+                        @foreach($workspaces['workspaces'] as $workspace)
+                            <option value="{{ $workspace['id'] }}">{{ $workspace['label'] }}</option>
+                        @endforeach
+                    </select>
+                </label>
+                <label class="block">Role
+                    <select name="new_role" required class="rounded border bg-background p-2">
+                        <option value="">Choose a role</option>
+                        @foreach($capabilities['controls']['workspace_roles'] as $role)
+                            <option value="{{ $role['id'] }}">{{ $role['label'] }}</option>
+                        @endforeach
+                    </select>
+                </label>
+                <button class="rounded border px-4 py-2">Give access</button>
+                <p class="text-sm">Saving requires a credential check within the last five minutes.</p>
+            </form>
+        </section>
+    @endif
     @if($directory !== null)
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Give access to someone new</h2>
@@ -81,7 +110,7 @@
             <p>Account reference: {{ $subject }}</p>
             @if(!$state['provisioned'])
                 <p>This account has not been provisioned in the application. A sign-in grant does not create an application account.</p>
-                @if($version === 2 && $state['allowed_edits']['provision'] && config('delegated-access.writes_enabled'))
+                @if($version === 2 && $state['allowed_edits']['provision'] && $writes && $directory !== null)
                     <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
                         @csrf
                         <input type="hidden" name="subject" value="{{ $subject }}">
@@ -95,6 +124,7 @@
                         </label>
                         <label class="block">Role
                             <select name="new_role" required class="rounded border bg-background p-2">
+                                <option value="">Choose a role</option>
                                 @foreach($capabilities['controls']['workspace_roles'] as $role)
                                     <option value="{{ $role['id'] }}">{{ $role['label'] }}</option>
                                 @endforeach
@@ -165,6 +195,7 @@
                             </label>
                             <label class="block">New workspace role
                                 <select name="new_role" class="rounded border bg-background p-2">
+                                    <option value="">Choose a role</option>
                                     @foreach($capabilities['controls']['workspace_roles'] as $role)
                                         <option value="{{ $role['id'] }}">{{ $role['label'] }}</option>
                                     @endforeach
@@ -215,7 +246,7 @@
                     @if(count($state['access']['workspaces']) >= 100)
                         <p>Remove and save a workspace membership before adding another.</p>
                     @endif
-                    @if(config('delegated-access.writes_enabled') && ($state['allowed_edits']['application_admin'] || $state['allowed_edits']['workspaces']))
+                    @if($writes && ($state['allowed_edits']['application_admin'] || $state['allowed_edits']['workspaces']))
                         <button class="rounded border px-4 py-2">Save access</button>
                         <p class="text-sm">Saving requires a credential check within the last five minutes.</p>
                     @else
@@ -233,7 +264,7 @@
             @endif
         </section>
     @endif
-    @if(config('delegated-access.writes_enabled'))
+    @if($writes)
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Confirm your identity before editing</h2>
             <form method="post" action="{{ route('applications.access.confirm', $application->key) }}" class="flex flex-wrap gap-3">
