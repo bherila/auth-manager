@@ -92,6 +92,20 @@ final class DelegatedAccessTransport
      *
      * @throws DelegatedAccessException when the application map is malformed
      */
+    /**
+     * Refuse, before anything is sent, unless this actor could write to the application now.
+     *
+     * The same checks a write makes before signing: manage permission, a current grant, writes
+     * enabled for the application and a recent confirmation. None depends on the target, so a
+     * caller that must answer identically for every target makes them first.
+     *
+     * @throws DelegatedAccessException
+     */
+    public function authorizeWrite(Request $request, string $application): void
+    {
+        $this->actor($request, $application, true);
+    }
+
     public static function contractVersion(string $application): int
     {
         return app(DelegatedAccessApplications::class)->contractVersion($application);

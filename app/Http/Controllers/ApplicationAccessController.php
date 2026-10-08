@@ -3,12 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\RegisteredApplication;
+use App\Models\User;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Support\ApplicationGrantHolders;
 use App\Support\DelegatedAccessApplications;
 use App\Support\DelegatedAccessPermissions;
 use App\Support\RelyingApplications;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
+use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -178,9 +181,15 @@ class ApplicationAccessController extends Controller
 
         $registration = RegisteredApplication::query()->where('key', $application)->where('enabled', true)->firstOrFail();
 
-        // The application authorizes the actor first. Only then is the target looked up, so somebody
-        // the application does not let manage access learns nothing about who holds a grant.
+        // Everything that does not depend on the target is decided before it is looked up: this
+        // provider's write checks, the application's authorization of the actor, and the role. What
+        // an actor learns from a refusal here is the same whoever they named.
+        $this->transport->authorizeWrite($request, $application);
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
+        $access = ['application_admin' => false, 'workspaces' => [['id' => $input['new_workspace'], 'role' => $input['new_role']]]];
+        if (! (new DelegatedContract)->rolesAreAdvertised($capabilities, $access)) {
+            throw ValidationException::withMessages(['new_role' => 'Choose a role the application offers.'])->redirectTo($back);
+        }
 
         $person = $byEmail
             ? $this->grantHolders->personByEmail($registration, $input['email'])
@@ -192,6 +201,26 @@ class ApplicationAccessController extends Controller
             throw ValidationException::withMessages(['subject' => 'Choose someone who can sign in to this application.'])
                 ->redirectTo($back);
         }
+
+        try {
+            return $this->provisionPerson($request, $application, $person, $capabilities, $access, $byEmail, $back, $quietly);
+        } catch (DelegatedAccessException $refusal) {
+            // A refusal from here on is about this person: whether they exist there, what the
+            // application lets this actor do to them, whether the write went through. The transport
+            // has audited it; the actor named somebody by email and is told only what anybody is.
+            if ($byEmail) {
+                return $quietly();
+            }
+
+            throw $refusal;
+        }
+    }
+
+    /**
+     * @throws DelegatedAccessException
+     */
+    private function provisionPerson(Request $request, string $application, User $person, array $capabilities, array $access, bool $byEmail, string $back, Closure $quietly): RedirectResponse
+    {
         $subject = (string) $person->getKey();
 
         $state = $this->transport->send($request, $application, ['operation' => 'read', 'subject' => $subject]);
@@ -202,11 +231,6 @@ class ApplicationAccessController extends Controller
 
             return redirect()->to($back)
                 ->with('access_failure', 'The application does not offer to create this account now. Review its current access.');
-        }
-
-        $access = ['application_admin' => false, 'workspaces' => [['id' => $input['new_workspace'], 'role' => $input['new_role']]]];
-        if (! (new DelegatedContract)->rolesAreAdvertised($capabilities, $access)) {
-            throw ValidationException::withMessages(['new_role' => 'Choose a role the application offers.'])->redirectTo($back);
         }
 
         $update = ['operation' => 'update', 'subject' => $subject, 'expected_revision' => null, 'access' => $access];

@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Illuminate\Support\ViewErrorBag;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
@@ -53,6 +54,8 @@ class ApplicationAccessV2UiTest extends TestCase
     private bool $provisioning = true;
 
     private ?string $workspaceCursor = null;
+
+    private bool $refuseUpdates = false;
 
     private array $memberships = [
         ['id' => 'workspace-a', 'role' => 'owner', 'editable' => false],
@@ -309,6 +312,44 @@ class ApplicationAccessV2UiTest extends TestCase
         $this->assertNotNull($stranger->id);
     }
 
+    /**
+     * Past the lookup, a real person who could be provisioned meets refusals a missing one never
+     * reaches. Each must still answer exactly as for somebody who does not exist.
+     */
+    public function test_exact_email_refusals_answer_as_for_somebody_who_does_not_exist(): void
+    {
+        $this->actor->update(['user_role' => 'user,access-manage:example-app']);
+        $this->provisioned = false;
+        $holder = User::factory()->create(['email' => 'holder@example.test', 'user_role' => 'user']);
+        $this->grant($holder);
+        $answer = function (string $email, string $role = 'sender'): array {
+            $response = $this->post('/applications/example-app/access/provision', [
+                'email' => $email, 'new_workspace' => 'workspace-a', 'new_role' => $role,
+            ]);
+            $answer = [$response->headers->get('Location'), session('access_notice'), session('access_failure'), $this->errorKeys()];
+            session()->forget(['access_notice', 'access_failure', 'errors']);
+
+            return $answer;
+        };
+        $same = function (string $case, ?string $role = null) use ($answer): void {
+            $this->assertSame($answer('nobody@example.test', $role ?? 'sender'), $answer('holder@example.test', $role ?? 'sender'), $case);
+        };
+
+        $same('without a recent confirmation');
+        $this->confirm();
+        $same('naming a role the application does not offer', 'not-a-role');
+        $this->refuseUpdates = true;
+        $same('when the application refuses the write');
+        $this->refuseUpdates = false;
+        config(['delegated-access.writes_applications' => []]);
+        $same('with writes off for the application');
+        config(['delegated-access.writes_applications' => ['example-app']]);
+        $this->actor->update(['user_role' => 'user,access-view:example-app']);
+        $same('with view permission only');
+
+        $this->assertCount(1, Http::recorded(fn ($request) => $request['operation'] === 'update'), 'Only the refused write was sent');
+    }
+
     public function test_without_a_delegated_permission_the_application_is_neither_listed_nor_reachable(): void
     {
         $this->actor->update(['user_role' => 'user']);
@@ -461,8 +502,24 @@ class ApplicationAccessV2UiTest extends TestCase
                         'provision' => ! $this->provisioned && $this->provisionAllowed]],
             };
 
+            if ($operation === 'update' && $this->refuseUpdates) {
+                return Http::response(['error' => 'not_authorized'], 403);
+            }
+
             return Http::response(['contract_version' => 2, 'application' => 'example-app', 'operation' => $operation, ...$data]);
         });
+    }
+
+    /** @return list<string>|null */
+    private function errorKeys(): ?array
+    {
+        $errors = session('errors');
+
+        return match (true) {
+            $errors instanceof ViewErrorBag => $errors->getBag('default')->keys(),
+            is_array($errors) => array_keys($errors),
+            default => null,
+        };
     }
 
     private function grant(User $user): void
