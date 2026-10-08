@@ -73,7 +73,7 @@ class ApplicationAccessV2UiTest extends TestCase
         chmod($this->keyPath, 0600);
         config(['application-registry.launch_enabled' => true, 'delegated-access' => [
             'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'], 'issuer' => 'https://identity.example.test',
-            'key_id' => 'example-v1', 'private_key_path' => $this->keyPath, 'keys_environment' => 'example-app|example-v1|'.$this->keyPath,
+            'key_id' => null, 'private_key_path' => null, 'keys_environment' => 'example-app|example-v1|'.$this->keyPath,
             'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 2]],
         ]]);
         $this->actor = User::factory()->create(['name' => 'Example Actor', 'user_role' => 'user,access-manage:example-app,access-directory:example-app', 'password' => Hash::make('current-password-example')]);
@@ -389,7 +389,7 @@ class ApplicationAccessV2UiTest extends TestCase
     /** Second-review M3: a write needs the application's own key; the shared key still serves reads. */
     public function test_writes_need_the_applications_own_signing_key(): void
     {
-        config(['delegated-access.keys_environment' => null]);
+        config(['delegated-access.key_id' => 'example-v1', 'delegated-access.private_key_path' => $this->keyPath, 'delegated-access.keys_environment' => null]);
 
         $this->browse(['subject' => 'subject-example'])->assertOk()->assertSee('Workspace A')->assertDontSee('Save access');
         $this->confirm();

@@ -70,7 +70,7 @@ class DelegatedAccessTransportTest extends TestCase
         chmod($this->keyPath, 0600);
         config(['delegated-access' => [
             'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'],
-            'issuer' => 'https://identity.example.test', 'key_id' => 'integration-v1', 'private_key_path' => $this->keyPath,
+            'issuer' => 'https://identity.example.test', 'key_id' => null, 'private_key_path' => null,
             'keys_environment' => 'example-app|integration-v1|'.$this->keyPath,
             'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access']],
         ]]);

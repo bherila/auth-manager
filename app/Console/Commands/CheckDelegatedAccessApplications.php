@@ -25,7 +25,11 @@ class CheckDelegatedAccessApplications extends Command
                 $configuration['applications'] ?? null,
                 $configuration['applications_environment'] ?? null,
             );
-            $keys = DelegatedAccessKeys::parse($configuration['keys_environment'] ?? null);
+            $keys = DelegatedAccessKeys::assertDistinct(
+                DelegatedAccessKeys::parse($configuration['keys_environment'] ?? null),
+                $configuration['key_id'] ?? null,
+                $configuration['private_key_path'] ?? null,
+            );
             foreach (array_keys($keys) as $application) {
                 if (! array_key_exists($application, $applications)) {
                     throw new InvalidArgumentException(DelegatedAccessKeys::ENVIRONMENT." names an application that is not configured: {$application}.");

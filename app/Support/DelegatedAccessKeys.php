@@ -49,7 +49,13 @@ final class DelegatedAccessKeys
     public function own(string $application): ?array
     {
         try {
-            return self::parse(config('delegated-access.keys_environment'))[$application] ?? null;
+            $keys = self::assertDistinct(
+                self::parse(config('delegated-access.keys_environment')),
+                config('delegated-access.key_id'),
+                config('delegated-access.private_key_path'),
+            );
+
+            return $keys[$application] ?? null;
         } catch (InvalidArgumentException $failure) {
             report($failure);
 
@@ -92,7 +98,35 @@ final class DelegatedAccessKeys
                 throw self::invalid("{$label} private key path must be absolute");
             }
 
+            foreach ($keys as $other) {
+                if ($other['key_id'] === $keyId || $other['private_key_path'] === $path) {
+                    throw self::invalid("{$label} reuses another application's key");
+                }
+            }
+
             $keys[$application] = ['key_id' => $keyId, 'private_key_path' => $path];
+        }
+
+        return $keys;
+    }
+
+    /**
+     * An application's own key is no better than the shared one if it is the shared one.
+     *
+     * @param  array<string, array{key_id: string, private_key_path: string}>  $keys
+     * @return array<string, array{key_id: string, private_key_path: string}>
+     *
+     * @throws InvalidArgumentException
+     */
+    public static function assertDistinct(array $keys, mixed $sharedKeyId, mixed $sharedPath): array
+    {
+        $position = 0;
+        foreach ($keys as $key) {
+            $position++;
+            if ((is_string($sharedKeyId) && $sharedKeyId !== '' && $key['key_id'] === $sharedKeyId)
+                || (is_string($sharedPath) && $sharedPath !== '' && $key['private_key_path'] === $sharedPath)) {
+                throw self::invalid("entry {$position} reuses the instance-wide key");
+            }
         }
 
         return $keys;
