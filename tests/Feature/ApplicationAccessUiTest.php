@@ -54,11 +54,11 @@ class ApplicationAccessUiTest extends TestCase
         file_put_contents($this->keyPath, $private);
         chmod($this->keyPath, 0600);
         config(['application-registry.launch_enabled' => true, 'delegated-access' => [
-            'enabled' => true, 'writes_enabled' => true, 'issuer' => 'https://identity.example.test',
+            'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'], 'issuer' => 'https://identity.example.test',
             'key_id' => 'example-v1', 'private_key_path' => $this->keyPath,
             'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access']],
         ]]);
-        $this->actor = User::factory()->create(['user_role' => 'user', 'password' => Hash::make('current-password-example')]);
+        $this->actor = User::factory()->create(['user_role' => 'user,access-manage:example-app,access-directory:example-app', 'password' => Hash::make('current-password-example')]);
         $client = PassportClient::create(['id' => (string) Str::uuid(), 'name' => 'Example Client',
             'secret' => 'example-secret', 'grant_types' => ['authorization_code'],
             'redirect_uris' => ['https://app.example.test/callback'], 'revoked' => false]);

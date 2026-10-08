@@ -3,11 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\RegisteredApplication;
+use App\Models\User;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Support\ApplicationGrantHolders;
 use App\Support\DelegatedAccessApplications;
+use App\Support\DelegatedAccessPermissions;
 use App\Support\RelyingApplications;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
+use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,9 +19,13 @@ use Illuminate\Validation\ValidationException;
 
 class ApplicationAccessController extends Controller
 {
+    /** One reply for every exact-email provisioning outcome, so it reveals nobody. */
+    public const EMAIL_PROVISION_NOTICE = 'If that person can sign in to this application and has no account there yet, their account now exists with the access you chose. Find them in the account list to confirm.';
+
     public function __construct(
         private readonly DelegatedAccessTransport $transport,
         private readonly ApplicationGrantHolders $grantHolders,
+        private readonly DelegatedAccessPermissions $permissions,
     ) {}
 
     public function directory(Request $request, RelyingApplications $applications, DelegatedAccessApplications $delegated): View
@@ -27,7 +35,8 @@ class ApplicationAccessController extends Controller
         // A malformed application map lists nothing: the page's existing no-integrations state.
         return view('applications.manage', ['applications' => $delegated->malformed() ? [] : array_values(array_filter(
             $applications->forSubject((string) $request->user()->getAuthIdentifier()),
-            fn (array $application): bool => $delegated->find($application['key']) !== null,
+            fn (array $application): bool => $delegated->find($application['key']) !== null
+                && $this->permissions->canView($request->user(), $application['key']),
         ))]);
     }
 
@@ -156,37 +165,75 @@ class ApplicationAccessController extends Controller
     {
         abort_unless(DelegatedAccessTransport::contractVersion($application) === DelegatedContract::VERSION_2, 404);
 
+        // Directory holders pick a subject; every other administrator names a
+        // person by exact email and gets the same answer whatever the outcome.
+        $byEmail = ! $this->permissions->canBrowseDirectory($request->user(), $application);
         $input = $request->validate([
-            'subject' => ['required', 'string', 'max:191'],
+            'subject' => [$byEmail ? 'prohibited' : 'required', 'string', 'max:191'],
+            'email' => [$byEmail ? 'required' : 'prohibited', 'string', 'email', 'max:255'],
             'new_workspace' => ['required', 'string', 'max:191'],
             'new_role' => ['required', 'string', 'max:64'],
         ]);
-        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
+        $back = $byEmail
+            ? route('applications.access', ['application' => $application])
+            : route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
+        $quietly = fn (): RedirectResponse => redirect()->to($back)->with('access_notice', self::EMAIL_PROVISION_NOTICE);
 
         $registration = RegisteredApplication::query()->where('key', $application)->where('enabled', true)->firstOrFail();
 
-        // The application authorizes the actor first. Only then is the target looked up, so somebody
-        // the application does not let manage access learns nothing about who holds a grant.
+        // Everything that does not depend on the target is decided before it is looked up: this
+        // provider's write checks, the application's authorization of the actor, and the role. What
+        // an actor learns from a refusal here is the same whoever they named.
+        $this->transport->authorizeWrite($request, $application);
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
-
-        $person = $this->grantHolders->person($registration, $input['subject']);
-        if ($person === null) {
-            throw ValidationException::withMessages(['subject' => 'Choose someone who can sign in to this application.'])
-                ->redirectTo($back);
-        }
-
-        $state = $this->transport->send($request, $application, ['operation' => 'read', 'subject' => $input['subject']]);
-        if (($capabilities['controls']['provisioning'] ?? false) !== true || $state['provisioned'] || ! $state['allowed_edits']['provision']) {
-            return redirect()->to($back)
-                ->with('access_failure', 'The application does not offer to create this account now. Review its current access.');
-        }
-
         $access = ['application_admin' => false, 'workspaces' => [['id' => $input['new_workspace'], 'role' => $input['new_role']]]];
         if (! (new DelegatedContract)->rolesAreAdvertised($capabilities, $access)) {
             throw ValidationException::withMessages(['new_role' => 'Choose a role the application offers.'])->redirectTo($back);
         }
 
-        $update = ['operation' => 'update', 'subject' => $input['subject'], 'expected_revision' => null, 'access' => $access];
+        $person = $byEmail
+            ? $this->grantHolders->personByEmail($registration, $input['email'])
+            : $this->grantHolders->person($registration, $input['subject']);
+        if ($person === null) {
+            if ($byEmail) {
+                return $quietly();
+            }
+            throw ValidationException::withMessages(['subject' => 'Choose someone who can sign in to this application.'])
+                ->redirectTo($back);
+        }
+
+        try {
+            return $this->provisionPerson($request, $application, $person, $capabilities, $access, $byEmail, $back, $quietly);
+        } catch (DelegatedAccessException $refusal) {
+            // A refusal from here on is about this person: whether they exist there, what the
+            // application lets this actor do to them, whether the write went through. The transport
+            // has audited it; the actor named somebody by email and is told only what anybody is.
+            if ($byEmail) {
+                return $quietly();
+            }
+
+            throw $refusal;
+        }
+    }
+
+    /**
+     * @throws DelegatedAccessException
+     */
+    private function provisionPerson(Request $request, string $application, User $person, array $capabilities, array $access, bool $byEmail, string $back, Closure $quietly): RedirectResponse
+    {
+        $subject = (string) $person->getKey();
+
+        $state = $this->transport->send($request, $application, ['operation' => 'read', 'subject' => $subject]);
+        if (($capabilities['controls']['provisioning'] ?? false) !== true || $state['provisioned'] || ! $state['allowed_edits']['provision']) {
+            if ($byEmail) {
+                return $quietly();
+            }
+
+            return redirect()->to($back)
+                ->with('access_failure', 'The application does not offer to create this account now. Review its current access.');
+        }
+
+        $update = ['operation' => 'update', 'subject' => $subject, 'expected_revision' => null, 'access' => $access];
         $name = trim((string) $person->name);
         if ($name !== '') {
             // Contact data for the new account, bounded in bytes as the contract bounds it.
@@ -194,7 +241,7 @@ class ApplicationAccessController extends Controller
         }
         $this->transport->send($request, $application, $update);
 
-        return redirect()->to($back)->with('access_updated', true);
+        return $byEmail ? $quietly() : redirect()->to($back)->with('access_updated', true);
     }
 
     /**
@@ -233,17 +280,22 @@ class ApplicationAccessController extends Controller
             array_filter(['operation' => 'workspaces', 'limit' => 50, 'cursor' => $workspaceCursor], fn ($value) => $value !== null));
         $registration = RegisteredApplication::query()->where('key', $application)->firstOrFail();
 
-        // Listed only once the application has answered capabilities for this actor and advertised
-        // provisioning: the picker is part of managing access there, not a directory of its own.
-        $directory = $version === DelegatedContract::VERSION_2 && ($capabilities['controls']['provisioning'] ?? false) === true
+        // The picker discloses grant holders across every workspace, so it needs the separate
+        // directory permission as well as the application answering capabilities and advertising
+        // provisioning. Without it, a manager names a person by exact email instead.
+        $provisioning = $version === DelegatedContract::VERSION_2 && ($capabilities['controls']['provisioning'] ?? false) === true;
+        $actor = $request->user();
+        $directory = $provisioning && $this->permissions->canBrowseDirectory($actor, $application)
             ? $this->grantHolders->search($registration, $directorySearch, $directoryPage)
             : null;
+        $writes = $this->permissions->canManage($actor, $application) && $this->permissions->writesEnabled($application);
 
         return view('applications.access', [
             'application' => $registration, 'version' => $version,
             'capabilities' => $capabilities, 'subjects' => $subjects, 'workspaces' => $workspaces,
             'subject' => $subject, 'state' => $state, 'saved' => $saved,
             'directory' => $directory, 'directorySearch' => $directorySearch,
+            'writes' => $writes, 'provisionByEmail' => $provisioning && $writes && $directory === null,
         ]);
     }
 }

@@ -9,6 +9,7 @@ use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Support\AuthManagerProfile;
 use App\Support\DelegatedAccessApplications;
+use App\Support\DelegatedAccessPermissions;
 use App\Support\StaticApplicationClients;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
@@ -91,6 +92,20 @@ final class DelegatedAccessTransport
      *
      * @throws DelegatedAccessException when the application map is malformed
      */
+    /**
+     * Refuse, before anything is sent, unless this actor could write to the application now.
+     *
+     * The same checks a write makes before signing: manage permission, a current grant, writes
+     * enabled for the application and a recent confirmation. None depends on the target, so a
+     * caller that must answer identically for every target makes them first.
+     *
+     * @throws DelegatedAccessException
+     */
+    public function authorizeWrite(Request $request, string $application): void
+    {
+        $this->actor($request, $application, true);
+    }
+
     public static function contractVersion(string $application): int
     {
         return app(DelegatedAccessApplications::class)->contractVersion($application);
@@ -192,6 +207,13 @@ final class DelegatedAccessTransport
             || $request->session()->get(EnsureCredentialVersion::SESSION_KEY) !== (int) $actor->credential_version) {
             throw new DelegatedAccessException('not_authenticated', 401);
         }
+        // The provider's own restriction, before anything is signed: viewing needs
+        // access-view (or manage) for this application, writing needs
+        // access-manage and writes switched on for this application.
+        $permissions = app(DelegatedAccessPermissions::class);
+        if (! ($write ? $permissions->canManage($actor, $application) : $permissions->canView($actor, $application))) {
+            throw new DelegatedAccessException('not_authorized', 403);
+        }
         $registration = RegisteredApplication::query()->where('key', $application)->where('enabled', true)->with('clients')->first();
         $staticClients = new StaticApplicationClients;
         if ($registration === null || ! $registration->clients->contains(fn (PassportClient $client): bool => $staticClients->eligible($client)
@@ -199,9 +221,13 @@ final class DelegatedAccessTransport
             throw new DelegatedAccessException('not_authorized', 403);
         }
         if ($write) {
+            // Writes switched off for this application are a refusal, not a request to re-confirm.
+            if (! $permissions->writesEnabled($application)) {
+                throw new DelegatedAccessException('not_authorized', 403);
+            }
             $proof = $request->session()->get(RequireRecentPasskeyAuthentication::SESSION_KEY);
             $now = now()->getTimestamp();
-            if (! config('delegated-access.writes_enabled', false) || ! is_array($proof)
+            if (! is_array($proof)
                 || ($proof['user_id'] ?? null) !== (string) $actor->id
                 || ! is_int($proof['authenticated_at'] ?? null)
                 || $proof['authenticated_at'] > $now || $proof['authenticated_at'] < $now - 300) {

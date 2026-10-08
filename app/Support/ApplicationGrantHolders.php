@@ -88,6 +88,25 @@ final class ApplicationGrantHolders
     }
 
     /**
+     * The grant holder with exactly this email (case-insensitive), or null.
+     *
+     * For administrators without directory access: they name a person they
+     * already know, and learn nothing about anyone else.
+     */
+    public function personByEmail(RegisteredApplication $application, string $email): ?User
+    {
+        $clientIds = $this->clientIds($application);
+        $email = trim($email);
+        if ($clientIds === [] || $email === '') {
+            return null;
+        }
+
+        $user = $this->holders($clientIds)->whereRaw('lower(email) = ?', [mb_strtolower($email)])->first();
+
+        return $user instanceof User && $user->canLogin() ? $user : null;
+    }
+
+    /**
      * @param  list<string>  $clientIds
      * @return Builder<User>
      */
