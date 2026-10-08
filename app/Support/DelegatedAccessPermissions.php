@@ -23,7 +23,7 @@ use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
  * These are narrow delegated-administration permissions, not provider
  * administration: a workspace administrator needs no other provider role.
  */
-final class DelegatedAccessPermissions
+class DelegatedAccessPermissions
 {
     public function canView(User $user, string $application): bool
     {
