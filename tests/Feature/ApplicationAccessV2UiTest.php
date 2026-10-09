@@ -585,7 +585,7 @@ class ApplicationAccessV2UiTest extends TestCase
         $this->post('/applications/example-app/access/update', [
             'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
             'new_workspace' => 'workspace-a', 'new_role' => 'owner',
-        ])->assertRedirect()->assertSessionHasErrors('workspaces');
+        ])->assertRedirect()->assertSessionHasErrors(['workspaces' => 'This application has no workspaces.']);
 
         $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
     }
