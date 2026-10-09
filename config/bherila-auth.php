@@ -106,6 +106,8 @@ return [
         'authorization_response_issuer' => ['enabled' => false],
         'resource_required_scope' => null,
         'resource_required_scopes' => config('auth-manager.resource_required_scopes'),
+        // Off: this provider issues resource-bound credentials only to clients that name the resource.
+        'assume_omitted_resource' => (bool) env('OAUTH_ASSUME_OMITTED_RESOURCE', false),
         'dynamic_clients' => [
             'enabled' => $dcrEnabled,
             'required_columns' => ['dynamically_registered_at', 'scopes'],
@@ -113,6 +115,26 @@ return [
             'last_used_at_column' => 'last_used_at',
             'scopes_column' => 'scopes',
             'enforce_registered_scopes' => true,
+            'retention_days' => (int) env('OAUTH_DYNAMIC_CLIENT_RETENTION_DAYS', 30),
+        ],
+        // A person's own API tokens and OAuth apps (OAuth\Credentials). Opt-in;
+        // routes are session routes under `prefix` with `middleware`.
+        'credentials' => [
+            'enabled' => false,
+            'prefix' => 'account/api-credentials',
+            'middleware' => ['web', 'auth'],
+            // ISO-8601 durations offered for personal API tokens, e.g. PT4H for a
+            // short quick-setup token.
+            'token_lifetimes' => ['P30D', 'P90D', 'P365D'],
+            'token_name_prefix' => 'api-token: ',
+            'personal_client_name' => 'Personal access tokens',
+            // Null uses the api guard's provider.
+            'provider' => null,
+            // Null: the signed-in user owns credentials. Set a model class (over the
+            // same table, using HasApiTokens) when the API guard loads another model.
+            'owner_model' => null,
+            // Scopes never offered to a credential, beyond the MCP-connection scopes.
+            'excluded_scopes' => [],
         ],
         'authorization_state' => [
             'cache_prefix' => 'oauth-resource:',
