@@ -144,26 +144,44 @@ final class DelegatedAccessTransport
         }
     }
 
+    /**
+     * Guzzle options that bound the response under either of its handlers.
+     *
+     * The stream handler (selected when allow_url_fopen is on) streams lazily, so the bounded read
+     * in exchange() applies. Curl buffers the body first, so a declared oversize body is refused
+     * from its headers, and the progress callback aborts a transfer the moment it passes the bound,
+     * declared or not. No handler-specific option is sent: current Guzzle refuses
+     * CURLOPT_MAXFILESIZE in `curl`, which failed every exchange on hosts without allow_url_fopen
+     * before it reached the network.
+     *
+     * @return array<string, mixed>
+     */
+    public static function requestOptions(): array
+    {
+        return [
+            'stream' => true,
+            'read_timeout' => 1,
+            'on_headers' => static function (ResponseInterface $headers): void {
+                $declared = $headers->getHeaderLine('Content-Length');
+                if ($declared !== '' && (! ctype_digit($declared) || (int) $declared > DelegatedContract::MAX_RESPONSE_BYTES)) {
+                    throw new RuntimeException('The application response exceeds the contract size limit.');
+                }
+            },
+            'progress' => static function (int|float $expected, int|float $received): void {
+                if ($expected > DelegatedContract::MAX_RESPONSE_BYTES || $received > DelegatedContract::MAX_RESPONSE_BYTES) {
+                    throw new RuntimeException('The application response exceeds the contract size limit.');
+                }
+            },
+        ];
+    }
+
     private function exchange(string $endpoint, #[\SensitiveParameter] string $assertion, string $body, string $application, array $payload, bool $write): array
     {
         $deadline = $this->clock->now() + 10;
         try {
-            // Never retry writes or follow redirects. Read at most the contract bound,
-            // including chunked responses, without buffering an unbounded response.
-            // The bounded read below assumes a lazy stream, which Guzzle only provides when
-            // its stream handler is selected (allow_url_fopen). Under curl the body would buffer
-            // first, so also refuse a declared oversize body before it is read and cap curl itself.
-            // The cap is sent only when curl serves the request: Guzzle's stream handler refuses
-            // any curl option, which would fail every exchange before it reached the network.
+            // Never retry writes or follow redirects. Read at most the contract bound.
             $response = Http::connectTimeout(3)->timeout(10)->withoutRedirecting()
-                ->withOptions(['stream' => true, 'read_timeout' => 1,
-                    'on_headers' => static function (ResponseInterface $headers): void {
-                        $declared = $headers->getHeaderLine('Content-Length');
-                        if ($declared !== '' && (! ctype_digit($declared) || (int) $declared > DelegatedContract::MAX_RESPONSE_BYTES)) {
-                            throw new RuntimeException('The application response exceeds the contract size limit.');
-                        }
-                    },
-                ] + (ini_get('allow_url_fopen') ? [] : ['curl' => [CURLOPT_MAXFILESIZE => DelegatedContract::MAX_RESPONSE_BYTES]]))
+                ->withOptions(self::requestOptions())
                 ->withHeaders(['Authorization' => 'Bearer '.$assertion, 'Accept' => 'application/json'])
                 ->withBody($body, 'application/json')->post($endpoint);
         } catch (Throwable) {
