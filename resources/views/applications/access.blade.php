@@ -8,7 +8,7 @@
 <main class="mx-auto max-w-3xl space-y-6 px-6 py-10">
     <a class="underline" href="/">Back to your account</a>
     <h1 class="text-2xl font-semibold">{{ $application->name }} access</h1>
-    <p>The application decides which accounts and workspaces you can manage. Provider administration does not grant application permissions.</p>
+    <p>The application decides which accounts{{ $accountOnly ? '' : ' and workspaces' }} you can manage. Provider administration does not grant application permissions.</p>
     @if(session('status'))<p role="status">{{ session('status') }}</p>@endif
     @if($saved)<p role="status" class="rounded border p-3">The application confirmed the access update.</p>@endif
     @if(session('access_failure'))<p role="alert" class="rounded border p-3">{{ session('access_failure') }}</p>@endif
@@ -43,10 +43,13 @@
     @if($provisionByEmail)
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Give access to someone new</h2>
-            <p>Enter the exact email address the person signs in with. If they can sign in to {{ $application->name }} and have no account there yet, the application creates it with the workspace and role you choose.</p>
+            <p>Enter the exact email address the person signs in with. If they can sign in to {{ $application->name }} and have no account there yet, the application creates it with the {{ $accountOnly ? 'administrator setting' : 'workspace and role' }} you choose.</p>
             <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
                 @csrf
                 <label class="block">Email <input type="email" name="email" required maxlength="255" autocomplete="off" class="rounded border bg-background p-2"></label>
+                @if($accountOnly)
+                    @include('applications.provision-admin-choice')
+                @else
                 <label class="block">Workspace
                     <select name="new_workspace" required class="rounded border bg-background p-2">
                         <option value="">Select a workspace</option>
@@ -63,6 +66,7 @@
                         @endforeach
                     </select>
                 </label>
+                @endif
                 <button class="rounded border px-4 py-2">Give access</button>
                 <p class="text-sm">Saving requires a credential check within the last five minutes.</p>
             </form>
@@ -114,6 +118,11 @@
                     <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
                         @csrf
                         <input type="hidden" name="subject" value="{{ $subject }}">
+                        @if($accountOnly)
+                            @include('applications.provision-admin-choice')
+                            <button class="rounded border px-4 py-2">Create account</button>
+                            <p class="text-sm">The application creates this person's account, bound to their sign-in here, with the administrator setting you choose. Saving requires a credential check within the last five minutes.</p>
+                        @else
                         <label class="block">Workspace
                             <select name="new_workspace" required class="rounded border bg-background p-2">
                                 <option value="">Select a workspace</option>
@@ -132,6 +141,7 @@
                         </label>
                         <button class="rounded border px-4 py-2">Create account and give access</button>
                         <p class="text-sm">The application creates this person's account, bound to their sign-in here, with the workspace and role you choose. Saving requires a credential check within the last five minutes.</p>
+                        @endif
                     </form>
                     @if($workspaces['next_cursor'])
                         <form method="post" action="{{ route('applications.access.browse', $application->key) }}">
@@ -158,8 +168,10 @@
                         <p>Application administrator: {{ $state['access']['application_admin'] ? 'Yes' : 'No' }} (read-only)</p>
                         <input type="hidden" name="application_admin" value="{{ $state['access']['application_admin'] ? '1' : '0' }}">
                     @endif
-                    <h3 class="font-semibold">Workspace access</h3>
-                    @if($version === 2)
+                    @if($accountOnly)
+                        {{-- No workspaces: the administrator setting above is the whole of this account's access here. --}}
+                    @elseif($version === 2)
+                        <h3 class="font-semibold">Workspace access</h3>
                         @forelse($state['access']['workspaces'] as $index => $membership)
                             <div class="flex items-center gap-3">
                                 <input type="hidden" name="workspaces[{{ $index }}][id]" value="{{ $membership['id'] }}">
@@ -203,6 +215,7 @@
                             </label>
                         @endif
                     @else
+                        <h3 class="font-semibold">Workspace access</h3>
                         @forelse($state['access']['workspaces'] as $index => $membership)
                             <div class="flex items-center gap-3">
                                 <input type="hidden" name="workspaces[{{ $index }}][id]" value="{{ $membership['id'] }}">
@@ -246,7 +259,9 @@
                     @if(count($state['access']['workspaces']) >= 100)
                         <p>Remove and save a workspace membership before adding another.</p>
                     @endif
-                    @if($writes && ($state['allowed_edits']['application_admin'] || $state['allowed_edits']['workspaces']))
+                    @if($writes && ($accountOnly
+                        ? $state['allowed_edits']['application_admin'] && $capabilities['controls']['application_admin']
+                        : $state['allowed_edits']['application_admin'] || $state['allowed_edits']['workspaces']))
                         <button class="rounded border px-4 py-2">Save access</button>
                         <p class="text-sm">Saving requires a credential check within the last five minutes.</p>
                     @else

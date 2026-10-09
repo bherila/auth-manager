@@ -59,6 +59,15 @@ class ApplicationAccessV2UiTest extends TestCase
 
     private bool $refuseUpdates = false;
 
+    /** An application advertising no workspace roles: accounts and the administrator flag only. */
+    private bool $accountOnly = false;
+
+    /** Account-only: `controls.application_admin`, whether this actor may grant administration at all. */
+    private bool $adminGrantable = true;
+
+    /** Account-only: `allowed_edits.application_admin` for the subject read. */
+    private bool $adminEditable = true;
+
     private array $memberships = [
         ['id' => 'workspace-a', 'role' => 'owner', 'editable' => false],
         ['id' => 'workspace-b', 'role' => 'sender', 'editable' => true],
@@ -515,6 +524,207 @@ class ApplicationAccessV2UiTest extends TestCase
         $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
     }
 
+    public function test_an_account_only_application_shows_only_the_administrator_control(): void
+    {
+        $this->useAccountOnlyApplication();
+
+        $this->browse(['subject' => 'subject-example'])->assertOk()
+            ->assertSee('The application decides which accounts you can manage.')
+            ->assertSee('<select name="application_admin"', false)
+            ->assertSee('Save access')
+            ->assertDontSee('Workspace access')
+            ->assertDontSee('No workspace memberships')
+            ->assertDontSee('name="workspaces[', false)
+            ->assertDontSee('name="new_workspace"', false)
+            ->assertDontSee('name="new_role"', false)
+            ->assertDontSee('More workspaces');
+
+        // It has no workspaces, so it is never asked for them.
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'workspaces'));
+    }
+
+    public function test_an_account_only_administrator_flag_can_be_toggled(): void
+    {
+        $this->useAccountOnlyApplication();
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '1',
+        ])->assertRedirect()->assertSessionHas('access_updated', true);
+
+        Http::assertSent(fn ($request) => $request['operation'] === 'update' && $request['contract_version'] === 2
+            && $request['expected_revision'] === 'revision-example'
+            && $request['access'] === ['application_admin' => true, 'workspaces' => []]);
+    }
+
+    /** Self-demotion, the last administrator, or an actor who may not grant it at all: shown, never offered. */
+    public function test_the_administrator_flag_is_not_offered_where_the_application_forbids_it(): void
+    {
+        $this->useAccountOnlyApplication();
+
+        foreach (['not editable for this account' => fn () => $this->adminEditable = false,
+            'not grantable by this actor' => fn () => [$this->adminEditable = true, $this->adminGrantable = false]] as $case => $arrange) {
+            $arrange();
+            $this->browse(['subject' => 'subject-example'])->assertOk()
+                ->assertSee('Application administrator: No (read-only)')
+                ->assertSee('<input type="hidden" name="application_admin" value="0">', false)
+                ->assertDontSee('<select name="application_admin"', false)
+                ->assertDontSee('Save access')
+                ->assertSee('Access changes are unavailable for this account or integration.');
+        }
+    }
+
+    public function test_an_account_only_update_naming_a_workspace_is_refused_before_anything_is_sent(): void
+    {
+        $this->useAccountOnlyApplication();
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'new_workspace' => 'workspace-a', 'new_role' => 'owner',
+        ])->assertRedirect()->assertSessionHasErrors('workspaces');
+
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+    }
+
+    /** An application that advertises no roles but reports a membership is refused, never rendered. */
+    public function test_an_account_only_application_reporting_a_membership_is_refused(): void
+    {
+        $this->accountOnly = true;
+        $this->memberships = [['id' => 'workspace-a', 'role' => 'owner', 'editable' => true]];
+
+        $this->browse(['subject' => 'subject-example'])->assertStatus(503)
+            ->assertSee('Application access is unavailable.')
+            ->assertDontSee('workspace-a');
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'owner']],
+        ])->assertRedirect()->assertSessionHas('access_failure');
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+    }
+
+    public function test_account_only_provisioning_asks_for_the_administrator_setting_and_no_workspace(): void
+    {
+        $this->useAccountOnlyApplication();
+        $holder = User::factory()->create(['name' => 'Example Holder', 'user_role' => 'user']);
+        $this->grant($holder);
+        $this->provisioned = false;
+
+        $this->browse(['subject' => (string) $holder->id])->assertOk()
+            ->assertSee('Create account')
+            ->assertDontSee('Create account and give access')
+            ->assertSeeInOrder(['<select name="application_admin" required', '<option value="">Choose</option>', '<option value="0">No</option>', '<option value="1">Yes</option>'], false)
+            ->assertDontSee('name="new_workspace"', false)
+            ->assertDontSee('name="new_role"', false);
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/provision', [
+            'subject' => (string) $holder->id, 'application_admin' => '1',
+        ])->assertRedirect()->assertSessionHas('access_updated', true);
+
+        Http::assertSent(fn ($request) => $request['operation'] === 'update'
+            && $request['subject'] === (string) $holder->id
+            && array_key_exists('expected_revision', $request->data()) && $request['expected_revision'] === null
+            && $request['display_name'] === 'Example Holder'
+            && $request['access'] === ['application_admin' => true, 'workspaces' => []]);
+    }
+
+    /** The administrator setting is chosen, never defaulted, and offered only where it can be granted. */
+    public function test_account_only_provisioning_requires_an_explicit_administrator_choice(): void
+    {
+        $this->useAccountOnlyApplication();
+        $holder = User::factory()->create(['name' => 'Example Holder', 'user_role' => 'user']);
+        $this->grant($holder);
+        $this->provisioned = false;
+        $this->confirm();
+
+        $this->post('/applications/example-app/access/provision', ['subject' => (string) $holder->id, 'application_admin' => ''])
+            ->assertSessionHasErrors('application_admin');
+        // Without the field it is a workspace request, which this application cannot take.
+        $this->post('/applications/example-app/access/provision', ['subject' => (string) $holder->id])
+            ->assertSessionHasErrors('new_workspace');
+        $this->post('/applications/example-app/access/provision', ['subject' => (string) $holder->id, 'application_admin' => '0', 'new_workspace' => 'workspace-a'])
+            ->assertSessionHasErrors('new_workspace');
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+
+        $this->adminGrantable = false;
+        $this->browse(['subject' => (string) $holder->id])->assertOk()
+            ->assertSee('<option value="0">No</option>', false)
+            ->assertDontSee('<option value="1">Yes</option>', false);
+        $this->post('/applications/example-app/access/provision', ['subject' => (string) $holder->id, 'application_admin' => '1'])
+            ->assertSessionHasErrors('application_admin');
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+
+        $this->post('/applications/example-app/access/provision', ['subject' => (string) $holder->id, 'application_admin' => '0'])
+            ->assertSessionHas('access_updated', true);
+        Http::assertSent(fn ($request) => $request['operation'] === 'update' && $request['access'] === ['application_admin' => false, 'workspaces' => []]);
+    }
+
+    public function test_account_only_provisioning_by_exact_email_gives_the_uniform_answer(): void
+    {
+        $this->useAccountOnlyApplication();
+        $this->actor->update(['user_role' => 'user,access-manage:example-app']);
+        $this->provisioned = false;
+        $holder = User::factory()->create(['email' => 'holder@example.test', 'user_role' => 'user']);
+        $this->grant($holder);
+
+        $this->get('/applications/example-app/access')->assertOk()
+            ->assertSee('name="email"', false)
+            ->assertSee('<select name="application_admin" required', false)
+            ->assertDontSee('name="new_workspace"', false);
+
+        $answer = function (string $email, string $admin = '0'): array {
+            $response = $this->post('/applications/example-app/access/provision', ['email' => $email, 'application_admin' => $admin]);
+            $answer = [$response->headers->get('Location'), session('access_notice'), session('access_failure'), $this->errorKeys()];
+            session()->forget(['access_notice', 'access_failure', 'errors']);
+
+            return $answer;
+        };
+        $same = function (string $case, string $admin = '0') use ($answer): void {
+            $this->assertSame($answer('nobody@example.test', $admin), $answer('holder@example.test', $admin), $case);
+        };
+
+        $same('without a recent confirmation');
+        $this->confirm();
+        $this->adminGrantable = false;
+        $same('asking for administration the application does not offer', '1');
+        $this->adminGrantable = true;
+        $this->refuseUpdates = true;
+        $same('when the application refuses the write');
+        $this->refuseUpdates = false;
+        $this->provisioned = true;
+        $same('when the person already has an account');
+        $this->provisioned = false;
+        $this->assertCount(1, Http::recorded(fn ($request) => $request['operation'] === 'update'), 'Only the refused write was sent');
+
+        // A person who can be provisioned gets the answer anybody gets, and the account is created.
+        $this->assertSame([url('/applications/example-app/access'), ApplicationAccessController::EMAIL_PROVISION_NOTICE, null, null],
+            $answer('HOLDER@example.test', '1'));
+        Http::assertSent(fn ($request) => $request['operation'] === 'update' && $request['subject'] === (string) $holder->id
+            && $request['expected_revision'] === null && $request['access'] === ['application_admin' => true, 'workspaces' => []]);
+    }
+
+    /** A workspace application keeps its workspace provisioning form and is not offered the account-only one. */
+    public function test_a_workspace_application_is_not_offered_account_only_provisioning(): void
+    {
+        $holder = User::factory()->create(['name' => 'Example Holder', 'user_role' => 'user']);
+        $this->grant($holder);
+        $this->provisioned = false;
+
+        $this->browse(['subject' => (string) $holder->id])->assertOk()
+            ->assertSee('Create account and give access')
+            ->assertSee('name="new_workspace"', false)
+            ->assertDontSee('name="application_admin" required', false);
+        Http::assertSent(fn ($request) => $request['operation'] === 'workspaces');
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/provision', ['subject' => (string) $holder->id, 'application_admin' => '0'])
+            ->assertSessionHasErrors(['new_workspace' => 'Choose a workspace and a role.']);
+        $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+    }
+
     public function test_a_version_one_answer_from_a_version_two_application_is_refused(): void
     {
         Http::swap(new Factory);
@@ -538,7 +748,7 @@ class ApplicationAccessV2UiTest extends TestCase
     {
         Http::fake(function ($request) {
             $operation = $request['operation'];
-            $data = match ($operation) {
+            $data = $this->accountOnly ? $this->accountOnlyAnswer($request) : match ($operation) {
                 'capabilities' => ['controls' => ['application_admin' => false, 'workspace_roles' => [
                     ['id' => 'owner', 'label' => 'Owner'], ['id' => 'admin', 'label' => 'Administrator'],
                     ['id' => 'sender', 'label' => 'Sender'], ['id' => 'auditor', 'label' => 'Auditor'],
@@ -565,6 +775,35 @@ class ApplicationAccessV2UiTest extends TestCase
 
             return Http::response(['contract_version' => 2, 'application' => 'example-app', 'operation' => $operation, ...$data]);
         });
+    }
+
+    /**
+     * An account-only application's answers. It reports `$this->memberships` as given, so a test
+     * can make it misbehave; account-only tests set them empty.
+     *
+     * @return array<string, mixed>
+     */
+    private function accountOnlyAnswer(\Illuminate\Http\Client\Request $request): array
+    {
+        return match ($request['operation']) {
+            'capabilities' => ['controls' => ['application_admin' => $this->adminGrantable, 'workspace_roles' => [], 'provisioning' => $this->provisioning]],
+            'subjects' => ['subjects' => [['subject' => 'subject-example', 'label' => 'Example Account']], 'next_cursor' => null],
+            'workspaces' => ['workspaces' => [], 'next_cursor' => null],
+            'update' => ['subject' => $request['subject'], 'provisioned' => true, 'revision' => 'revision-after',
+                'access' => ['application_admin' => $request['access']['application_admin'], 'workspaces' => []],
+                'allowed_edits' => ['application_admin' => $this->adminEditable, 'workspaces' => false, 'provision' => false]],
+            default => ['subject' => $request['subject'], 'provisioned' => $this->provisioned,
+                'revision' => $this->provisioned ? 'revision-example' : null,
+                'access' => $this->provisioned ? ['application_admin' => false, 'workspaces' => $this->memberships] : null,
+                'allowed_edits' => ['application_admin' => $this->provisioned && $this->adminEditable, 'workspaces' => false,
+                    'provision' => ! $this->provisioned && $this->provisionAllowed]],
+        };
+    }
+
+    private function useAccountOnlyApplication(): void
+    {
+        $this->accountOnly = true;
+        $this->memberships = [];
     }
 
     /** @return list<string>|null */

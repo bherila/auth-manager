@@ -43,8 +43,16 @@ Version 2 ([auth-laravel#42](https://github.com/bherila/auth-laravel/issues/42))
 - **Provisioning.** A `provision` allowed edit, and an `update` whose `expected_revision` is `null`,
   optionally with a `display_name`. Such an update creates an account for an unprovisioned subject.
 
+- **Account-only applications.** An application that advertises `workspace_roles: []` has accounts,
+  the application administrator flag and provisioning, and no workspaces. Every access value it
+  sends or accepts carries `workspaces: []`.
+
 The provider checks that every role it sends was advertised (`rolesAreAdvertised()`) before
-transmitting. The application still decides every authorization, tenant and last-owner rule.
+transmitting; for an account-only application that means it sends no memberships. Before rendering
+a read it checks the answer against the capabilities (`fitsCapabilities()`), so an account-only
+application that reports a membership or offers workspace edits is `invalid_response`. The provider
+does not ask an account-only application for its workspaces. The application still decides every
+authorization, tenant and last-owner rule.
 
 The delegated access classes (`ActorAssertionVerifier`, `DatabaseNonceStore`, `NonceStore`,
 `DelegatedContract`, `DelegatedAccessException`) now come from the package. Only the signing side,
