@@ -141,14 +141,19 @@ class ApplicationAccessController extends Controller
         }
 
         $access = ['application_admin' => (bool) $input['application_admin'], 'workspaces' => $workspaces];
-        $this->assertRolesAdvertised($request, $application, $input['subject'], $access, $back);
+        $capabilities = $this->assertRolesAdvertised($request, $application, $input['subject'], $access, $back);
 
-        $this->transport->send($request, $application, [
+        $answer = $this->transport->send($request, $application, [
             'operation' => 'update',
             'subject' => $input['subject'],
             'expected_revision' => $input['expected_revision'],
             'access' => $access,
         ]);
+        // The write was sent; an answer that does not fit what the application advertised cannot
+        // confirm it, so it is reported as an unknown outcome rather than as success.
+        if (! (new DelegatedContract)->fitsCapabilities($capabilities, $answer)) {
+            throw new DelegatedAccessException('unknown_outcome');
+        }
 
         return redirect()->to($back)->with('access_updated', true);
     }
@@ -280,7 +285,11 @@ class ApplicationAccessController extends Controller
             // Contact data for the new account, bounded in bytes as the contract bounds it.
             $update['display_name'] = mb_strcut($name, 0, 255, 'UTF-8');
         }
-        $this->transport->send($request, $application, $update);
+        $answer = $this->transport->send($request, $application, $update);
+        if (! (new DelegatedContract)->fitsCapabilities($capabilities, $answer)) {
+            // Caught by provision(): the uniform notice by email, an unknown outcome otherwise.
+            throw new DelegatedAccessException('unknown_outcome');
+        }
 
         return $byEmail ? $quietly() : redirect()->to($back)->with('access_updated', true);
     }
@@ -291,8 +300,10 @@ class ApplicationAccessController extends Controller
      * A membership kept exactly as the application reports it is not checked: it may hold a role the
      * application has since retired, posted back unchanged from a hidden field, and that must not
      * block saving anything else. The application still refuses an update that changes one.
+     *
+     * @return array<string, mixed> the capabilities it checked against, for checking the update's answer
      */
-    private function assertRolesAdvertised(Request $request, string $application, string $subject, array $access, string $back): void
+    private function assertRolesAdvertised(Request $request, string $application, string $subject, array $access, string $back): array
     {
         $contract = new DelegatedContract;
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
@@ -315,6 +326,8 @@ class ApplicationAccessController extends Controller
         if (! $contract->rolesAreAdvertised($capabilities, $changed)) {
             throw ValidationException::withMessages(['workspaces' => 'Choose roles the application offers.'])->redirectTo($back);
         }
+
+        return $capabilities;
     }
 
     private function page(Request $request, string $application, ?string $subject = null,

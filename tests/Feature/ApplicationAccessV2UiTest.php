@@ -68,6 +68,9 @@ class ApplicationAccessV2UiTest extends TestCase
     /** Account-only: `allowed_edits.application_admin` for the subject read. */
     private bool $adminEditable = true;
 
+    /** Account-only, misbehaving: memberships the application reports after an update. */
+    private array $updateAnswerMemberships = [];
+
     private array $memberships = [
         ['id' => 'workspace-a', 'role' => 'owner', 'editable' => false],
         ['id' => 'workspace-b', 'role' => 'sender', 'editable' => true],
@@ -587,6 +590,20 @@ class ApplicationAccessV2UiTest extends TestCase
         $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
     }
 
+    /** The write was sent, so an answer that does not fit the capabilities is an unknown outcome, never success. */
+    public function test_an_account_only_update_answered_with_a_membership_is_an_unknown_outcome(): void
+    {
+        $this->useAccountOnlyApplication();
+        $this->updateAnswerMemberships = [['id' => 'workspace-a', 'role' => 'owner', 'editable' => true]];
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '1',
+        ])->assertRedirect()->assertSessionMissing('access_updated')
+            ->assertSessionHas('access_failure', 'The application did not confirm the result. The change may have completed. Reload current access before attempting another change.');
+        $this->assertCount(1, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+    }
+
     /** An application that advertises no roles but reports a membership is refused, never rendered. */
     public function test_an_account_only_application_reporting_a_membership_is_refused(): void
     {
@@ -790,7 +807,7 @@ class ApplicationAccessV2UiTest extends TestCase
             'subjects' => ['subjects' => [['subject' => 'subject-example', 'label' => 'Example Account']], 'next_cursor' => null],
             'workspaces' => ['workspaces' => [], 'next_cursor' => null],
             'update' => ['subject' => $request['subject'], 'provisioned' => true, 'revision' => 'revision-after',
-                'access' => ['application_admin' => $request['access']['application_admin'], 'workspaces' => []],
+                'access' => ['application_admin' => $request['access']['application_admin'], 'workspaces' => $this->updateAnswerMemberships],
                 'allowed_edits' => ['application_admin' => $this->adminEditable, 'workspaces' => false, 'provision' => false]],
             default => ['subject' => $request['subject'], 'provisioned' => $this->provisioned,
                 'revision' => $this->provisioned ? 'revision-example' : null,
