@@ -141,25 +141,34 @@ class ApplicationAccessController extends Controller
         }
 
         $access = ['application_admin' => (bool) $input['application_admin'], 'workspaces' => $workspaces];
-        $this->assertRolesAdvertised($request, $application, $input['subject'], $access, $back);
+        $capabilities = $this->assertRolesAdvertised($request, $application, $input['subject'], $access, $back);
 
-        $this->transport->send($request, $application, [
+        $answer = $this->transport->send($request, $application, [
             'operation' => 'update',
             'subject' => $input['subject'],
             'expected_revision' => $input['expected_revision'],
             'access' => $access,
         ]);
+        // The write was sent; an answer that does not fit what the application advertised cannot
+        // confirm it, so it is reported as an unknown outcome rather than as success.
+        if (! (new DelegatedContract)->fitsCapabilities($capabilities, $answer)) {
+            throw new DelegatedAccessException('unknown_outcome');
+        }
 
         return redirect()->to($back)->with('access_updated', true);
     }
 
     /**
-     * Give a grant holder an account in the application, with one workspace membership.
+     * Give a grant holder an account in the application: with one workspace membership, or for an
+     * account-only application, with the application administrator flag the actor chose.
      *
      * Contract version 2 only. The person must hold a current grant to the application, the
      * application must still advertise provisioning and still report this subject unprovisioned with
      * provisioning allowed, and the role must be one it advertises. The application then creates the
      * account bound to this provider's issuer and the exact subject, and decides everything else.
+     *
+     * The form says which it is by what it posts: a workspace and role, or `application_admin` and
+     * neither. That is checked against the application's capabilities before anybody is looked up.
      */
     public function provision(Request $request, string $application): RedirectResponse
     {
@@ -168,11 +177,20 @@ class ApplicationAccessController extends Controller
         // Directory holders pick a subject; every other administrator names a
         // person by exact email and gets the same answer whatever the outcome.
         $byEmail = ! $this->permissions->canBrowseDirectory($request->user(), $application);
+        // Only the account-only form posts application_admin, and it never defaults it: an empty
+        // choice fails `required`. The workspace form validates exactly as it always has.
+        $accountOnly = $request->exists('application_admin');
         $input = $request->validate([
             'subject' => [$byEmail ? 'prohibited' : 'required', 'string', 'max:191'],
             'email' => [$byEmail ? 'required' : 'prohibited', 'string', 'email', 'max:255'],
-            'new_workspace' => ['required', 'string', 'max:191'],
-            'new_role' => ['required', 'string', 'max:64'],
+            ...($accountOnly ? [
+                'application_admin' => ['required', 'boolean'],
+                'new_workspace' => ['prohibited'],
+                'new_role' => ['prohibited'],
+            ] : [
+                'new_workspace' => ['required', 'string', 'max:191'],
+                'new_role' => ['required', 'string', 'max:64'],
+            ]),
         ]);
         $back = $byEmail
             ? route('applications.access', ['application' => $application])
@@ -186,10 +204,7 @@ class ApplicationAccessController extends Controller
         // an actor learns from a refusal here is the same whoever they named.
         $this->transport->authorizeWrite($request, $application);
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
-        $access = ['application_admin' => false, 'workspaces' => [['id' => $input['new_workspace'], 'role' => $input['new_role']]]];
-        if (! (new DelegatedContract)->rolesAreAdvertised($capabilities, $access)) {
-            throw ValidationException::withMessages(['new_role' => 'Choose a role the application offers.'])->redirectTo($back);
-        }
+        $access = $this->provisionAccess(new DelegatedContract, $capabilities, $input, $accountOnly, $back);
 
         $person = $byEmail
             ? $this->grantHolders->personByEmail($registration, $input['email'])
@@ -217,6 +232,37 @@ class ApplicationAccessController extends Controller
     }
 
     /**
+     * The access a provisioning request asks for, checked against the application's capabilities.
+     *
+     * Workspace applications get one membership with an advertised role and no administration, as
+     * always. Account-only applications get no memberships and the administrator flag as chosen, and
+     * administration only where the capabilities offer it to this actor. None of this depends on the
+     * person named, so every refusal here is the same whoever it is.
+     *
+     * @return array{application_admin: bool, workspaces: list<array{id: string, role: string}>}
+     */
+    private function provisionAccess(DelegatedContract $contract, array $capabilities, array $input, bool $accountOnly, string $back): array
+    {
+        if ($contract->accountOnly($capabilities) !== $accountOnly) {
+            throw ValidationException::withMessages($accountOnly
+                ? ['new_workspace' => 'Choose a workspace and a role.']
+                : ['application_admin' => 'Choose whether the new account is an application administrator.'])->redirectTo($back);
+        }
+
+        $access = $accountOnly
+            ? ['application_admin' => (bool) $input['application_admin'], 'workspaces' => []]
+            : ['application_admin' => false, 'workspaces' => [['id' => $input['new_workspace'], 'role' => $input['new_role']]]];
+        if ($access['application_admin'] && ($capabilities['controls']['application_admin'] ?? false) !== true) {
+            throw ValidationException::withMessages(['application_admin' => 'The application does not let you create an application administrator.'])->redirectTo($back);
+        }
+        if (! $contract->rolesAreAdvertised($capabilities, $access)) {
+            throw ValidationException::withMessages(['new_role' => 'Choose a role the application offers.'])->redirectTo($back);
+        }
+
+        return $access;
+    }
+
+    /**
      * @throws DelegatedAccessException
      */
     private function provisionPerson(Request $request, string $application, User $person, array $capabilities, array $access, bool $byEmail, string $back, Closure $quietly): RedirectResponse
@@ -239,7 +285,11 @@ class ApplicationAccessController extends Controller
             // Contact data for the new account, bounded in bytes as the contract bounds it.
             $update['display_name'] = mb_strcut($name, 0, 255, 'UTF-8');
         }
-        $this->transport->send($request, $application, $update);
+        $answer = $this->transport->send($request, $application, $update);
+        if (! (new DelegatedContract)->fitsCapabilities($capabilities, $answer)) {
+            // Caught by provision(): the uniform notice by email, an unknown outcome otherwise.
+            throw new DelegatedAccessException('unknown_outcome');
+        }
 
         return $byEmail ? $quietly() : redirect()->to($back)->with('access_updated', true);
     }
@@ -250,11 +300,21 @@ class ApplicationAccessController extends Controller
      * A membership kept exactly as the application reports it is not checked: it may hold a role the
      * application has since retired, posted back unchanged from a hidden field, and that must not
      * block saving anything else. The application still refuses an update that changes one.
+     *
+     * @return array<string, mixed> the capabilities it checked against, for checking the update's answer
      */
-    private function assertRolesAdvertised(Request $request, string $application, string $subject, array $access, string $back): void
+    private function assertRolesAdvertised(Request $request, string $application, string $subject, array $access, string $back): array
     {
+        $contract = new DelegatedContract;
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
         $current = $this->transport->send($request, $application, ['operation' => 'read', 'subject' => $subject]);
+        if (! $contract->fitsCapabilities($capabilities, $current)) {
+            throw new DelegatedAccessException('invalid_response');
+        }
+        // An account-only application has no workspaces, so there is no membership to keep or send.
+        if ($contract->accountOnly($capabilities) && $access['workspaces'] !== []) {
+            throw ValidationException::withMessages(['workspaces' => 'This application has no workspaces.'])->redirectTo($back);
+        }
 
         $kept = [];
         foreach ($current['access']['workspaces'] ?? [] as $membership) {
@@ -263,9 +323,11 @@ class ApplicationAccessController extends Controller
         $changed = [...$access, 'workspaces' => array_values(array_filter($access['workspaces'],
             fn (array $membership): bool => ! isset($kept[$membership['id']."\0".$membership['role']])))];
 
-        if (! (new DelegatedContract)->rolesAreAdvertised($capabilities, $changed)) {
+        if (! $contract->rolesAreAdvertised($capabilities, $changed)) {
             throw ValidationException::withMessages(['workspaces' => 'Choose roles the application offers.'])->redirectTo($back);
         }
+
+        return $capabilities;
     }
 
     private function page(Request $request, string $application, ?string $subject = null,
@@ -273,10 +335,17 @@ class ApplicationAccessController extends Controller
         bool $saved = false, string $directorySearch = '', int $directoryPage = 1): View
     {
         $version = DelegatedAccessTransport::contractVersion($application);
+        $contract = new DelegatedContract;
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
+        // An account-only application has no workspaces to list, so it is not asked for them. Anything
+        // it reports that only a workspace application could is refused rather than rendered.
+        $accountOnly = $version === DelegatedContract::VERSION_2 && $contract->accountOnly($capabilities);
+        if ($state !== null && $version === DelegatedContract::VERSION_2 && ! $contract->fitsCapabilities($capabilities, $state)) {
+            throw new DelegatedAccessException('invalid_response');
+        }
         $subjects = $this->transport->send($request, $application,
             array_filter(['operation' => 'subjects', 'limit' => 50, 'cursor' => $subjectCursor], fn ($value) => $value !== null));
-        $workspaces = $this->transport->send($request, $application,
+        $workspaces = $accountOnly ? ['workspaces' => [], 'next_cursor' => null] : $this->transport->send($request, $application,
             array_filter(['operation' => 'workspaces', 'limit' => 50, 'cursor' => $workspaceCursor], fn ($value) => $value !== null));
         $registration = RegisteredApplication::query()->where('key', $application)->firstOrFail();
 
@@ -291,7 +360,7 @@ class ApplicationAccessController extends Controller
         $writes = $this->permissions->canManage($actor, $application) && $this->permissions->writesEnabled($application);
 
         return view('applications.access', [
-            'application' => $registration, 'version' => $version,
+            'application' => $registration, 'version' => $version, 'accountOnly' => $accountOnly,
             'capabilities' => $capabilities, 'subjects' => $subjects, 'workspaces' => $workspaces,
             'subject' => $subject, 'state' => $state, 'saved' => $saved,
             'directory' => $directory, 'directorySearch' => $directorySearch,

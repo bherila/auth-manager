@@ -70,3 +70,11 @@ For an application configured with `contract_version: 2`:
   sends an `update` with a null revision and the person's name as `display_name`. The application
   creates the account bound to this provider's issuer and the exact subject. Writes need recent
   identity confirmation, as for every other change.
+- **Account-only applications.** An application that advertises no workspace roles has no
+  workspace section at all. An account shows only the **Application administrator** control,
+  editable only where the application's capabilities and its read both allow it (an application
+  typically refuses self-demotion and demoting its last administrator). Otherwise it is shown
+  read-only. Provisioning asks for no workspace or role. It asks whether the new account is an
+  application administrator. That choice starts empty and must be made, and **Yes** is offered only
+  when the application lets this actor grant administration. Provisioning by exact email answers
+  exactly as it does for a workspace application, whatever the outcome.
