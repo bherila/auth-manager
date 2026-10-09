@@ -14,6 +14,10 @@ use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\ActorAssertionVerifier;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Handler\CurlHandler;
+use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\FnStream;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Utils;
@@ -287,6 +291,26 @@ class DelegatedAccessTransportTest extends TestCase
         $this->refused(fn () => $transport->send($this->request, 'example-app', ['operation' => 'capabilities']), 'integration_disabled', 503);
     }
 
+    /**
+     * On a host without allow_url_fopen Guzzle serves the exchange with curl. Its options must reach
+     * the network there: a refused option failed every delegated call as `unavailable`.
+     */
+    public function test_the_request_options_are_accepted_by_guzzles_curl_handler(): void
+    {
+        if (! function_exists('curl_init')) {
+            $this->markTestSkipped('The curl extension is not loaded.');
+        }
+        $client = new Client(['handler' => HandlerStack::create(new CurlHandler)]);
+
+        try {
+            $client->post('http://127.0.0.1:1/application-access', DelegatedAccessTransport::requestOptions() + ['connect_timeout' => 1, 'http_errors' => false]);
+            $this->fail('Nothing listens on port 1.');
+        } catch (ConnectException) {
+            // Reached the network: the handler accepted every option.
+            $this->addToAssertionCount(1);
+        }
+    }
+
     public function test_response_size_bound_is_enforced_before_the_body_is_read_under_either_handler(): void
     {
         $transport = app(DelegatedAccessTransport::class);
@@ -299,9 +323,20 @@ class DelegatedAccessTransportTest extends TestCase
                 'controls' => ['application_admin' => true, 'workspace_permissions' => ['read', 'write']]]);
         });
         $transport->send($this->request, 'example-app', ['operation' => 'capabilities']);
-        // Guzzle serves a streamed request with its stream handler whenever allow_url_fopen is on,
-        // and that handler rejects any curl option, so the curl cap is sent only when curl serves it.
-        $this->assertSame(ini_get('allow_url_fopen') ? null : DelegatedContract::MAX_RESPONSE_BYTES, $captured['curl'][CURLOPT_MAXFILESIZE] ?? null);
+        // No handler-specific option: the stream handler rejects every curl option, and current
+        // Guzzle's curl handler rejects CURLOPT_MAXFILESIZE, so either would fail every exchange.
+        $this->assertArrayNotHasKey('curl', $captured);
+        $progress = $captured['progress'];
+        $progress(DelegatedContract::MAX_RESPONSE_BYTES, DelegatedContract::MAX_RESPONSE_BYTES);
+        $progress(0, DelegatedContract::MAX_RESPONSE_BYTES);
+        foreach ([[DelegatedContract::MAX_RESPONSE_BYTES + 1, 0], [0, DelegatedContract::MAX_RESPONSE_BYTES + 1]] as [$expected, $received]) {
+            try {
+                $progress($expected, $received);
+                $this->fail('A transfer past the contract bound must be aborted.');
+            } catch (\RuntimeException) {
+                $this->addToAssertionCount(1);
+            }
+        }
         $onHeaders = $captured['on_headers'];
         $onHeaders(new Response(200, ['Content-Length' => (string) DelegatedContract::MAX_RESPONSE_BYTES]));
         $onHeaders(new Response(200, ['Transfer-Encoding' => 'chunked']));
