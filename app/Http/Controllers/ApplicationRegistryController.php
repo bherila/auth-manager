@@ -24,12 +24,12 @@ class ApplicationRegistryController extends Controller
 
     public function store(SaveRegisteredApplicationRequest $request, ApplicationRegistryService $registry): JsonResponse|RedirectResponse
     {
-        return $this->saved($request, $registry->save($request, $request->validated()), 201);
+        return $this->saved($request, $registry->save($request->user()->getAuthIdentifier(), $request->validated()), 201);
     }
 
     public function update(SaveRegisteredApplicationRequest $request, RegisteredApplication $application, ApplicationRegistryService $registry): JsonResponse|RedirectResponse
     {
-        return $this->saved($request, $registry->save($request, $request->validated(), $application), 200);
+        return $this->saved($request, $registry->save($request->user()->getAuthIdentifier(), $request->validated(), $application), 200);
     }
 
     private function saved(SaveRegisteredApplicationRequest $request, RegisteredApplication $application, int $status): JsonResponse|RedirectResponse

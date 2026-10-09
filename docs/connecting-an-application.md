@@ -191,6 +191,20 @@ AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS=example-app|https://app.example.test/
 Leave `ENABLED` off until the application side (section 6) is deployed, and leave
 `WRITES_ENABLED` off until reads are verified (section 7).
 
+### Register the application from the host
+
+The admin registry page (`/admin/applications`) needs a provider admin. From the host, the same
+rules, client checks and audit apply through:
+
+```sh
+php artisan auth-manager:application example-app --name="Example Application" \
+  --launch-url=https://app.example.test --client="Example Client"
+php artisan auth-manager:application example-app   # show it
+```
+
+`--client` takes an OAuth client id or exact name, is repeatable, and replaces the attached set;
+`--enable`/`--disable` toggle the entry.
+
 ### Grant the delegated-administration roles
 
 Nobody can use the access pages until granted, per application:

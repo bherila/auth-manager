@@ -39,8 +39,18 @@ class SaveRegisteredApplicationRequest extends FormRequest
 
     public function rules(): array
     {
+        return self::rulesFor($this->route('application') === null);
+    }
+
+    /**
+     * The registry's rules, shared with the host's `auth-manager:application` command.
+     *
+     * @return array<string, mixed>
+     */
+    public static function rulesFor(bool $creating): array
+    {
         return [
-            'key' => $this->route('application') === null
+            'key' => $creating
                 ? ['required', 'string', 'max:'.RegisteredApplication::KEY_MAX_LENGTH, 'regex:'.RegisteredApplication::KEY_PATTERN, Rule::unique(RegisteredApplication::class, 'key')]
                 : ['prohibited'],
             'name' => ['required', 'string', 'max:255'],

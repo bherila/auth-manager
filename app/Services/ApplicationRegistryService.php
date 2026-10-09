@@ -7,7 +7,6 @@ use App\Models\RegisteredApplication;
 use App\Support\StaticApplicationClients;
 use BWH\Auth\Models\AuthAuditLog;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -15,10 +14,13 @@ class ApplicationRegistryService
 {
     public function __construct(private readonly StaticApplicationClients $staticClients) {}
 
-    public function save(Request $request, array $attributes, ?RegisteredApplication $application = null): RegisteredApplication
+    /**
+     * @param  int|string|null  $actorId  The provider account making the change; null from the host's console.
+     */
+    public function save(int|string|null $actorId, array $attributes, ?RegisteredApplication $application = null, string $authMethod = 'admin'): RegisteredApplication
     {
         try {
-            return DB::connection((new RegisteredApplication)->getConnectionName())->transaction(function () use ($request, $attributes, $application): RegisteredApplication {
+            return DB::connection((new RegisteredApplication)->getConnectionName())->transaction(function () use ($actorId, $attributes, $application, $authMethod): RegisteredApplication {
                 $clientIds = $attributes['client_ids'];
                 $clients = PassportClient::query()->whereKey($clientIds)->orderBy('id')->lockForUpdate()->get();
                 if ($clients->count() !== count($clientIds)
@@ -37,10 +39,10 @@ class ApplicationRegistryService
                 $record->clients()->sync($clientIds);
 
                 AuthAuditLog::create([
-                    'user_id' => $request->user()->getAuthIdentifier(),
-                    'acting_user_id' => $request->user()->getAuthIdentifier(),
+                    'user_id' => $actorId,
+                    'acting_user_id' => $actorId,
                     'event' => $application === null ? 'application_registered' : 'application_registration_updated',
-                    'auth_method' => 'admin',
+                    'auth_method' => $authMethod,
                     'succeeded' => true,
                     'metadata' => ['application_key' => $record->key, 'enabled' => $record->enabled, 'oauth_client_ids' => $clientIds],
                 ]);
