@@ -68,6 +68,9 @@ class ApplicationAccessV2UiTest extends TestCase
     /** Account-only: `allowed_edits.application_admin` for the subject read. */
     private bool $adminEditable = true;
 
+    /** Account-only, misbehaving: `allowed_edits.workspaces` on a read. */
+    private bool $workspaceEditsOffered = false;
+
     /** Account-only, misbehaving: memberships the application reports after an update. */
     private array $updateAnswerMemberships = [];
 
@@ -590,6 +593,15 @@ class ApplicationAccessV2UiTest extends TestCase
         $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
     }
 
+    /** A read that offers workspace edits from an application with no workspaces does not fit, so it is never rendered. */
+    public function test_an_account_only_read_offering_workspace_edits_is_refused(): void
+    {
+        $this->useAccountOnlyApplication();
+        $this->workspaceEditsOffered = true;
+
+        $this->browse(['subject' => 'subject-example'])->assertStatus(503)->assertSee('Application access is unavailable.');
+    }
+
     /** The write was sent, so an answer that does not fit the capabilities is an unknown outcome, never success. */
     public function test_an_account_only_update_answered_with_a_membership_is_an_unknown_outcome(): void
     {
@@ -812,7 +824,7 @@ class ApplicationAccessV2UiTest extends TestCase
             default => ['subject' => $request['subject'], 'provisioned' => $this->provisioned,
                 'revision' => $this->provisioned ? 'revision-example' : null,
                 'access' => $this->provisioned ? ['application_admin' => false, 'workspaces' => $this->memberships] : null,
-                'allowed_edits' => ['application_admin' => $this->provisioned && $this->adminEditable, 'workspaces' => false,
+                'allowed_edits' => ['application_admin' => $this->provisioned && $this->adminEditable, 'workspaces' => $this->workspaceEditsOffered,
                     'provision' => ! $this->provisioned && $this->provisionAllowed]],
         };
     }
