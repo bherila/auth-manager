@@ -281,6 +281,55 @@ class AccessInvitationTest extends TestCase
         $this->get($new)->assertOk();
     }
 
+    public function test_a_newer_invitation_for_the_same_address_and_application_supersedes_the_older_one(): void
+    {
+        User::factory()->create(['email' => 'existing@example.test', 'user_role' => 'user']);
+        $this->inviter->forceFill(['user_role' => 'user,access-manage:*,access-invite:*'])->save();
+        $this->grant($this->inviter, 'other-app');
+        $this->confirm();
+        $oldExisting = $this->inviteAndGetLink('existing@example.test');
+        $oldNew = $this->inviteAndGetLink('new-person@example.test');
+        $otherAddress = $this->inviteAndGetLink('unrelated@example.test');
+        $this->confirm('other-app');
+        $otherApp = parse_url($this->invite('existing@example.test', 'other-app')->baseResponse->getSession()->get('invitation_link'), PHP_URL_PATH);
+
+        // The same answer for both addresses, account or not, while the older links are revoked.
+        $this->confirm();
+        $responses = [];
+        $links = [];
+        foreach (['EXISTING@example.test', 'New-Person@example.test'] as $email) {
+            $responses[] = $response = $this->invite($email);
+            // The test session is shared across requests: read each link before the next one.
+            $links[] = parse_url($response->baseResponse->getSession()->get('invitation_link'), PHP_URL_PATH);
+        }
+        foreach ($responses as $response) {
+            $response->assertRedirect('/applications/example-app/access')
+                ->assertSessionHas('invitation_notice', 'Invitation sent.')
+                ->assertSessionHas('invitation_mail_failed', false)
+                ->assertSessionMissing('errors');
+        }
+        $superseded = AuthAuditLog::query()->where('event', InvitationAudit::REVOKED)->get();
+        $this->assertCount(2, $superseded);
+        $this->assertSame(['superseded', 'superseded'], $superseded->map(fn ($row) => $row->metadata['reason'])->all());
+        $this->assertSame(array_keys($superseded[0]->metadata), array_keys($superseded[1]->metadata));
+
+        [$newExisting, $newNew] = $links;
+        // Resending the newest one supersedes nothing further, and keeps only its own new link working.
+        $newest = AccessInvitation::query()->where('email_normalized', 'existing@example.test')->where('application', 'example-app')->latest('id')->firstOrFail();
+        $resent = parse_url($this->post("/applications/example-app/access/invitations/{$newest->id}/resend")
+            ->baseResponse->getSession()->get('invitation_link'), PHP_URL_PATH);
+
+        $this->signOutLocally();
+        $this->get($oldExisting)->assertNotFound();
+        $this->get($oldNew)->assertNotFound();
+        $this->get($newExisting)->assertNotFound();
+        $this->get($resent)->assertOk();
+        $this->get($newNew)->assertOk();
+        $this->get($otherAddress)->assertOk();
+        $this->get($otherApp)->assertOk();
+        $this->assertSame(4, AccessInvitation::query()->whereNull('revoked_at')->count());
+    }
+
     public function test_a_new_person_creates_an_account_is_admitted_and_provisioned_as_the_inviter(): void
     {
         $this->confirm();

@@ -60,6 +60,7 @@ final class AccessInvitationService
                 'expires_at' => now()->addDays($this->expiresAfterDays()),
             ]);
             $this->audit->record(InvitationAudit::CREATED, $invitation, $request, $inviter, metadata: ['access' => $access]);
+            $this->supersede($request, $inviter, $invitation);
 
             return $invitation;
         });
@@ -83,6 +84,7 @@ final class AccessInvitationService
                 'expires_at' => now()->addDays($this->expiresAfterDays()),
             ])->save();
             $this->audit->record(InvitationAudit::RESENT, $locked, $request, $actor);
+            $this->supersede($request, $actor, $locked);
 
             return $locked;
         });
@@ -103,6 +105,27 @@ final class AccessInvitationService
             $locked->forceFill(['revoked_at' => now(), 'revoked_by' => $actor->getKey()])->save();
             $this->audit->record(InvitationAudit::REVOKED, $locked, $request, $actor);
         });
+    }
+
+    /**
+     * Revoke every other pending invitation to the same address for the same application, so only the
+     * newest link works. Matches on invitations alone, never on accounts, so it reveals nothing more
+     * than creating one does. Called inside the creating or resending transaction.
+     */
+    private function supersede(Request $request, User $actor, AccessInvitation $current): void
+    {
+        $older = AccessInvitation::query()
+            ->where('application', $current->application)
+            ->where('email_normalized', $current->email_normalized)
+            ->whereKeyNot($current->getKey())
+            ->whereNull('accepted_at')->whereNull('revoked_at')->where('expires_at', '>', now())
+            ->lockForUpdate()->get();
+        foreach ($older as $invitation) {
+            $invitation->forceFill(['revoked_at' => now(), 'revoked_by' => $actor->getKey()])->save();
+            $this->audit->record(InvitationAudit::REVOKED, $invitation, $request, $actor, metadata: [
+                'reason' => 'superseded', 'superseded_by' => $current->getKey(),
+            ]);
+        }
     }
 
     /** The pending invitation this token opens, or null for any other token: one answer for all. */
