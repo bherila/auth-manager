@@ -13,7 +13,9 @@
         "bherila/auth-laravel": "^0.20",
         "laravel/framework": "^13.17",
         "laravel/passport": "^13.4",
-        "laravel/tinker": "^3.0"
+        "laravel/tinker": "^3.0",
+        "symfony/brevo-mailer": "^8.0",
+        "symfony/http-client": "^8.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

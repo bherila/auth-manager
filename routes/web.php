@@ -1,15 +1,18 @@
 <?php
 
+use App\Http\Controllers\AccessInvitationController;
 use App\Http\Controllers\AccountSettingsController;
 use App\Http\Controllers\ApplicationAccessController;
 use App\Http\Controllers\ApplicationRegistryController;
 use App\Http\Controllers\ConfirmApplicationAccessController;
 use App\Http\Controllers\DirectoryAdminController;
 use App\Http\Controllers\IdentityLifecycleController;
+use App\Http\Controllers\InvitationAcceptanceController;
 use App\Http\Controllers\LoginController;
 use App\Http\Controllers\OAuthUserController;
 use App\Http\Middleware\ApplicationAccessResponse;
 use App\Http\Middleware\RequireProviderAdmin;
+use App\Services\Invitations\AccessInvitationService;
 use BWH\Auth\Http\Middleware\RequireActiveUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -84,4 +87,21 @@ Route::middleware(['auth', RequireActiveUser::class, ApplicationAccessResponse::
         Route::post('/provision', [ApplicationAccessController::class, 'provision'])->name('applications.access.provision');
         Route::post('/confirm', ConfirmApplicationAccessController::class)
             ->middleware('throttle:5,1')->name('applications.access.confirm');
+        // Invitations by email; off unless AUTH_MANAGER_INVITATIONS_ENABLED.
+        Route::post('/invitations', [AccessInvitationController::class, 'store'])->name('applications.access.invitations.store');
+        Route::post('/invitations/{invitation}/resend', [AccessInvitationController::class, 'resend'])
+            ->whereNumber('invitation')->name('applications.access.invitations.resend');
+        Route::post('/invitations/{invitation}/revoke', [AccessInvitationController::class, 'revoke'])
+            ->whereNumber('invitation')->name('applications.access.invitations.revoke');
     });
+
+// An invitation link, for its recipient: signed in or not.
+Route::middleware([ApplicationAccessResponse::class, 'throttle:invitations'])->prefix('/invitations')->group(function (): void {
+    Route::get('/accepted', [InvitationAcceptanceController::class, 'accepted'])->name('invitations.accepted');
+    Route::prefix('/{token}')->where(['token' => AccessInvitationService::TOKEN_PATTERN])->group(function (): void {
+        Route::get('/', [InvitationAcceptanceController::class, 'show'])->name('invitations.show');
+        Route::post('/accept', [InvitationAcceptanceController::class, 'accept'])->name('invitations.accept');
+        Route::get('/sign-in', [InvitationAcceptanceController::class, 'signIn'])->name('invitations.sign-in');
+        Route::post('/sign-out', [InvitationAcceptanceController::class, 'signOut'])->name('invitations.sign-out');
+    });
+});

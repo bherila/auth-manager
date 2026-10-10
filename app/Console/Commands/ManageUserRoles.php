@@ -11,7 +11,8 @@ use Illuminate\Support\Facades\DB;
  * Show, grant or revoke a person's provider roles from the host, idempotently and audited.
  *
  * The operator path for roles nothing else grants, such as the delegated-administration roles
- * `access-view:<application>`, `access-manage:<application>` and `access-directory:<application>`.
+ * `access-view:<application>`, `access-manage:<application>`, `access-directory:<application>` and
+ * `access-invite:<application>`.
  * Without --add or --remove it only shows the current roles.
  */
 class ManageUserRoles extends Command
@@ -27,7 +28,7 @@ class ManageUserRoles extends Command
     private const ROLE = '/^[a-z][a-z0-9_-]*(:([a-z][a-z0-9-]*|\*))?$/D';
 
     /** The delegated-administration roles name one permission and one application, or every application. */
-    private const DELEGATED = '/^access-(view|manage|directory):([a-z][a-z0-9-]*|\*)$/D';
+    private const DELEGATED = '/^access-(view|manage|directory|invite):([a-z][a-z0-9-]*|\*)$/D';
 
     public function handle(): int
     {

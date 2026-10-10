@@ -19,6 +19,11 @@ use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
  *   application when choosing whom to provision. Kept separate because it
  *   discloses grant holders across every workspace, which a workspace-scoped
  *   administrator must not see; without it, people are named by exact email.
+ * - `access-invite:<application>`: invite someone by email to the application,
+ *   with access the invitation applies when they accept. Inviting also needs
+ *   `access-manage` for the application, because acceptance applies the roles
+ *   as the inviter. Kept separate because an invitation can create a provider
+ *   account, which managing existing access never does.
  *
  * These are narrow delegated-administration permissions, not provider
  * administration: a workspace administrator needs no other provider role.
@@ -38,6 +43,31 @@ class DelegatedAccessPermissions
     public function canBrowseDirectory(User $user, string $application): bool
     {
         return $this->canManage($user, $application) && $this->holds($user, 'access-directory', $application);
+    }
+
+    /**
+     * May invite people to this application: `access-invite` and `access-manage` for it.
+     *
+     * Whether invitations are switched on is {@see invitationsEnabled()}; whether the actor can
+     * write right now (a current grant, writes enabled, a recent confirmation) is the transport's.
+     */
+    public function canInvite(User $user, string $application): bool
+    {
+        return $this->canManage($user, $application) && $this->holds($user, 'access-invite', $application);
+    }
+
+    /**
+     * May see this application's invitations: `access-view` or `access-manage` for it, the same as
+     * the access page that lists them. `access-invite` alone reaches nothing: inviting needs manage.
+     */
+    public function canSeeInvitations(User $user, string $application): bool
+    {
+        return $this->canView($user, $application);
+    }
+
+    public function invitationsEnabled(): bool
+    {
+        return (bool) config('delegated-access.invitations.enabled', false);
     }
 
     /**

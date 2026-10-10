@@ -44,6 +44,7 @@ Delegated administration is **denied unless granted** by provider roles in `user
 | `access-view:<app>` | Read the application's access pages. |
 | `access-manage:<app>` | Read and change access there (includes view). |
 | `access-directory:<app>` | Browse the people who can sign in to the application when choosing whom to provision. It needs `access-manage` as well. |
+| `access-invite:<app>` | Invite people by email (see [Invitations](#invitations)). It needs `access-manage` as well. |
 
 These are narrow delegated-administration permissions, not provider administration. A workspace administrator needs only these, and **the application still decides** what each actor may see and change: the provider's role is an extra restriction, never a substitute.
 
@@ -78,3 +79,84 @@ For an application configured with `contract_version: 2`:
   application administrator. That choice starts empty and must be made, and **Yes** is offered only
   when the application lets this actor grant administration. Provisioning by exact email answers
   exactly as it does for a workspace application, whatever the outcome.
+
+## Invitations
+
+Invitations let a manager give someone access to an application by email, whether or not that
+person has an account here yet. They are off unless `AUTH_MANAGER_INVITATIONS_ENABLED=true`, and
+are offered only for a version 2 application that advertises provisioning and has writes enabled.
+
+**Who may invite.** `access-invite:<app>` together with `access-manage:<app>`, plus everything a
+write needs: a current grant to the application and a credential check within the last five
+minutes. Revoking needs the two roles only. The pending list on the access page is shown to holders
+of `access-view` or `access-manage` for that application (the same as the page itself), and lists
+only its invitations; resending and revoking stay with inviters. Within that, the application's
+scope decides: someone it reports as an application administrator (its actor-scoped
+`controls.application_admin`) sees and can revoke or resend every invitation; anyone else, such as
+a workspace-scoped administrator, only the invitations they sent or last resent.
+
+**What the inviter chooses.** The email address, and the access to apply: the application
+administrator flag (always chosen, never defaulted, offered only when the application lets this
+actor grant it) and, for a workspace application, up to three workspaces each with an explicitly
+chosen role. Roles must be ones the application advertises.
+
+**What the inviter learns.** Always **Invitation sent.** Creating an invitation never looks the
+address up, and the email is the same in every case, so neither the answer nor its timing says
+whether the address has an account. The link goes only to the invited address, so only someone who
+reads it can accept. Only if the email could not be sent does the page show the link, once, to
+share another way; that hand-over is audited, since whoever opens the link can then accept.
+
+**The link.** 32 random bytes, stored only as a SHA-256 hash. It works once, expires after seven
+days, and can be revoked. **Send again with a new link** replaces the token, so the old link stops
+working, and makes whoever resends it the inviter. Invitations are rate-limited to 20 per inviter per hour and 5 per recipient address per
+day, counted the same whether or not the address has an account. Opening a link is limited per IP.
+
+**Accepting.** The page names the application and the invited address.
+
+- If an account has that address (case-insensitively), the person signs in to it and accepts.
+  Someone signed in as a different account is refused and offered a sign-out.
+- Otherwise they create an account with a name and password; the address is fixed to the invited
+  one. It counts as verified only when the link reached the person by email; an account created
+  through a link handed to the inviter after a failed email is left unverified, and the acceptance
+  is audited as coming through a handed-over link.
+- A disabled or deleted account with that address cannot accept.
+
+Acceptance, in order: the invitation is marked used under a lock, the person is granted the
+application's sign-in clients, and then the access is applied.
+
+**Applying the access.** As if the inviter made the change at that moment. The provider re-checks
+that the inviter is still active, has had no credential reset or revocation since creating (or last resending) the invitation, still holds `access-invite` and `access-manage` for the
+application, and that writes are enabled (the credential check was required when the invitation
+was created). It then calls the application as the inviter, without the inviter's session,
+through a narrow path that only invitations use. An account the application has not seen is
+provisioned with `expected_revision: null`. An existing account keeps everything it has and gains
+the invited memberships in workspaces it is not yet in, and administration if the invitation
+grants it; nothing is removed or demoted, and nothing is sent when nothing is missing.
+
+If the provider's re-check or the application refuses, the person stays admitted with no access
+applied and the pending list shows **Accepted; roles not applied** with the reason. If the
+application does not confirm the write, the list shows **Accepted; roles not confirmed**: the
+change may have happened, so review the person's current access. It is never retried.
+
+**Audit.** Provider audit rows record invitations created, sent (with whether delivery succeeded),
+resent, revoked and accepted, and access applied or not applied with the outcome and the delegated
+request id (`correlation`, the actor assertion's `jti`). The transport's own update audit rows carry
+`via: invitation`. Rows name the invitation by id rather than the address; purging a person's
+identity deletes the invitations sent to them.
+
+**Mail.** `MAIL_MAILER=hybrid` sends through Brevo's API (`MAILER_DSN=brevo+api://KEY@default`)
+and fails over to the SMTP settings; `MAIL_MAILER=brevo` uses the API alone. The local default
+stays `log`, which delivers nothing: invitations are refused, and the form says why, while the
+default mailer is `log` or `array` (or a failover or round-robin mailer that includes one), since
+either would report an invitation sent that nobody received and `log` writes its link to the log.
+
+**Enabling, per instance:**
+
+1. Configure a mailer that delivers, and a `MAIL_FROM_ADDRESS` the mail service accepts.
+2. Migrate (`access_invitations`).
+3. Set `AUTH_MANAGER_INVITATIONS_ENABLED=true` and rebuild the configuration cache. The
+   application must already be on contract version 2, advertise provisioning, and be listed in
+   `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS`.
+4. Grant `access-invite:<app>` to each inviter, who also needs `access-manage:<app>`:
+   `php artisan auth-manager:user-roles person@example.test --add=access-invite:example-app`.
+

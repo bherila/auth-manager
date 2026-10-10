@@ -32,7 +32,7 @@ class ApplicationAccessResponse
         // A failed write must land on a GET page. Rendering it at the POST-only update
         // URL invites a refresh, which resubmits the write; when the first outcome is
         // unknown, that second write is exactly the retry the contract forbids.
-        if ($request->routeIs('applications.access.update', 'applications.access.provision')) {
+        if ($request->routeIs('applications.access.update', 'applications.access.provision', 'applications.access.invitations.*')) {
             $subject = $request->input('subject');
 
             return redirect()->route('applications.access', array_filter([

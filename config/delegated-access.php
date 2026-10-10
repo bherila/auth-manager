@@ -7,6 +7,15 @@ return [
     // Writes also need the application listed here (comma-separated keys), so
     // switching writes on for one application changes no other.
     'writes_applications' => array_values(array_filter(array_map('trim', explode(',', (string) env('AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS', ''))))),
+    // Invitations by email from the application-access page. Also needs writes for the
+    // application, contract version 2, and `access-invite:<application>` for the inviter.
+    'invitations' => [
+        'enabled' => (bool) env('AUTH_MANAGER_INVITATIONS_ENABLED', false),
+        'expires_after_days' => 7,
+        // Invitations created or resent per inviter per hour, and per recipient address per day.
+        'per_inviter_per_hour' => 20,
+        'per_recipient_per_day' => 5,
+    ],
     'issuer' => env('AUTH_MANAGER_DELEGATED_ACCESS_ISSUER'),
     'key_id' => env('AUTH_MANAGER_DELEGATED_ACCESS_KEY_ID'),
     'private_key_path' => env('AUTH_MANAGER_DELEGATED_ACCESS_PRIVATE_KEY_PATH'),

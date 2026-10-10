@@ -211,6 +211,8 @@ Nobody can use the access pages until granted, per application:
 - `access-view:<app>` for read only;
 - `access-manage:<app>` to change access;
 - `access-directory:<app>` to browse the application's grant holders when provisioning. Keep this to operators: it shows people across every workspace.
+- `access-invite:<app>` to invite people by email (with `access-manage:<app>`). Invitations are
+  off unless `AUTH_MANAGER_INVITATIONS_ENABLED=true`; see `docs/application-access-ui.md`.
 
 Workspace administrators get `access-manage:<app>` only, and provision by exact email. See `docs/application-access-ui.md`.
 
