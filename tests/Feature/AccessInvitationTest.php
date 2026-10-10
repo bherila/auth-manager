@@ -179,7 +179,7 @@ class AccessInvitationTest extends TestCase
             $response->assertRedirect('/applications/example-app/access')
                 ->assertSessionHas('invitation_notice', 'Invitation sent.')
                 ->assertSessionHas('invitation_mail_failed', false)
-                ->assertSessionHas('invitation_link');
+                ->assertSessionMissing('invitation_link');
         }
         // Creating an invitation never looks the address up.
         $this->assertSame([], array_values(array_filter($queries, fn (string $sql): bool => str_contains($sql, '"users"') && str_contains($sql, 'email'))));
@@ -269,8 +269,9 @@ class AccessInvitationTest extends TestCase
         $old = $this->inviteAndGetLink('person@example.test');
         $invitation = AccessInvitation::query()->firstOrFail();
 
-        $response = $this->post("/applications/example-app/access/invitations/{$invitation->id}/resend")->assertSessionHas('invitation_notice', 'Invitation sent.');
-        $new = $response->baseResponse->getSession()->get('invitation_link');
+        $this->post("/applications/example-app/access/invitations/{$invitation->id}/resend")->assertSessionHas('invitation_notice', 'Invitation sent.')
+            ->assertSessionMissing('invitation_link');
+        $new = $this->lastMailedLink();
 
         $this->assertNotSame($old, $new);
         Mail::assertSent(AccessInvitationMail::class, 2);
@@ -291,16 +292,16 @@ class AccessInvitationTest extends TestCase
         $oldNew = $this->inviteAndGetLink('new-person@example.test');
         $otherAddress = $this->inviteAndGetLink('unrelated@example.test');
         $this->confirm('other-app');
-        $otherApp = parse_url($this->invite('existing@example.test', 'other-app')->baseResponse->getSession()->get('invitation_link'), PHP_URL_PATH);
+        $this->invite('existing@example.test', 'other-app');
+        $otherApp = $this->lastMailedLink();
 
         // The same answer for both addresses, account or not, while the older links are revoked.
         $this->confirm();
         $responses = [];
         $links = [];
         foreach (['EXISTING@example.test', 'New-Person@example.test'] as $email) {
-            $responses[] = $response = $this->invite($email);
-            // The test session is shared across requests: read each link before the next one.
-            $links[] = parse_url($response->baseResponse->getSession()->get('invitation_link'), PHP_URL_PATH);
+            $responses[] = $this->invite($email);
+            $links[] = $this->lastMailedLink();
         }
         foreach ($responses as $response) {
             $response->assertRedirect('/applications/example-app/access')
@@ -316,8 +317,8 @@ class AccessInvitationTest extends TestCase
         [$newExisting, $newNew] = $links;
         // Resending the newest one supersedes nothing further, and keeps only its own new link working.
         $newest = AccessInvitation::query()->where('email_normalized', 'existing@example.test')->where('application', 'example-app')->latest('id')->firstOrFail();
-        $resent = parse_url($this->post("/applications/example-app/access/invitations/{$newest->id}/resend")
-            ->baseResponse->getSession()->get('invitation_link'), PHP_URL_PATH);
+        $this->post("/applications/example-app/access/invitations/{$newest->id}/resend");
+        $resent = $this->lastMailedLink();
 
         $this->signOutLocally();
         $this->get($oldExisting)->assertNotFound();
@@ -658,6 +659,7 @@ class AccessInvitationTest extends TestCase
             ->assertSessionHas('invitation_link');
         $this->get('/applications/example-app/access')->assertSee('could not be sent')->assertSee('/invitations/', false);
         $this->assertDatabaseHas('auth_audit_log', ['event' => InvitationAudit::SENT, 'succeeded' => false]);
+        $this->assertDatabaseHas('auth_audit_log', ['event' => InvitationAudit::LINK_SHOWN]);
         $this->assertDatabaseHas('auth_audit_log', ['event' => InvitationAudit::CREATED, 'acting_user_id' => $this->inviter->id]);
     }
 
@@ -730,10 +732,15 @@ class AccessInvitationTest extends TestCase
 
     private function inviteAndGetLink(string $email, ?array $access = null): string
     {
-        $link = $this->invite($email, access: $access)->assertSessionHas('invitation_link')
-            ->baseResponse->getSession()->get('invitation_link');
+        $this->invite($email, access: $access)->assertSessionMissing('invitation_link');
 
-        return parse_url($link, PHP_URL_PATH);
+        return $this->lastMailedLink();
+    }
+
+    /** The link only the invited address receives. */
+    private function lastMailedLink(): string
+    {
+        return parse_url(Mail::sent(AccessInvitationMail::class)->last()->link, PHP_URL_PATH);
     }
 
     private function inviteAndGetLinkAs(User $inviter, string $email): string

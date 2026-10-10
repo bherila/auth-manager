@@ -123,13 +123,16 @@ class AccessInvitationController extends Controller
         $this->transport->authorizeWrite($request, $application);
     }
 
-    /** The same answer for every address; the link is shown this once. */
+    /**
+     * The same answer for every address. The link goes only to the invited address, so only its
+     * reader can accept; it is shown to the inviter, this once, only when the email failed.
+     */
     private function issued(string $back, IssuedInvitation $issued): RedirectResponse
     {
         return redirect()->to($back)->with([
             'invitation_notice' => self::SENT_NOTICE,
-            'invitation_link' => $issued->link,
             'invitation_mail_failed' => ! $issued->sent,
+            ...($issued->sent ? [] : ['invitation_link' => $issued->link]),
         ]);
     }
 }

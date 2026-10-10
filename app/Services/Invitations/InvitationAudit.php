@@ -21,6 +21,9 @@ final class InvitationAudit
 
     public const SENT = 'access_invitation_sent';
 
+    /** The link was shown to the inviter because the email could not be sent. */
+    public const LINK_SHOWN = 'access_invitation_link_shown';
+
     public const RESENT = 'access_invitation_resent';
 
     public const REVOKED = 'access_invitation_revoked';

@@ -261,6 +261,11 @@ final class AccessInvitationService
             $invitation->forceFill(['last_sent_at' => now(), 'send_count' => $invitation->send_count + 1])->save();
         }
         $this->audit->record(InvitationAudit::SENT, $invitation, $request, $actor, succeeded: $sent);
+        if (! $sent) {
+            // The link is handed to the inviter only now, to share another way, so whoever opens it
+            // is no longer proven to read the invited address.
+            $this->audit->record(InvitationAudit::LINK_SHOWN, $invitation, $request, $actor);
+        }
 
         return $sent;
     }

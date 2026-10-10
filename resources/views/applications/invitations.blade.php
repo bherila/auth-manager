@@ -15,10 +15,8 @@
     @if(session('invitation_notice'))<p role="status" class="rounded border p-3">{{ session('invitation_notice') }}</p>@endif
     @if(session('invitation_link'))
         <div class="space-y-2 rounded border p-3">
-            @if(session('invitation_mail_failed'))
-                <p role="alert">The invitation email could not be sent. Share this link with the person instead.</p>
-            @endif
-            <label class="block">Invitation link, shown only now. Copy it to share it another way.
+            <p role="alert">The invitation email could not be sent. Share this link with the person yourself, privately: whoever opens it can accept the invitation.</p>
+            <label class="block">Invitation link, shown only now.
                 <input type="text" readonly value="{{ session('invitation_link') }}" class="mt-1 w-full rounded border bg-background p-2 font-mono text-sm">
             </label>
             <p class="text-sm">It works once, for the invited address only, and expires in {{ config('delegated-access.invitations.expires_after_days', 7) }} days.</p>

@@ -96,10 +96,11 @@ administrator flag (always chosen, never defaulted, offered only when the applic
 actor grant it) and, for a workspace application, up to three workspaces each with an explicitly
 chosen role. Roles must be ones the application advertises.
 
-**What the inviter learns.** Always **Invitation sent.** and the link, shown once. Creating an
-invitation never looks the address up, and the email is the same in every case, so neither the
-answer nor its timing says whether the address has an account. If the email could not be sent the
-page says so, and the link can be shared another way.
+**What the inviter learns.** Always **Invitation sent.** Creating an invitation never looks the
+address up, and the email is the same in every case, so neither the answer nor its timing says
+whether the address has an account. The link goes only to the invited address, so only someone who
+reads it can accept. Only if the email could not be sent does the page show the link, once, to
+share another way; that hand-over is audited, since whoever opens the link can then accept.
 
 **The link.** 32 random bytes, stored only as a SHA-256 hash. It works once, expires after seven
 days, and can be revoked. **Send again with a new link** replaces the token, so the old link stops
