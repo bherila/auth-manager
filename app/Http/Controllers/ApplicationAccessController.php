@@ -389,8 +389,14 @@ class ApplicationAccessController extends Controller
             default => null,
         };
 
+        // Every pending invitation, however many, so each can still be revoked or resent; then the
+        // newest 50 others as history.
+        $pending = fn ($query) => $query->whereNull('accepted_at')->whereNull('revoked_at')->where('expires_at', '>', now());
+        $list = AccessInvitation::query()->where('application', $application)->where($pending)->with('inviter')->latest('id')->get()
+            ->concat(AccessInvitation::query()->where('application', $application)->whereNot($pending)->with('inviter')->latest('id')->limit(50)->get());
+
         return [
-            'list' => AccessInvitation::query()->where('application', $application)->with('inviter')->latest('id')->limit(50)->get(),
+            'list' => $list,
             'can_invite' => $canInvite, 'form' => $canInvite && $unavailable === null, 'unavailable' => $canInvite ? $unavailable : null,
         ];
     }

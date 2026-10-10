@@ -708,6 +708,22 @@ class AccessInvitationTest extends TestCase
         $this->get('/applications/example-app/access')->assertOk()->assertDontSee('pending@example.test')->assertDontSee('Invitations');
     }
 
+    public function test_every_pending_invitation_stays_listed_beyond_the_history_cap(): void
+    {
+        $this->confirm();
+        $this->invite('still-pending@example.test')->assertSessionHas('invitation_notice');
+        $template = (array) DB::table('access_invitations')->first();
+        unset($template['id']);
+        for ($i = 0; $i < 55; $i++) {
+            DB::table('access_invitations')->insert([...$template, 'email' => "old-{$i}@example.test", 'email_normalized' => "old-{$i}@example.test",
+                'token_hash' => hash('sha256', "old-{$i}"), 'pending_key' => null, 'revoked_at' => now(), 'revoked_by' => $this->inviter->id]);
+        }
+
+        $page = $this->get('/applications/example-app/access')->assertOk()->assertSee('still-pending@example.test');
+        $this->assertSame(51, substr_count($page->getContent(), '@example.test</span>,'));
+        $page->assertSee('old-54@example.test')->assertDontSee('old-4@example.test');
+    }
+
     public function test_a_failed_email_still_answers_alike_and_shows_the_link(): void
     {
         $this->confirm();
