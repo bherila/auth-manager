@@ -21,6 +21,10 @@ use Laravel\Passport\Bridge\AccessTokenRepository;
 use Laravel\Passport\Bridge\AuthCodeRepository;
 use Laravel\Passport\Bridge\RefreshTokenRepository;
 use Laravel\Passport\Passport;
+use RuntimeException;
+use Symfony\Component\Mailer\Bridge\Brevo\Transport\BrevoTransportFactory;
+use Symfony\Component\Mailer\Transport\Dsn;
+use Symfony\Component\Mailer\Transport\TransportInterface;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -63,6 +67,17 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(10)->by('email-code-ip:'.$request->ip())->response($blocked),
                 Limit::perMinutes(5, 3)->by('email-code-address:'.$email)->response($blocked),
             ];
+        });
+
+        // Brevo's API transport (Symfony bridge), so MAIL_MAILER=brevo or =hybrid works. An unset
+        // DSN fails when the mailer is built, `hybrid` included, rather than silently degrading.
+        $this->app['mail.manager']->extend('brevo', function (array $config): TransportInterface {
+            $dsn = (string) $this->app->make('config')->get('services.brevo.dsn');
+            if ($dsn === '') {
+                throw new RuntimeException('MAILER_DSN is not set; the brevo mailer cannot be built.');
+            }
+
+            return (new BrevoTransportFactory)->create(Dsn::fromString($dsn));
         });
 
         Event::listen(Login::class, static function (Login $event): void {
