@@ -89,7 +89,8 @@ are offered only for a version 2 application that advertises provisioning and ha
 **Who may invite.** `access-invite:<app>` together with `access-manage:<app>`, plus everything a
 write needs: a current grant to the application and a credential check within the last five
 minutes. Revoking needs the two roles only. The pending list on the access page is shown to holders
-of `access-invite` or `access-manage` for that application, and lists only its invitations.
+of `access-view` or `access-manage` for that application (the same as the page itself), and lists
+only its invitations; resending and revoking stay with inviters.
 
 **What the inviter chooses.** The email address, and the access to apply: the application
 administrator flag (always chosen, never defaulted, offered only when the application lets this

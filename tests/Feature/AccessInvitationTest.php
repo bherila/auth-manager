@@ -12,6 +12,7 @@ use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Services\DirectoryAdminService;
 use App\Services\IdentityTombstonePurger;
 use App\Services\Invitations\InvitationAudit;
+use App\Support\DelegatedAccessPermissions;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -688,7 +689,7 @@ class AccessInvitationTest extends TestCase
         $this->assertSame(6, AccessInvitation::query()->count());
     }
 
-    public function test_the_list_shows_this_applications_invitations_to_managers_and_inviters_only(): void
+    public function test_the_list_shows_this_applications_invitations_to_its_viewers_and_managers(): void
     {
         $this->confirm();
         $this->inviteAndGetLink('pending@example.test');
@@ -705,7 +706,24 @@ class AccessInvitationTest extends TestCase
         $viewer = User::factory()->create(['user_role' => 'user,access-view:example-app']);
         $this->grant($viewer, 'example-app');
         $this->signIn($viewer);
-        $this->get('/applications/example-app/access')->assertOk()->assertDontSee('pending@example.test')->assertDontSee('Invitations');
+        $this->get('/applications/example-app/access')->assertOk()
+            ->assertSee('pending@example.test')->assertDontSee('Send again with a new link')->assertDontSee('Send invitation');
+
+        $stranger = User::factory()->create(['user_role' => 'user,access-view:other-app']);
+        $this->grant($stranger, 'example-app');
+        $this->signIn($stranger);
+        $this->get('/applications/example-app/access')->assertForbidden();
+    }
+
+    public function test_invitation_visibility_follows_the_access_page_not_the_invite_role(): void
+    {
+        $permissions = app(DelegatedAccessPermissions::class);
+        $user = fn (string $roles): User => new User(['user_role' => $roles]);
+
+        $this->assertFalse($permissions->canSeeInvitations($user('user,access-invite:example-app'), 'example-app'));
+        $this->assertTrue($permissions->canSeeInvitations($user('user,access-view:example-app'), 'example-app'));
+        $this->assertTrue($permissions->canSeeInvitations($user('user,access-manage:*'), 'example-app'));
+        $this->assertFalse($permissions->canSeeInvitations($user('user,access-view:other-app,access-invite:*'), 'example-app'));
     }
 
     public function test_every_pending_invitation_stays_listed_beyond_the_history_cap(): void

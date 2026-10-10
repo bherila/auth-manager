@@ -56,10 +56,13 @@ class DelegatedAccessPermissions
         return $this->canManage($user, $application) && $this->holds($user, 'access-invite', $application);
     }
 
-    /** May see this application's invitations: `access-invite` or `access-manage` for it. */
+    /**
+     * May see this application's invitations: `access-view` or `access-manage` for it, the same as
+     * the access page that lists them. `access-invite` alone reaches nothing: inviting needs manage.
+     */
     public function canSeeInvitations(User $user, string $application): bool
     {
-        return $this->canManage($user, $application) || $this->holds($user, 'access-invite', $application);
+        return $this->canView($user, $application);
     }
 
     public function invitationsEnabled(): bool

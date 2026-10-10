@@ -372,7 +372,7 @@ class ApplicationAccessController extends Controller
     }
 
     /**
-     * The invitations panel, for holders of `access-invite` or `access-manage` here; null otherwise or
+     * The invitations panel, for holders of `access-view` or `access-manage` here; null otherwise or
      * while invitations are switched off. Only this application's invitations are listed.
      *
      * @return array{list: Collection<int, AccessInvitation>, can_invite: bool, form: bool, unavailable: string|null}|null
