@@ -80,6 +80,9 @@ class AppServiceProvider extends ServiceProvider
             return (new BrevoTransportFactory)->create(Dsn::fromString($dsn));
         });
 
+        // Invitation links, per client IP: opening one, accepting one, signing in or out from one.
+        RateLimiter::for('invitations', static fn (Request $request): Limit => Limit::perMinute(30)->by('invitations:'.$request->ip()));
+
         Event::listen(Login::class, static function (Login $event): void {
             if ($event->user instanceof User && request()->hasSession()) {
                 request()->session()->put(

@@ -72,6 +72,9 @@
             </form>
         </section>
     @endif
+    @if($invitations !== null)
+        @include('applications.invitations')
+    @endif
     @if($directory !== null)
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Give access to someone new</h2>

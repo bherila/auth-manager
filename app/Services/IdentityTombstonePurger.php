@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AccessInvitation;
 use App\Models\IdentityTombstone;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -80,6 +81,12 @@ class IdentityTombstonePurger
                 $this->tokens->purgeSubjectCredentials($subject);
                 DB::table('sessions')->where('user_id', $subject)->delete();
                 DB::table('password_reset_tokens')->where('email', $user->email)->delete();
+                // Invitations to this person hold their address; invitations they sent keep only
+                // a null inviter once the account row goes.
+                DB::table('access_invitations')
+                    ->where('email_normalized', AccessInvitation::normalizeEmail((string) $user->email))
+                    ->orWhere('accepted_user_id', $subject)
+                    ->delete();
                 DB::table(config('bherila-auth.audit.table', 'auth_audit_log'))
                     ->where('user_id', $subject)
                     ->update(['email' => null]);

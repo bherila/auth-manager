@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AccessInvitation;
 use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
@@ -15,6 +16,7 @@ use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 class ApplicationAccessController extends Controller
@@ -365,6 +367,31 @@ class ApplicationAccessController extends Controller
             'subject' => $subject, 'state' => $state, 'saved' => $saved,
             'directory' => $directory, 'directorySearch' => $directorySearch,
             'writes' => $writes, 'provisionByEmail' => $provisioning && $writes && $directory === null,
+            'invitations' => $this->invitations($actor, $application, $provisioning),
         ]);
+    }
+
+    /**
+     * The invitations panel, for holders of `access-invite` or `access-manage` here; null otherwise or
+     * while invitations are switched off. Only this application's invitations are listed.
+     *
+     * @return array{list: Collection<int, AccessInvitation>, can_invite: bool, form: bool, unavailable: string|null}|null
+     */
+    private function invitations(User $actor, string $application, bool $provisioning): ?array
+    {
+        if (! $this->permissions->invitationsEnabled() || ! $this->permissions->canSeeInvitations($actor, $application)) {
+            return null;
+        }
+        $canInvite = $this->permissions->canInvite($actor, $application);
+        $unavailable = match (true) {
+            ! $provisioning => 'The application does not accept new accounts from this provider, so invitations to it are unavailable.',
+            ! $this->permissions->writesEnabled($application) => 'Access changes are switched off for this application, so invitations to it are unavailable.',
+            default => null,
+        };
+
+        return [
+            'list' => AccessInvitation::query()->where('application', $application)->with('inviter')->latest('id')->limit(50)->get(),
+            'can_invite' => $canInvite, 'form' => $canInvite && $unavailable === null, 'unavailable' => $canInvite ? $unavailable : null,
+        ];
     }
 }
