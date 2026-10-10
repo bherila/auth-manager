@@ -75,21 +75,21 @@ class DelegatedAccessKeysTest extends TestCase
     public function test_the_check_command_validates_keys_and_shows_key_ids_but_never_paths(): void
     {
         $this->withEnvironment([
-            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|2,other-app|https://other.example.test/access|2',
+            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|3,other-app|https://other.example.test/access|3',
             DelegatedAccessKeys::ENVIRONMENT => 'example-app|example-v2|/keys/synthetic-private.pem',
         ], function (): void {
             $this->artisan('auth-manager:delegated-access:check', ['--show' => true])
                 ->expectsOutputToContain('2 configured, 1 with their own signing key')
                 ->expectsTable(['Application', 'Endpoint', 'Contract version', 'Signing key'], [
-                    ['example-app', 'https://app.example.test/access', '2', 'example-v2'],
-                    ['other-app', 'https://other.example.test/access', '2', 'shared (reads only)'],
+                    ['example-app', 'https://app.example.test/access', '3', 'example-v2'],
+                    ['other-app', 'https://other.example.test/access', '3', 'shared (reads only)'],
                 ])
                 ->doesntExpectOutputToContain('synthetic-private')
                 ->assertExitCode(0);
         });
 
         $this->withEnvironment([
-            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|2,other-app|https://other.example.test/access|2',
+            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|3,other-app|https://other.example.test/access|3',
             'AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS' => 'example-app,other-app',
             DelegatedAccessKeys::ENVIRONMENT => 'example-app|example-v2|/keys/synthetic-private.pem',
         ], function (): void {
@@ -100,7 +100,7 @@ class DelegatedAccessKeysTest extends TestCase
         });
 
         $this->withEnvironment([
-            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|2',
+            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|3',
             DelegatedAccessKeys::ENVIRONMENT => 'missing-app|missing-v1|/keys/synthetic-private.pem',
         ], function (): void {
             $this->artisan('auth-manager:delegated-access:check')
@@ -109,7 +109,7 @@ class DelegatedAccessKeysTest extends TestCase
         });
 
         $this->withEnvironment([
-            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|2',
+            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|3',
             DelegatedAccessKeys::ENVIRONMENT => 'example-app|example-v1|keys/synthetic-private.pem',
         ], function (): void {
             $this->artisan('auth-manager:delegated-access:check')
@@ -119,7 +119,7 @@ class DelegatedAccessKeysTest extends TestCase
         });
 
         $this->withEnvironment([
-            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|2',
+            'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS' => 'example-app|https://app.example.test/access|3',
             'AUTH_MANAGER_DELEGATED_ACCESS_KEY_ID' => 'shared-v1',
             DelegatedAccessKeys::ENVIRONMENT => 'example-app|shared-v1|/keys/synthetic-private.pem',
         ], function (): void {

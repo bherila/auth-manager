@@ -28,11 +28,11 @@ final readonly class ReferenceAccessAdapter
             } catch (Throwable) {
                 throw new DelegatedAccessException('invalid_request', 422);
             }
-            if (! is_array($input) || ($input['contract_version'] ?? null) !== 1 || ($input['application'] ?? null) !== $this->application) {
+            if (! is_array($input) || ($input['contract_version'] ?? null) !== DelegatedContract::VERSION_3 || ($input['application'] ?? null) !== $this->application) {
                 throw new DelegatedAccessException('invalid_request', 422);
             }
             unset($input['contract_version'], $input['application']);
-            $payload = (new DelegatedContract)->request($this->application, $input);
+            $payload = (new DelegatedContract)->request($this->application, $input, DelegatedContract::VERSION_3);
 
             return DB::transaction(function () use ($actorSubject, $payload, $correlation): array {
                 // One deterministic lock order for actor, target and last-admin checks.
@@ -42,9 +42,14 @@ final readonly class ReferenceAccessAdapter
                     throw new DelegatedAccessException('not_authorized', 403);
                 }
                 $operation = $payload['operation'];
-                $envelope = ['contract_version' => 1, 'application' => $this->application, 'operation' => $operation];
+                $envelope = ['contract_version' => DelegatedContract::VERSION_3, 'application' => $this->application, 'operation' => $operation];
                 if ($operation === 'capabilities') {
-                    return ['status' => 200, 'body' => [...$envelope, 'controls' => ['application_admin' => (bool) $actor->application_admin, 'workspace_permissions' => ['read', 'write']]]];
+                    return ['status' => 200, 'body' => [...$envelope, 'controls' => ['application_admin' => (bool) $actor->application_admin,
+                        'workspace_roles' => [['id' => 'reader', 'label' => 'Reader'], ['id' => 'editor', 'label' => 'Editor']], 'provisioning' => false]]];
+                }
+                // This adapter keeps no receipts; the package endpoint does that for a real application.
+                if ($operation === 'receipt') {
+                    return ['status' => 200, 'body' => [...$envelope, 'operation_id' => $payload['operation_id'], 'status' => 'unknown']];
                 }
                 if (in_array($operation, ['subjects', 'workspaces'], true)) {
                     $items = $operation === 'subjects'
@@ -70,20 +75,24 @@ final readonly class ReferenceAccessAdapter
                 }
                 $target = $accounts->firstWhere('subject', $payload['subject']);
                 if ($target === null) {
-                    if ($operation === 'update') {
+                    if ($operation !== 'read') {
                         throw new DelegatedAccessException('not_provisioned', 404);
                     }
 
-                    return ['status' => 200, 'body' => [...$envelope, 'subject' => $payload['subject'], 'provisioned' => false, 'revision' => null, 'access' => null, 'allowed_edits' => ['application_admin' => false, 'workspaces' => false]]];
+                    return ['status' => 200, 'body' => [...$envelope, 'subject' => $payload['subject'], 'provisioned' => false, 'revision' => null, 'access' => null,
+                        'allowed_edits' => ['application_admin' => false, 'workspaces' => false, 'provision' => false, 'remove' => false]]];
                 }
                 if (! $this->visible($actor, $target)) {
                     throw new DelegatedAccessException('not_authorized', 404);
                 }
-                if ($operation === 'update') {
+                if ($operation === 'update' || $operation === 'remove') {
                     if ($target->revision !== $payload['expected_revision']) {
                         throw new DelegatedAccessException('revision_conflict', 409);
                     }
-                    $access = $payload['access'];
+                    if ($operation === 'remove' && $target->application_admin) {
+                        throw new DelegatedAccessException('not_authorized', 403);
+                    }
+                    $access = $operation === 'remove' ? ['application_admin' => false, 'workspaces' => []] : $payload['access'];
                     $allowed = $actor->application_admin ? ['workspace-a', 'workspace-b'] : json_decode($actor->managed_workspaces, true);
                     if ((! $actor->application_admin && $access['application_admin'] !== (bool) $target->application_admin)
                         || array_diff(array_column($access['workspaces'], 'id'), $allowed) !== []) {
@@ -99,9 +108,13 @@ final readonly class ReferenceAccessAdapter
                     DB::table('reference_access_audit')->insert(['actor' => $actorSubject, 'target' => $target->subject, 'application' => $this->application, 'revision' => $target->revision, 'correlation' => $correlation]);
                 }
 
+                // Every membership a visible target has is in the actor's workspaces, so all are editable.
+                // Removing an administrator would need the last-administrator rule; this adapter does not offer it.
                 return ['status' => 200, 'body' => [...$envelope, 'subject' => $payload['subject'], 'provisioned' => true, 'revision' => $target->revision,
-                    'access' => ['application_admin' => (bool) $target->application_admin, 'workspaces' => json_decode($target->workspaces, true)],
-                    'allowed_edits' => ['application_admin' => (bool) $actor->application_admin, 'workspaces' => true]]];
+                    'access' => ['application_admin' => (bool) $target->application_admin, 'workspaces' => array_map(
+                        fn (array $membership): array => [...$membership, 'editable' => true], json_decode($target->workspaces, true))],
+                    'allowed_edits' => ['application_admin' => (bool) $actor->application_admin, 'workspaces' => true, 'provision' => false,
+                        'remove' => ! $target->application_admin]]];
             });
         } catch (DelegatedAccessException $exception) {
             return ['status' => $exception->status, 'body' => ['error' => $exception->outcome]];
