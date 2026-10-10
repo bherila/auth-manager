@@ -15,6 +15,7 @@ use App\Support\StaticApplicationClients;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
+use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -28,6 +29,31 @@ final class DelegatedAccessTransport
 
     public function send(Request $request, string $application, array $operation): array
     {
+        return $this->dispatch($application, $operation, fn (bool $write): User => $this->actor($request, $application, $write));
+    }
+
+    /**
+     * Send as the inviter of an invitation being accepted, without the inviter's session.
+     *
+     * The one non-interactive path, and deliberately narrow: every operation, reads included, needs
+     * the inviter to be active now, to hold `access-invite` and `access-manage` for the application,
+     * a current grant to it, invitations switched on and writes enabled for it. The recent
+     * confirmation an interactive write needs was required when the invitation was created; nothing
+     * here reads a session, so it cannot be reached by presenting one. The application then decides
+     * with its own rules, as it does for any actor.
+     *
+     * @param  string|null  $correlation  64 lowercase hex characters to identify an update by, so its
+     *                                    caller can record it; generated when null
+     *
+     * @throws DelegatedAccessException
+     */
+    public function sendForInvitation(User $inviter, string $application, array $operation, ?string $correlation = null): array
+    {
+        return $this->dispatch($application, $operation, fn (bool $write): User => $this->inviter($inviter, $application), $correlation, 'invitation');
+    }
+
+    private function dispatch(string $application, array $operation, Closure $resolveActor, ?string $correlation = null, ?string $via = null): array
+    {
         if (! config('delegated-access.enabled', false)) {
             throw new DelegatedAccessException('integration_disabled');
         }
@@ -39,7 +65,7 @@ final class DelegatedAccessTransport
         // A malformed key list is a configuration problem for reads and writes alike; resolved
         // first so a write is not refused as though the actor lacked permission.
         $signing = app(DelegatedAccessKeys::class)->for($application);
-        $actor = $this->actor($request, $application, $write);
+        $actor = $resolveActor($write);
         $configuration = config('delegated-access');
         $endpoint = $entry['endpoint'] ?? null;
         $issuer = $configuration['issuer'] ?? null;
@@ -65,7 +91,7 @@ final class DelegatedAccessTransport
             if (! is_string($key) || $key === '') {
                 throw new DelegatedAccessException('invalid_configuration');
             }
-            $correlation = bin2hex(random_bytes(32));
+            $correlation ??= bin2hex(random_bytes(32));
             $assertion = $this->assertions->issue($issuer, (string) $actor->id, $endpoint, $application, $body, $keyId, $key, $correlation);
         } catch (DelegatedAccessException $exception) {
             throw $exception;
@@ -74,19 +100,19 @@ final class DelegatedAccessTransport
         }
 
         if ($write) {
-            $this->audit($actor, $application, $payload['subject'], $correlation, 'attempt');
+            $this->audit($actor, $application, $payload['subject'], $correlation, 'attempt', $via);
         }
         try {
             $result = $this->exchange($endpoint, $assertion, $body, $application, $payload, $write);
         } catch (Throwable $failure) {
             $exception = $failure instanceof DelegatedAccessException ? $failure : new DelegatedAccessException($write ? 'unknown_outcome' : 'unavailable');
             if ($write) {
-                $this->audit($actor, $application, $payload['subject'], $correlation, $exception->outcome);
+                $this->audit($actor, $application, $payload['subject'], $correlation, $exception->outcome, $via);
             }
             throw $exception;
         }
         if ($write) {
-            $this->audit($actor, $application, $payload['subject'], $correlation, 'succeeded');
+            $this->audit($actor, $application, $payload['subject'], $correlation, 'succeeded', $via);
         }
 
         return $result;
@@ -121,7 +147,7 @@ final class DelegatedAccessTransport
         return app(DelegatedAccessApplications::class)->contractVersion($application);
     }
 
-    private function audit(User $actor, string $application, string $target, string $correlation, string $outcome): void
+    private function audit(User $actor, string $application, string $target, string $correlation, string $outcome, ?string $via = null): void
     {
         try {
             if ((new AuthAuditLog)->getConnection()->transactionLevel() !== 0) {
@@ -132,7 +158,7 @@ final class DelegatedAccessTransport
                 'event' => $outcome === 'attempt' ? 'delegated_access_update_attempt' : 'delegated_access_update_result',
                 'auth_method' => 'delegated', 'succeeded' => $outcome === 'succeeded',
                 'metadata' => ['actor' => (string) $actor->id, 'application' => $application, 'target' => $target, 'operation' => 'update',
-                    'outcome' => $outcome, 'correlation' => $correlation],
+                    'outcome' => $outcome, 'correlation' => $correlation, ...($via === null ? [] : ['via' => $via])],
             ]);
             if (! $entry->exists) {
                 throw new DelegatedAccessException('audit_unavailable');
@@ -242,12 +268,7 @@ final class DelegatedAccessTransport
         if (! ($write ? $permissions->canManage($actor, $application) : $permissions->canView($actor, $application))) {
             throw new DelegatedAccessException('not_authorized', 403);
         }
-        $registration = RegisteredApplication::query()->where('key', $application)->where('enabled', true)->with('clients')->first();
-        $staticClients = new StaticApplicationClients;
-        if ($registration === null || ! $registration->clients->contains(fn (PassportClient $client): bool => $staticClients->eligible($client)
-            && DB::table('oauth_client_grants')->where('subject', $actor->id)->where('oauth_client_id', $client->id)->exists())) {
-            throw new DelegatedAccessException('not_authorized', 403);
-        }
+        $this->assertGranted($actor, $application);
         if ($write) {
             // Writes switched off for this application are a refusal, not a request to re-confirm.
             if (! $permissions->writesEnabled($application)) {
@@ -264,5 +285,33 @@ final class DelegatedAccessTransport
         }
 
         return $actor;
+    }
+
+    /** The inviter, re-checked now: {@see sendForInvitation()}. */
+    private function inviter(User $inviter, string $application): User
+    {
+        $actor = User::query()->find($inviter->getKey());
+        if (! $actor instanceof User || ! $actor->canLogin()) {
+            throw new DelegatedAccessException('not_authorized', 403);
+        }
+        $permissions = app(DelegatedAccessPermissions::class);
+        if (! $permissions->invitationsEnabled() || ! $permissions->canInvite($actor, $application)
+            || ! $permissions->writesEnabled($application)) {
+            throw new DelegatedAccessException('not_authorized', 403);
+        }
+        $this->assertGranted($actor, $application);
+
+        return $actor;
+    }
+
+    /** The actor holds a current grant to an eligible client of the enabled registration. */
+    private function assertGranted(User $actor, string $application): void
+    {
+        $registration = RegisteredApplication::query()->where('key', $application)->where('enabled', true)->with('clients')->first();
+        $staticClients = new StaticApplicationClients;
+        if ($registration === null || ! $registration->clients->contains(fn (PassportClient $client): bool => $staticClients->eligible($client)
+            && DB::table('oauth_client_grants')->where('subject', $actor->id)->where('oauth_client_id', $client->id)->exists())) {
+            throw new DelegatedAccessException('not_authorized', 403);
+        }
     }
 }
