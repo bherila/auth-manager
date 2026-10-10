@@ -276,7 +276,6 @@ class DelegatedAccessTransportTest extends TestCase
             $this->refused(fn () => $transport->send($this->request, 'example-app', $input), 'invalid_configuration', 503);
         }
         Exceptions::assertReportedCount(1);
-        $this->refused(fn () => DelegatedAccessTransport::contractVersion('example-app'), 'invalid_configuration', 503);
         Http::assertNothingSent();
         $this->assertSame(0, AuthAuditLog::query()->where('event', 'like', 'delegated_access_%')->count());
         Exceptions::assertReportedCount(1);

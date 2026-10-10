@@ -7,7 +7,7 @@ use Carbon\CarbonImmutable;
 use Throwable;
 
 /**
- * The read-only observations a contract version 3 application may report about an account, and
+ * The read-only observations an application may report about an account, and
  * how the access page shows them.
  *
  * They are what the application says it saw: never authorization, never part of a revision. A

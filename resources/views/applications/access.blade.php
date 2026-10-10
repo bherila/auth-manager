@@ -2,11 +2,11 @@
 @section('title', 'Application access')
 @section('content')
 @php
-    $roleLabels = $version >= 2 ? array_column($capabilities['controls']['workspace_roles'], 'label', 'id') : [];
+    $roleLabels = array_column($capabilities['controls']['workspace_roles'], 'label', 'id');
     $workspaceLabels = array_column($workspaces['workspaces'], 'label', 'id');
-    // Version 3 extras the application may send: observations about accounts, and role descriptions.
-    $listedMetadata = $version >= 3 ? \App\Support\DelegatedMetadata::reported($subjects['subjects']) : [];
-    $describedRoles = $version >= 3 ? array_values(array_filter($capabilities['controls']['workspace_roles'], fn (array $role): bool => isset($role['description']))) : [];
+    // What the application may add: observations about accounts, and role descriptions.
+    $listedMetadata = \App\Support\DelegatedMetadata::reported($subjects['subjects']);
+    $describedRoles = array_values(array_filter($capabilities['controls']['workspace_roles'], fn (array $role): bool => isset($role['description'])));
 @endphp
 <main class="mx-auto max-w-3xl space-y-6 px-6 py-10">
     <a class="underline" href="/">Back to your account</a>
@@ -23,57 +23,42 @@
     @endif
     <section class="space-y-3 rounded border p-4">
         <h2 class="text-lg font-semibold">Choose an account</h2>
-        @if($version >= 3)
-            <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap items-end gap-3" role="search">
-                @csrf
-                @if($subject !== null)<input type="hidden" name="subject" value="{{ $subject }}">@endif
-                @include('applications.search-fields', ['except' => 'subject_query'])
-                <label>Search accounts
-                    <input type="search" name="subject_query" value="{{ $searches['subject_query'] ?? '' }}" required minlength="2" maxlength="100" autocomplete="off" class="rounded border bg-background p-2">
-                </label>
-                <button class="rounded border px-3 py-2">Search</button>
-                @isset($searches['subject_query'])
-                    <a class="underline" href="{{ route('applications.access', array_filter(['application' => $application->key, 'subject' => $subject, ...array_diff_key($searches, ['subject_query' => true])], fn ($value) => $value !== null)) }}">Clear search</a>
-                @endisset
-            </form>
-            <p class="text-sm">Matches names and email addresses the application holds, among the accounts it lets you see.</p>
-            @if($subjects['subjects'] === [])
-                <p>{{ isset($searches['subject_query']) ? 'No account you can see matches this search.' : 'No accounts to show.' }}</p>
-            @else
-                <table class="w-full text-left">
-                    <thead>
-                        <tr>
-                            <th scope="col" class="p-2">Account</th>
-                            @foreach($listedMetadata as $label)<th scope="col" class="p-2">{{ $label }}</th>@endforeach
-                            <th scope="col" class="p-2"><span class="sr-only">Action</span></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($subjects['subjects'] as $candidate)
-                            <tr class="border-t" @if($candidate['subject'] === $subject) aria-current="true" @endif>
-                                <td class="p-2">{{ $candidate['label'] }}</td>
-                                @foreach($listedMetadata as $field => $label)
-                                    <td class="p-2">@include('applications.metadata-value', ['value' => $candidate[$field] ?? null])</td>
-                                @endforeach
-                                <td class="p-2"><a class="underline" href="{{ route('applications.access', ['application' => $application->key, 'subject' => $candidate['subject'], ...$searches]) }}">Review access</a></td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            @endif
-        @else
-        <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap gap-3">
+        <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap items-end gap-3" role="search">
             @csrf
-            <label>Account
-                <select name="subject" required class="rounded border bg-background p-2">
-                    <option value="">Select an account</option>
-                    @foreach($subjects['subjects'] as $candidate)
-                        <option value="{{ $candidate['subject'] }}" @selected($candidate['subject'] === $subject)>{{ $candidate['label'] }}</option>
-                    @endforeach
-                </select>
+            @if($subject !== null)<input type="hidden" name="subject" value="{{ $subject }}">@endif
+            @include('applications.search-fields', ['except' => 'subject_query'])
+            <label>Search accounts
+                <input type="search" name="subject_query" value="{{ $searches['subject_query'] ?? '' }}" required minlength="2" maxlength="100" autocomplete="off" class="rounded border bg-background p-2">
             </label>
-            <button class="rounded border px-3 py-2">Review access</button>
+            <button class="rounded border px-3 py-2">Search</button>
+            @isset($searches['subject_query'])
+                <a class="underline" href="{{ route('applications.access', array_filter(['application' => $application->key, 'subject' => $subject, ...array_diff_key($searches, ['subject_query' => true])], fn ($value) => $value !== null)) }}">Clear search</a>
+            @endisset
         </form>
+        <p class="text-sm">Matches names and email addresses the application holds, among the accounts it lets you see.</p>
+        @if($subjects['subjects'] === [])
+            <p>{{ isset($searches['subject_query']) ? 'No account you can see matches this search.' : 'No accounts to show.' }}</p>
+        @else
+            <table class="w-full text-left">
+                <thead>
+                    <tr>
+                        <th scope="col" class="p-2">Account</th>
+                        @foreach($listedMetadata as $label)<th scope="col" class="p-2">{{ $label }}</th>@endforeach
+                        <th scope="col" class="p-2"><span class="sr-only">Action</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($subjects['subjects'] as $candidate)
+                        <tr class="border-t" @if($candidate['subject'] === $subject) aria-current="true" @endif>
+                            <td class="p-2">{{ $candidate['label'] }}</td>
+                            @foreach($listedMetadata as $field => $label)
+                                <td class="p-2">@include('applications.metadata-value', ['value' => $candidate[$field] ?? null])</td>
+                            @endforeach
+                            <td class="p-2"><a class="underline" href="{{ route('applications.access', ['application' => $application->key, 'subject' => $candidate['subject'], ...$searches]) }}">Review access</a></td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
         @endif
         @if($subjects['next_cursor'])
             <form method="post" action="{{ route('applications.access.browse', $application->key) }}">
@@ -84,7 +69,7 @@
             </form>
         @endif
     </section>
-    @if($version >= 3 && !$accountOnly)
+    @if(!$accountOnly)
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Find a workspace</h2>
             <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap items-end gap-3" role="search">
@@ -189,7 +174,7 @@
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Current access</h2>
             <p>Account reference: {{ $subject }}</p>
-            @php($stateMetadata = $version >= 3 ? \App\Support\DelegatedMetadata::reported([$state]) : [])
+            @php($stateMetadata = \App\Support\DelegatedMetadata::reported([$state]))
             @if($stateMetadata !== [])
                 <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                     @foreach($stateMetadata as $field => $label)
@@ -200,7 +185,7 @@
             @endif
             @if(!$state['provisioned'])
                 <p>This account has not been provisioned in the application. A sign-in grant does not create an application account.</p>
-                @if($version >= 2 && $state['allowed_edits']['provision'] && $writes && $directory !== null)
+                @if($state['allowed_edits']['provision'] && $writes && $directory !== null)
                     <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
                         @csrf
                         @include('applications.operation-id')
@@ -261,7 +246,7 @@
                     @endif
                     @if($accountOnly)
                         {{-- No workspaces: the administrator setting above is the whole of this account's access here. --}}
-                    @elseif($version >= 2)
+                    @else
                         <h3 class="font-semibold">Workspace access</h3>
                         @forelse($state['access']['workspaces'] as $index => $membership)
                             <div class="flex items-center gap-3">
@@ -305,47 +290,6 @@
                                 </select>
                             </label>
                         @endif
-                    @else
-                        <h3 class="font-semibold">Workspace access</h3>
-                        @forelse($state['access']['workspaces'] as $index => $membership)
-                            <div class="flex items-center gap-3">
-                                <input type="hidden" name="workspaces[{{ $index }}][id]" value="{{ $membership['id'] }}">
-                                <label>{{ $membership['id'] }}
-                                    @if($state['allowed_edits']['workspaces'] && in_array($membership['permission'], $capabilities['controls']['workspace_permissions'], true))
-                                        <select name="workspaces[{{ $index }}][permission]" class="rounded border bg-background p-2">
-                                            @foreach($capabilities['controls']['workspace_permissions'] as $permission)
-                                                <option value="{{ $permission }}" @selected($membership['permission'] === $permission)>{{ $permission === 'write' ? 'Read and write' : 'Read only' }}</option>
-                                            @endforeach
-                                            <option value="none">Remove access</option>
-                                        </select>
-                                    @else
-                                        <span>{{ $membership['permission'] }}</span>
-                                        <input type="hidden" name="workspaces[{{ $index }}][permission]" value="{{ $membership['permission'] }}">
-                                    @endif
-                                </label>
-                            </div>
-                        @empty
-                            <p>No workspace memberships.</p>
-                        @endforelse
-                        @if($state['allowed_edits']['workspaces'] && count($capabilities['controls']['workspace_permissions']) && count($state['access']['workspaces']) < 100)
-                            <label class="block">Add workspace
-                                <select name="new_workspace" class="rounded border bg-background p-2">
-                                    <option value="">No additional workspace</option>
-                                    @foreach($workspaces['workspaces'] as $workspace)
-                                        @if(!in_array($workspace['id'], array_column($state['access']['workspaces'], 'id'), true))
-                                            <option value="{{ $workspace['id'] }}">{{ $workspace['label'] }}</option>
-                                        @endif
-                                    @endforeach
-                                </select>
-                            </label>
-                            <label class="block">New workspace permission
-                                <select name="new_permission" class="rounded border bg-background p-2">
-                                    @foreach($capabilities['controls']['workspace_permissions'] as $permission)
-                                        <option value="{{ $permission }}">{{ $permission === 'write' ? 'Read and write' : 'Read only' }}</option>
-                                    @endforeach
-                                </select>
-                            </label>
-                        @endif
                     @endif
                     @if(count($state['access']['workspaces']) >= 100)
                         <p>Remove and save a workspace membership before adding another.</p>
@@ -368,7 +312,7 @@
                         <button class="underline">More workspaces (reloads current access)</button>
                     </form>
                 @endif
-                @if($version >= 3 && $writes && $state['allowed_edits']['remove'])
+                @if($writes && $state['allowed_edits']['remove'])
                     @include('applications.remove-access')
                 @endif
             @endif
