@@ -29,6 +29,9 @@
                 <button class="rounded border px-4 py-2">Sign out and continue</button>
             </form>
             @break
+        @case('ambiguous')
+            <p role="alert">This invitation can't be accepted here: more than one account matches its address. Contact the person who invited you.</p>
+            @break
         @case('disabled')
             <p role="alert">The account for this address can't sign in, so it can't accept this invitation. Contact the person who invited you.</p>
             @break

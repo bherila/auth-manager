@@ -196,15 +196,27 @@ final class AccessInvitationService
         return $invitation instanceof AccessInvitation && $invitation->isPending() ? $invitation : null;
     }
 
-    /** The provider account with the invited address, case-insensitively, deleted or not. */
+    /**
+     * The provider account with the invited address, case-insensitively, deleted or not.
+     *
+     * Fails closed when more than one account matches (a database whose unique index is case
+     * sensitive can hold case variants): choosing one would bind the invitation to whichever row
+     * came back first. With none, no case variant exists, so creating an account is safe.
+     *
+     * @throws InvitationUnavailable `ambiguous_account`
+     */
     public function accountFor(AccessInvitation $invitation, bool $lock = false): ?User
     {
-        $query = User::withTrashed()->whereRaw('lower(email) = ?', [$invitation->email_normalized]);
+        $query = User::withTrashed()->whereRaw('lower(email) = ?', [$invitation->email_normalized])->orderBy('id')->limit(2);
         if ($lock) {
             $query->lockForUpdate();
         }
+        $matches = $query->get();
+        if ($matches->count() > 1) {
+            throw new InvitationUnavailable('ambiguous_account');
+        }
 
-        return $query->first();
+        return $matches->first();
     }
 
     /**

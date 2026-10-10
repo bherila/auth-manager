@@ -11,7 +11,9 @@ use App\Models\User;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Services\DirectoryAdminService;
 use App\Services\IdentityTombstonePurger;
+use App\Services\Invitations\AccessInvitationService;
 use App\Services\Invitations\InvitationAudit;
+use App\Services\Invitations\InvitationUnavailable;
 use App\Support\DelegatedAccessPermissions;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
@@ -528,6 +530,31 @@ class AccessInvitationTest extends TestCase
 
         $this->post($existing.'/sign-out')->assertRedirect($existing);
         $this->assertGuest();
+    }
+
+    public function test_an_address_matching_several_accounts_case_insensitively_cannot_accept(): void
+    {
+        $lower = User::factory()->create(['email' => 'person@example.test', 'user_role' => 'user']);
+        $upper = User::factory()->create(['email' => 'PERSON@example.test', 'user_role' => 'user']);
+        $this->confirm();
+        $this->invite('Person@example.test')->assertSessionHas('invitation_notice');
+        $link = $this->lastMailedLink();
+
+        foreach ([null, $lower, $upper] as $who) {
+            $who === null ? $this->signOutLocally() : $this->signIn($who);
+            $this->get($link)->assertOk()->assertSee('more than one account matches its address');
+            $this->post($link.'/accept', ['name' => 'Someone', 'password' => 'a-new-password-example', 'password_confirmation' => 'a-new-password-example'])
+                ->assertRedirect($link);
+        }
+
+        $this->assertTrue(AccessInvitation::query()->firstOrFail()->isPending());
+        $this->assertSame(2, User::query()->whereRaw('lower(email) = ?', ['person@example.test'])->count());
+        $this->assertFalse(DB::table('oauth_client_grants')->whereIn('subject', [$lower->id, $upper->id])->exists());
+        $this->assertSame([], $this->updates());
+
+        // The service refuses on its own too, whoever is named as signed in.
+        $this->expectException(InvitationUnavailable::class);
+        app(AccessInvitationService::class)->accept(request(), AccessInvitation::query()->firstOrFail(), $lower, null);
     }
 
     public function test_a_disabled_account_cannot_accept(): void

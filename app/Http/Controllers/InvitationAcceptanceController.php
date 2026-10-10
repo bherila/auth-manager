@@ -44,7 +44,7 @@ class InvitationAcceptanceController extends Controller
         return view('invitations.show', [
             'token' => $token, 'invitation' => $invitation,
             'applicationName' => $this->applicationName($invitation),
-            'state' => $this->state($request, $invitation, $this->invitations->accountFor($invitation)),
+            'state' => $this->state($request, $invitation, $this->account($invitation)),
         ]);
     }
 
@@ -54,7 +54,7 @@ class InvitationAcceptanceController extends Controller
         if ($invitation === null) {
             return $this->unavailable();
         }
-        $state = $this->state($request, $invitation, $this->invitations->accountFor($invitation));
+        $state = $this->state($request, $invitation, $this->account($invitation));
         if (! in_array($state, ['accept', 'create'], true)) {
             return redirect()->route('invitations.show', ['token' => $token]);
         }
@@ -125,14 +125,28 @@ class InvitationAcceptanceController extends Controller
         return $this->invitations->findPending($token);
     }
 
+    /** The invited address's account, null for none, or false when several match it. */
+    private function account(AccessInvitation $invitation): User|false|null
+    {
+        try {
+            return $this->invitations->accountFor($invitation);
+        } catch (InvitationUnavailable) {
+            return false;
+        }
+    }
+
     /**
+     * ambiguous: more than one account has the invited address, so none can accept;
      * disabled: the invited address belongs to an account that cannot sign in;
      * wrong_account: signed in as anyone but the invited account;
      * accept: signed in as the invited account; sign_in: it exists, nobody is signed in;
      * create: no account has the address and nobody is signed in.
      */
-    private function state(Request $request, AccessInvitation $invitation, ?User $account): string
+    private function state(Request $request, AccessInvitation $invitation, User|false|null $account): string
     {
+        if ($account === false) {
+            return 'ambiguous';
+        }
         $user = $request->user();
         $current = $user instanceof User && $request->hasSession()
             && $request->session()->get(EnsureCredentialVersion::SESSION_KEY) === (int) $user->credential_version;
