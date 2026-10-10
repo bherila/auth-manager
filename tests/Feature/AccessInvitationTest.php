@@ -13,10 +13,12 @@ use App\Services\DirectoryAdminService;
 use App\Services\IdentityTombstonePurger;
 use App\Services\Invitations\AccessInvitationService;
 use App\Services\Invitations\InvitationAudit;
+use App\Services\Invitations\InvitationRoles;
 use App\Services\Invitations\InvitationUnavailable;
 use App\Support\DelegatedAccessPermissions;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
@@ -32,7 +34,7 @@ use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
- * Invitations by email to a contract version 2 application: who may send them, what the inviter
+ * Invitations by email to a contract version 2 (and, where noted, 3) application: who may send them, what the inviter
  * learns, the link's life, and applying the invited access at acceptance as the inviter.
  */
 class AccessInvitationTest extends TestCase
@@ -71,6 +73,15 @@ class AccessInvitationTest extends TestCase
     private bool $refuseUpdates = false;
 
     private bool $failUpdates = false;
+
+    /** The contract version the fake applications speak: 3 adds operation ids, receipts and `allowed_edits.remove`. */
+    private int $contractVersion = 2;
+
+    /** Version 3: apply the write, then answer it with a 503 as though the answer were lost. */
+    private bool $loseUpdateAnswers = false;
+
+    /** Version 3: stored outcomes by operation id, as the package endpoint keeps them. */
+    private array $receipts = [];
 
     protected function setUp(): void
     {
@@ -715,6 +726,59 @@ class AccessInvitationTest extends TestCase
         $this->assertCount(1, $this->updates());
     }
 
+    public function test_on_a_version_3_application_the_acceptance_write_carries_the_invitations_operation_id(): void
+    {
+        $this->useVersion3();
+        $this->confirm();
+        $link = $this->inviteAndGetLink('person@example.test');
+
+        $person = $this->acceptAsNewPerson($link);
+
+        $updates = $this->updates();
+        $this->assertCount(1, $updates);
+        $invitation = AccessInvitation::query()->firstOrFail();
+        $this->assertSame(AccessInvitation::ROLES_APPLIED, $invitation->roles_status);
+        $this->assertTrue(DelegatedContract::validOperationId($invitation->roles_operation_id));
+        $this->assertSame(3, $updates[0]['contract_version']);
+        $this->assertSame($invitation->roles_operation_id, $updates[0]['operation_id']);
+        // Distinct from the assertion's single-use nonce.
+        $this->assertNotSame($this->claims($updates[0])['jti'], $updates[0]['operation_id']);
+        $this->assertSame((string) $person->id, $updates[0]['subject']);
+        $this->assertSame($invitation->roles_operation_id, AuthAuditLog::query()->where('event', InvitationAudit::ROLES_APPLIED)->firstOrFail()->metadata['operation_id']);
+        $this->assertSame($invitation->roles_operation_id, AuthAuditLog::query()->where('event', 'delegated_access_update_attempt')->firstOrFail()->metadata['operation_id']);
+    }
+
+    public function test_applying_an_invitation_again_reuses_its_stored_operation_id(): void
+    {
+        $this->useVersion3();
+        $this->confirm();
+        $link = $this->inviteAndGetLink('person@example.test');
+        $this->failUpdates = true;
+        $person = $this->acceptAsNewPerson($link);
+        $invitation = AccessInvitation::query()->firstOrFail();
+        $this->assertSame(AccessInvitation::ROLES_UNKNOWN, $invitation->roles_status);
+        $stored = $invitation->roles_operation_id;
+        $this->assertTrue(DelegatedContract::validOperationId($stored));
+
+        // A later attempt for the same invitation is the same operation, never a new one.
+        $this->failUpdates = false;
+        $this->assertSame(AccessInvitation::ROLES_APPLIED, app(InvitationRoles::class)->apply($invitation->fresh(), $person));
+
+        $this->assertSame([$stored, $stored], array_column($this->updates(), 'operation_id'));
+        $this->assertSame($stored, $invitation->fresh()->roles_operation_id);
+    }
+
+    public function test_a_version_2_acceptance_write_carries_no_operation_id(): void
+    {
+        $this->confirm();
+        $link = $this->inviteAndGetLink('person@example.test');
+
+        $this->acceptAsNewPerson($link);
+
+        $this->assertArrayNotHasKey('operation_id', $this->updates()[0]);
+        $this->assertNull(AccessInvitation::query()->firstOrFail()->roles_operation_id);
+    }
+
     public function test_the_invitation_path_refuses_without_the_invite_permission_whatever_the_session(): void
     {
         $this->confirm();
@@ -931,27 +995,55 @@ class AccessInvitationTest extends TestCase
             $application = $request['application'];
             $operation = $request['operation'];
             $subject = $request['subject'] ?? null;
+            $envelope = ['contract_version' => $this->contractVersion, 'application' => $application];
             $state = function (string $subject): array {
                 $account = $this->accounts[$subject] ?? null;
 
                 return ['subject' => $subject, 'provisioned' => $account !== null, 'revision' => $account['revision'] ?? null,
                     'access' => $account === null ? null : ['application_admin' => $account['application_admin'], 'workspaces' => $account['workspaces']],
-                    'allowed_edits' => ['application_admin' => $account !== null, 'workspaces' => $account !== null, 'provision' => $account === null]];
+                    'allowed_edits' => ['application_admin' => $account !== null, 'workspaces' => $account !== null, 'provision' => $account === null,
+                        ...($this->contractVersion === 3 ? ['remove' => $account !== null] : [])]];
             };
+            if ($operation === 'receipt') {
+                $stored = $this->receipts[$request['operation_id']] ?? null;
+
+                return Http::response([...$envelope, 'operation' => 'receipt', 'operation_id' => $request['operation_id'], ...($stored === null
+                    ? ['status' => 'unknown'] : ['status' => 'known', 'response_status' => $stored['status'], 'response' => $stored['body']])]);
+            }
             if ($operation === 'update') {
-                if ($this->refuseUpdates) {
-                    return Http::response(['error' => 'not_authorized'], 403);
-                }
                 if ($this->failUpdates) {
                     return Http::response(['error' => 'unavailable'], 503);
+                }
+                // Version 3: a repeat of the same operation is answered from its receipt, and the same
+                // id on a different request is refused.
+                $fingerprint = hash('sha256', json_encode(array_diff_key($request->data(), ['operation_id' => true])));
+                if (isset($request['operation_id'], $this->receipts[$request['operation_id']])) {
+                    $stored = $this->receipts[$request['operation_id']];
+
+                    return $stored['fingerprint'] === $fingerprint
+                        ? Http::response($stored['body'], $stored['status'])
+                        : Http::response(['error' => 'invalid_request'], 422);
+                }
+                $answer = function (array $body, int $status) use ($request, $fingerprint) {
+                    if (isset($request['operation_id'])) {
+                        $this->receipts[$request['operation_id']] = ['fingerprint' => $fingerprint, 'status' => $status, 'body' => $body];
+                    }
+
+                    return Http::response($body, $status);
+                };
+                if ($this->refuseUpdates) {
+                    return $answer(['error' => 'not_authorized'], 403);
                 }
                 $current = $this->accounts[$subject] ?? null;
                 if (($request['expected_revision'] === null) !== ($current === null)
                     || ($current !== null && $current['revision'] !== $request['expected_revision'])) {
-                    return Http::response(['error' => 'revision_conflict'], 409);
+                    return $answer(['error' => 'revision_conflict'], 409);
                 }
                 $this->accounts[$subject] = ['application_admin' => $request['access']['application_admin'], 'revision' => 'revision-'.Str::random(6),
                     'workspaces' => array_map(fn (array $membership): array => [...$membership, 'editable' => true], $request['access']['workspaces'])];
+                $response = $answer([...$envelope, 'operation' => 'update', ...$state($subject)], 200);
+
+                return $this->loseUpdateAnswers ? Http::response(['error' => 'unavailable'], 503) : $response;
             }
             $data = match ($operation) {
                 'capabilities' => ['controls' => ['application_admin' => $this->applicationAdmin, 'workspace_roles' => array_values(array_filter([
@@ -965,7 +1057,7 @@ class AccessInvitationTest extends TestCase
                 default => $state($subject),
             };
 
-            return Http::response(['contract_version' => 2, 'application' => $application, 'operation' => $operation, ...$data]);
+            return Http::response([...$envelope, 'operation' => $operation, ...$data]);
         });
     }
 
@@ -1020,6 +1112,12 @@ class AccessInvitationTest extends TestCase
             ->assertRedirect('/invitations/accepted');
 
         return User::query()->findOrFail(AccessInvitation::query()->where('token_hash', hash('sha256', basename($link)))->value('accepted_user_id'));
+    }
+
+    private function useVersion3(): void
+    {
+        $this->contractVersion = 3;
+        config(['delegated-access.applications.example-app.contract_version' => 3, 'delegated-access.applications.other-app.contract_version' => 3]);
     }
 
     private function grant(User $user, string $application): void

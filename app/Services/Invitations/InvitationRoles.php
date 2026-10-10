@@ -57,7 +57,8 @@ final class InvitationRoles
         $this->audit->record(
             $status === AccessInvitation::ROLES_APPLIED ? InvitationAudit::ROLES_APPLIED : InvitationAudit::ROLES_NOT_APPLIED,
             $invitation, null, $inviter, $person, $status === AccessInvitation::ROLES_APPLIED,
-            ['status' => $status, 'outcome' => $outcome, 'correlation' => $correlation],
+            ['status' => $status, 'outcome' => $outcome, 'correlation' => $correlation,
+                ...($invitation->roles_operation_id === null ? [] : ['operation_id' => $invitation->roles_operation_id])],
         );
 
         return $status;
@@ -83,7 +84,8 @@ final class InvitationRoles
             || ! $this->permissions->canInvite($inviter, $application) || ! $this->permissions->writesEnabled($application)) {
             return $notApplied('inviter_not_authorized');
         }
-        if (DelegatedAccessTransport::contractVersion($application) !== DelegatedContract::VERSION_2) {
+        $version = DelegatedAccessTransport::contractVersion($application);
+        if ($version < DelegatedContract::VERSION_2) {
             return $notApplied('provisioning_unavailable');
         }
 
@@ -120,6 +122,9 @@ final class InvitationRoles
             $update = ['operation' => 'update', 'subject' => $subject, 'expected_revision' => $state['revision'], 'access' => $merged];
         }
 
+        if ($version >= DelegatedContract::VERSION_3) {
+            $update['operation_id'] = $this->operationId($invitation);
+        }
         $correlation = bin2hex(random_bytes(32));
         $answer = $this->transport->sendForInvitation($inviter, $recorded, $application, $update, $correlation);
         if (! $this->contract->fitsCapabilities($capabilities, $answer)) {
@@ -127,6 +132,25 @@ final class InvitationRoles
         }
 
         return [AccessInvitation::ROLES_APPLIED, 'applied', $correlation];
+    }
+
+    /**
+     * The invitation's one `operation_id` for its acceptance-time write: stored before the write is
+     * sent, and reused by any later attempt for the same invitation, so the application answers a
+     * repeat from its receipt rather than applying it again. Only the first writer stores one.
+     */
+    private function operationId(AccessInvitation $invitation): string
+    {
+        if (! DelegatedContract::validOperationId($invitation->roles_operation_id)) {
+            AccessInvitation::query()->whereKey($invitation->getKey())->whereNull('roles_operation_id')
+                ->update(['roles_operation_id' => DelegatedContract::operationId()]);
+            $invitation->refresh();
+        }
+        if (! DelegatedContract::validOperationId($invitation->roles_operation_id)) {
+            throw new DelegatedAccessException('invalid_request', 422);
+        }
+
+        return $invitation->roles_operation_id;
     }
 
     /**
