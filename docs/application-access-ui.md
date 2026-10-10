@@ -52,9 +52,7 @@ These are narrow delegated-administration permissions, not provider administrati
 
 **Writes are switched on per application.** `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_ENABLED` must be on **and** the application must be listed in `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS`. Otherwise its pages are read-only, and a change is refused as not authorized.
 
-## Version 2 applications
-
-For an application configured with `contract_version: 2`:
+## Roles, provisioning and account-only applications
 
 - **Roles.** Workspace access is edited with the application's own role labels. A membership the
   application reports as not editable is shown read-only, and posted back unchanged. An empty role
@@ -80,9 +78,7 @@ For an application configured with `contract_version: 2`:
   when the application lets this actor grant administration. Provisioning by exact email answers
   exactly as it does for a workspace application, whatever the outcome.
 
-## Version 3 applications
-
-For an application configured with `contract_version: 3`, everything above for version 2 holds, and:
+## Search, removal and observations
 
 - **Search.** **Search accounts** and **Search workspaces** send a query (2 to 100 characters) to
   the application, which answers within what the signed-in manager may see, as the unfiltered list
@@ -113,7 +109,7 @@ For an application configured with `contract_version: 3`, everything above for v
 
 Invitations let a manager give someone access to an application by email, whether or not that
 person has an account here yet. They are off unless `AUTH_MANAGER_INVITATIONS_ENABLED=true`, and
-are offered only for a version 2 or 3 application that advertises provisioning and has writes enabled.
+are offered only for an application that advertises provisioning and has writes enabled.
 
 **Who may invite.** `access-invite:<app>` together with `access-manage:<app>`, plus everything a
 write needs: a current grant to the application and a credential check within the last five
@@ -165,10 +161,10 @@ grants it; nothing is removed or demoted, and nothing is sent when nothing is mi
 If the provider's re-check or the application refuses, the person stays admitted with no access
 applied and the pending list shows **Accepted; roles not applied** with the reason. If the
 application does not confirm the write, the list shows **Accepted; roles not confirmed**: the
-change may have happened, so review the person's current access. It is never retried. On a version 3
-application the acceptance write carries an operation id stored on the invitation before it is sent
-(any later attempt for the same invitation reuses it), and an unconfirmed write is first looked up
-once by that id, so a write the application did apply or refuse is recorded as such.
+change may have happened, so review the person's current access. It is never retried. The acceptance
+write carries an operation id stored on the invitation before it is sent (any later attempt for the
+same invitation reuses it), and an unconfirmed write is first looked up once by that id, so a write
+the application did apply or refuse is recorded as such.
 
 **Audit.** Provider audit rows record invitations created, sent (with whether delivery succeeded),
 resent, revoked and accepted, and access applied or not applied with the outcome and the delegated
@@ -185,9 +181,9 @@ either would report an invitation sent that nobody received and `log` writes its
 **Enabling, per instance:**
 
 1. Configure a mailer that delivers, and a `MAIL_FROM_ADDRESS` the mail service accepts.
-2. Migrate (`access_invitations`, and its `roles_operation_id` column for version 3 applications).
+2. Migrate (`access_invitations`, with its `roles_operation_id` column).
 3. Set `AUTH_MANAGER_INVITATIONS_ENABLED=true` and rebuild the configuration cache. The
-   application must already be on contract version 2 or 3, advertise provisioning, and be listed in
+   application must already advertise provisioning and be listed in
    `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS`.
 4. Grant `access-invite:<app>` to each inviter, who also needs `access-manage:<app>`:
    `php artisan auth-manager:user-roles person@example.test --add=access-invite:example-app`.
