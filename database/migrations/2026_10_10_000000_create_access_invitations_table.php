@@ -29,6 +29,9 @@ return new class extends Migration
             $table->json('access');
             $table->timestamp('expires_at');
             $table->timestamp('last_sent_at')->nullable();
+            // Whether the current token's link went to anyone but the invited address (the inviter, when
+            // the email failed). True until a send succeeds: opening such a link proves nothing about it.
+            $table->boolean('link_handed_over')->default(true);
             $table->unsignedSmallInteger('send_count')->default(0);
             $table->timestamp('revoked_at')->nullable();
             $table->foreignId('revoked_by')->nullable()->constrained('users')->nullOnDelete();

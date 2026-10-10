@@ -45,6 +45,7 @@ class AccessInvitation extends Model
             'roles_checked_at' => 'datetime',
             'send_count' => 'integer',
             'inviter_credential_version' => 'integer',
+            'link_handed_over' => 'boolean',
         ];
     }
 

@@ -113,7 +113,9 @@ day, counted the same whether or not the address has an account. Opening a link 
 - If an account has that address (case-insensitively), the person signs in to it and accepts.
   Someone signed in as a different account is refused and offered a sign-out.
 - Otherwise they create an account with a name and password; the address is fixed to the invited
-  one and counts as verified.
+  one. It counts as verified only when the link reached the person by email; an account created
+  through a link handed to the inviter after a failed email is left unverified, and the acceptance
+  is audited as coming through a handed-over link.
 - A disabled or deleted account with that address cannot accept.
 
 Acceptance, in order: the invitation is marked used under a lock, the person is granted the

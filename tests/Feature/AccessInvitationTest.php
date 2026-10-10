@@ -807,6 +807,41 @@ class AccessInvitationTest extends TestCase
         }
     }
 
+    public function test_an_account_created_through_a_handed_over_link_is_not_verified(): void
+    {
+        $this->confirm();
+        Mail::swap(Mail::getFacadeRoot()->manager);
+        config(['mail.default' => 'brevo', 'services.brevo.dsn' => null]);
+        $sealed = $this->invite('person@example.test')->assertSessionHas('invitation_mail_failed', true)
+            ->baseResponse->getSession()->get('invitation_link');
+        $this->assertTrue(AccessInvitation::query()->firstOrFail()->link_handed_over);
+
+        $person = $this->acceptAsNewPerson(parse_url(Crypt::decryptString($sealed), PHP_URL_PATH));
+
+        $this->assertNull($person->email_verified_at);
+        $this->assertTrue(AuthAuditLog::query()->where('event', InvitationAudit::ACCEPTED)->firstOrFail()->metadata['link_handed_over']);
+    }
+
+    public function test_a_successful_send_after_a_failed_one_marks_the_link_delivered(): void
+    {
+        $this->confirm();
+        $fake = Mail::getFacadeRoot();
+        Mail::swap($fake->manager);
+        $default = config('mail.default');
+        config(['mail.default' => 'brevo', 'services.brevo.dsn' => null]);
+        $this->invite('person@example.test')->assertSessionHas('invitation_mail_failed', true);
+        $invitation = AccessInvitation::query()->firstOrFail();
+
+        Mail::swap($fake);
+        config(['mail.default' => $default]);
+        $this->post("/applications/example-app/access/invitations/{$invitation->id}/resend")->assertSessionHas('invitation_mail_failed', false);
+        $this->assertFalse($invitation->fresh()->link_handed_over);
+
+        $person = $this->acceptAsNewPerson($this->lastMailedLink());
+        $this->assertNotNull($person->email_verified_at);
+        $this->assertFalse(AuthAuditLog::query()->where('event', InvitationAudit::ACCEPTED)->firstOrFail()->metadata['link_handed_over']);
+    }
+
     public function test_a_failed_email_still_answers_alike_and_shows_the_link(): void
     {
         $this->confirm();

@@ -60,6 +60,7 @@ final class AccessInvitationService
                 'email_normalized' => $normalized,
                 'token_hash' => AccessInvitation::hashToken($token),
                 'pending_key' => AccessInvitation::pendingKey($application->key, $normalized),
+                'link_handed_over' => true,
                 'inviter_id' => $inviter->getKey(),
                 'inviter_credential_version' => (int) $inviter->credential_version,
                 'access' => $access,
@@ -98,6 +99,8 @@ final class AccessInvitationService
                 'inviter_id' => $actor->getKey(),
                 'inviter_credential_version' => (int) $actor->credential_version,
                 'pending_key' => AccessInvitation::pendingKey($locked->application, $locked->email_normalized),
+                // A new token: unproven until its email is sent.
+                'link_handed_over' => true,
             ])->save();
             $this->audit->record(InvitationAudit::RESENT, $locked, $request, $actor, metadata: ['previous_inviter_id' => $previousInviter]);
             $this->auditSuperseded($request, $actor, $superseded, $locked);
@@ -261,8 +264,10 @@ final class AccessInvitationService
                     // The address was taken by an account created at the same moment.
                     throw new InvitationUnavailable('account_exists');
                 }
-                // Opening the emailed link is proof of the address.
-                $person->forceFill(['email_verified_at' => now()])->save();
+                // Opening the emailed link is proof of the address; a link handed to the inviter is not.
+                if (! $locked->link_handed_over) {
+                    $person->forceFill(['email_verified_at' => now()])->save();
+                }
                 $created = true;
             } else {
                 if (! $account instanceof User || ! $signedIn instanceof User
@@ -281,7 +286,7 @@ final class AccessInvitationService
                 }
             }
             $this->audit->record(InvitationAudit::ACCEPTED, $locked, $request, $person, $person, metadata: [
-                'account_created' => $created, 'oauth_client_ids' => $granted,
+                'account_created' => $created, 'oauth_client_ids' => $granted, 'link_handed_over' => $locked->link_handed_over,
             ]);
 
             return [$person, $created];
@@ -325,7 +330,7 @@ final class AccessInvitationService
             $sent = false;
         }
         if ($sent) {
-            $invitation->forceFill(['last_sent_at' => now(), 'send_count' => $invitation->send_count + 1])->save();
+            $invitation->forceFill(['last_sent_at' => now(), 'send_count' => $invitation->send_count + 1, 'link_handed_over' => false])->save();
         }
         $this->audit->record(InvitationAudit::SENT, $invitation, $request, $actor, succeeded: $sent);
         if (! $sent) {
