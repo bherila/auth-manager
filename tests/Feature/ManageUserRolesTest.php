@@ -43,4 +43,16 @@ class ManageUserRolesTest extends TestCase
         $this->assertSame(['user'], $user->fresh()->roleNames());
         $this->assertSame(0, AuthAuditLog::query()->where('event', 'user_roles_changed')->count());
     }
+
+    public function test_grants_the_invitation_role_per_application_or_for_every_application(): void
+    {
+        $user = User::factory()->create(['user_role' => 'user']);
+
+        $this->artisan('auth-manager:user-roles', ['user' => (string) $user->id, '--add' => ['access-invite:example-app', 'access-invite:*']])
+            ->assertExitCode(0);
+        $this->artisan('auth-manager:user-roles', ['user' => (string) $user->id, '--add' => ['access-invite:']])->assertExitCode(2);
+        $this->artisan('auth-manager:user-roles', ['user' => (string) $user->id, '--add' => ['access-invites:example-app']])->assertExitCode(2);
+
+        $this->assertSame(['user', 'access-invite:example-app', 'access-invite:*'], $user->fresh()->roleNames());
+    }
 }
