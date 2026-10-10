@@ -212,6 +212,50 @@ class ApplicationAccessV3UiTest extends TestCase
         $this->assertArrayNotHasKey('query', $this->lastSent('subjects'));
     }
 
+    /** Codex review on #77: a write returns to the page with the searches that were in force. */
+    public function test_write_forms_carry_the_searches_in_force_and_return_to_them(): void
+    {
+        $page = $this->get('/applications/example-app/access?'.http_build_query(['subject' => 'subject-example', 'subject_query' => 'Example', 'workspace_query' => 'Workspace']))->assertOk();
+        foreach (['update', 'remove'] as $route) {
+            preg_match('/<form method="post" action="[^"]*\/access\/'.$route.'".*?<\/form>/s', $page->getContent(), $form);
+            $this->assertStringContainsString('<input type="hidden" name="subject_query" value="Example">', $form[0], $route);
+            $this->assertStringContainsString('<input type="hidden" name="workspace_query" value="Workspace">', $form[0], $route);
+        }
+
+        $this->confirm();
+        $searches = ['subject_query' => 'Example', 'workspace_query' => 'Workspace'];
+        $back = '/applications/example-app/access?'.http_build_query(['subject' => 'subject-example', ...$searches]);
+        $update = ['subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'owner']], 'operation_id' => DelegatedContract::operationId()];
+        $this->post('/applications/example-app/access/update', [...$update, ...$searches])->assertRedirect($back)->assertSessionHas('access_updated', true);
+        $this->post('/applications/example-app/access/remove', [...$this->removal(), ...$searches])->assertRedirect($back)->assertSessionHas('access_notice');
+        // A refusal returns to the same filtered page.
+        $this->v3WriteRefusal = [409, 'revision_conflict'];
+        $this->post('/applications/example-app/access/update', [...$update, 'operation_id' => DelegatedContract::operationId(), ...$searches])
+            ->assertRedirect($back)->assertSessionHas('access_failure');
+        // A search the contract would refuse is dropped, never sent on or refused.
+        $this->v3WriteRefusal = null;
+        $this->post('/applications/example-app/access/update', [...$update, 'operation_id' => DelegatedContract::operationId(), 'subject_query' => 'x', 'workspace_query' => 'Workspace'])
+            ->assertRedirect('/applications/example-app/access?'.http_build_query(['subject' => 'subject-example', 'workspace_query' => 'Workspace']))
+            ->assertSessionHas('access_updated', true);
+    }
+
+    public function test_provisioning_forms_carry_the_searches_in_force_and_return_to_them(): void
+    {
+        $holder = User::factory()->create(['name' => 'Example Holder', 'user_role' => 'user']);
+        $this->grant($holder);
+        $this->v3Provisioned = false;
+        $page = $this->get('/applications/example-app/access?'.http_build_query(['subject' => (string) $holder->id, 'subject_query' => 'Example']))->assertOk();
+        preg_match('/<form method="post" action="[^"]*\/access\/provision".*?<\/form>/s', $page->getContent(), $form);
+        $this->assertStringContainsString('<input type="hidden" name="subject_query" value="Example">', $form[0]);
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/provision', [
+            'subject' => (string) $holder->id, 'new_workspace' => 'workspace-a', 'new_role' => 'sender',
+            'operation_id' => DelegatedContract::operationId(), 'subject_query' => 'Example',
+        ])->assertRedirect('/applications/example-app/access?'.http_build_query(['subject' => (string) $holder->id, 'subject_query' => 'Example']));
+    }
+
     public function test_a_search_the_contract_would_refuse_is_never_sent(): void
     {
         foreach (['x', str_repeat('y', 101)] as $query) {

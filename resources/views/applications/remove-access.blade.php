@@ -6,6 +6,7 @@
     <form method="post" action="{{ route('applications.access.remove', $application->key) }}" class="space-y-3">
         @csrf
         @include('applications.operation-id')
+        @include('applications.search-fields')
         <input type="hidden" name="subject" value="{{ $subject }}">
         <input type="hidden" name="expected_revision" value="{{ $state['revision'] }}">
         <label class="flex items-start gap-2">

@@ -80,6 +80,21 @@ class ApplicationAccessController extends Controller
         ]);
     }
 
+    /**
+     * The version 3 searches a write form carried back, so the page it returns to keeps them in force.
+     * Only values the contract accepts are kept; anything else is dropped rather than refused, since a
+     * stale filter must never block or alter the write itself.
+     *
+     * @return array{subject_query?: string, workspace_query?: string}
+     */
+    public static function keptSearches(Request $request): array
+    {
+        return array_filter(
+            ['subject_query' => $request->input('subject_query'), 'workspace_query' => $request->input('workspace_query')],
+            fn (mixed $query): bool => DelegatedContract::validQuery($query),
+        );
+    }
+
     /** A search the contract accepts: 2 to 100 characters without control characters. */
     private function searchRule(): Closure
     {
@@ -147,7 +162,7 @@ class ApplicationAccessController extends Controller
             'expected_revision' => ['required', 'string', 'max:128'],
             'confirm_removal' => ['accepted'],
         ], ['confirm_removal.accepted' => 'Confirm that you understand what removing this account\'s access does.']);
-        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
+        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
         $operationId = $this->operationId($request, $application, $back);
 
         $this->transport->authorizeWrite($request, $application);
@@ -190,7 +205,7 @@ class ApplicationAccessController extends Controller
             'new_workspace' => ['nullable', 'string', 'max:191'],
             'new_role' => ['nullable', 'string', 'max:64', 'required_with:new_workspace'],
         ]);
-        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
+        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
         $operationId = $this->operationId($request, $application, $back);
 
         $workspaces = [];
@@ -261,8 +276,8 @@ class ApplicationAccessController extends Controller
             ]),
         ]);
         $back = $byEmail
-            ? route('applications.access', ['application' => $application])
-            : route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
+            ? route('applications.access', ['application' => $application, ...self::keptSearches($request)])
+            : route('applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
         $quietly = fn (): RedirectResponse => redirect()->to($back)->with('access_notice', self::EMAIL_PROVISION_NOTICE);
         // Checked before anybody is looked up: a stale form is refused alike whoever it names.
         $operationId = $this->operationId($request, $application, $back);

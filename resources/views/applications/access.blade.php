@@ -119,6 +119,7 @@
             <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
                 @csrf
                 @include('applications.operation-id')
+                @include('applications.search-fields')
                 <label class="block">Email <input type="email" name="email" required maxlength="255" autocomplete="off" class="rounded border bg-background p-2"></label>
                 @if($accountOnly)
                     @include('applications.provision-admin-choice')
@@ -203,6 +204,7 @@
                     <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
                         @csrf
                         @include('applications.operation-id')
+                        @include('applications.search-fields')
                         <input type="hidden" name="subject" value="{{ $subject }}">
                         @if($accountOnly)
                             @include('applications.provision-admin-choice')
@@ -243,6 +245,7 @@
                 <form method="post" action="{{ route('applications.access.update', $application->key) }}" class="space-y-4">
                     @csrf
                     @include('applications.operation-id')
+                    @include('applications.search-fields')
                     <input type="hidden" name="subject" value="{{ $subject }}">
                     <input type="hidden" name="expected_revision" value="{{ $state['revision'] }}">
                     @if($state['allowed_edits']['application_admin'] && $capabilities['controls']['application_admin'])

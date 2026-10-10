@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Controllers\ApplicationAccessController;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use Closure;
@@ -41,6 +42,7 @@ class ApplicationAccessResponse
             return redirect()->route('applications.access', array_filter([
                 'application' => $request->route('application'),
                 'subject' => is_string($subject) && $subject !== '' ? $subject : null,
+                ...ApplicationAccessController::keptSearches($request),
             ]))->with('access_failure', $message);
         }
 
