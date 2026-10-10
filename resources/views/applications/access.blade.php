@@ -4,6 +4,9 @@
 @php
     $roleLabels = $version >= 2 ? array_column($capabilities['controls']['workspace_roles'], 'label', 'id') : [];
     $workspaceLabels = array_column($workspaces['workspaces'], 'label', 'id');
+    // Version 3 extras the application may send: observations about accounts, and role descriptions.
+    $listedMetadata = $version >= 3 ? \App\Support\DelegatedMetadata::reported($subjects['subjects']) : [];
+    $describedRoles = $version >= 3 ? array_values(array_filter($capabilities['controls']['workspace_roles'], fn (array $role): bool => isset($role['description']))) : [];
 @endphp
 <main class="mx-auto max-w-3xl space-y-6 px-6 py-10">
     <a class="underline" href="/">Back to your account</a>
@@ -39,12 +42,19 @@
             @else
                 <table class="w-full text-left">
                     <thead>
-                        <tr><th scope="col" class="p-2">Account</th><th scope="col" class="p-2"><span class="sr-only">Action</span></th></tr>
+                        <tr>
+                            <th scope="col" class="p-2">Account</th>
+                            @foreach($listedMetadata as $label)<th scope="col" class="p-2">{{ $label }}</th>@endforeach
+                            <th scope="col" class="p-2"><span class="sr-only">Action</span></th>
+                        </tr>
                     </thead>
                     <tbody>
                         @foreach($subjects['subjects'] as $candidate)
                             <tr class="border-t" @if($candidate['subject'] === $subject) aria-current="true" @endif>
                                 <td class="p-2">{{ $candidate['label'] }}</td>
+                                @foreach($listedMetadata as $field => $label)
+                                    <td class="p-2">@include('applications.metadata-value', ['value' => $candidate[$field] ?? null])</td>
+                                @endforeach
                                 <td class="p-2"><a class="underline" href="{{ route('applications.access', ['application' => $application->key, 'subject' => $candidate['subject'], ...$searches]) }}">Review access</a></td>
                             </tr>
                         @endforeach
@@ -90,6 +100,16 @@
                 @endisset
             </form>
             <p class="text-sm">{{ isset($searches['workspace_query']) ? 'Workspace choices on this page list only workspaces matching this search.' : 'Narrow the workspace choices on this page by name.' }}</p>
+        </section>
+    @endif
+    @if($describedRoles !== [])
+        <section class="space-y-3 rounded border p-4">
+            <h2 class="text-lg font-semibold">Roles in {{ $application->name }}</h2>
+            <dl class="space-y-2">
+                @foreach($describedRoles as $role)
+                    <div><dt class="font-semibold">{{ $role['label'] }}</dt><dd>{{ $role['description'] }}</dd></div>
+                @endforeach
+            </dl>
         </section>
     @endif
     @if($provisionByEmail)
@@ -168,6 +188,15 @@
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Current access</h2>
             <p>Account reference: {{ $subject }}</p>
+            @php($stateMetadata = $version >= 3 ? \App\Support\DelegatedMetadata::reported([$state]) : [])
+            @if($stateMetadata !== [])
+                <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                    @foreach($stateMetadata as $field => $label)
+                        <dt>{{ $label }}</dt><dd>@include('applications.metadata-value', ['value' => $state[$field]])</dd>
+                    @endforeach
+                </dl>
+                <p class="text-sm">As the application reports them; they do not affect access.</p>
+            @endif
             @if(!$state['provisioned'])
                 <p>This account has not been provisioned in the application. A sign-in grant does not create an application account.</p>
                 @if($version >= 2 && $state['allowed_edits']['provision'] && $writes && $directory !== null)

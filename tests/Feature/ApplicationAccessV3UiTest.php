@@ -339,6 +339,48 @@ class ApplicationAccessV3UiTest extends TestCase
         $this->assertNothingRemoved();
     }
 
+    public function test_the_account_list_shows_the_observations_the_application_reports(): void
+    {
+        $this->v3Subjects = [
+            ['subject' => 'subject-1', 'label' => 'Example One', 'provisioned_at' => '2026-10-01T09:30:00Z', 'last_seen_at' => '2026-10-09T18:05:00+02:00'],
+            ['subject' => 'subject-2', 'label' => 'Example Two', 'provisioned_at' => '2026-10-02T00:00:00Z', 'last_seen_at' => null],
+        ];
+
+        $this->get('/applications/example-app/access')->assertOk()
+            ->assertSeeInOrder(['<th scope="col" class="p-2">Account</th>', '<th scope="col" class="p-2">Added</th>', '<th scope="col" class="p-2">Last seen</th>'], false)
+            ->assertDontSee('First sign-in')
+            ->assertSee('<time datetime="2026-10-01T09:30:00Z">2026-10-01 09:30 UTC</time>', false)
+            ->assertSee('<time datetime="2026-10-09T18:05:00+02:00">2026-10-09 16:05 UTC</time>', false)
+            ->assertSee('Not recorded');
+
+        // No observations reported: no columns for them.
+        $this->v3Subjects = [['subject' => 'subject-1', 'label' => 'Example One']];
+        $this->get('/applications/example-app/access')->assertOk()->assertDontSee('Added')->assertDontSee('Last seen');
+    }
+
+    public function test_an_accounts_detail_shows_the_observations_the_application_reports(): void
+    {
+        $this->v3StateMetadata = ['provisioned_at' => '2026-10-01T09:30:00Z', 'first_sign_in_at' => null, 'last_seen_at' => '2026-10-09T16:05:00.250Z'];
+
+        $this->get('/applications/example-app/access?subject=subject-example')->assertOk()
+            ->assertSeeInOrder(['Added', '2026-10-01 09:30 UTC', 'First sign-in', 'Not recorded', 'Last seen', '2026-10-09 16:05 UTC'])
+            ->assertSee('they do not affect access');
+
+        $this->v3StateMetadata = [];
+        $this->get('/applications/example-app/access?subject=subject-example')->assertOk()->assertDontSee('First sign-in')->assertDontSee('they do not affect access');
+    }
+
+    public function test_role_descriptions_are_shown_where_the_application_gives_them(): void
+    {
+        $this->get('/applications/example-app/access')->assertOk()
+            ->assertSee('Roles in Example Application')
+            ->assertSee('<dt class="font-semibold">Sender</dt><dd>Sends documents for signature.</dd>', false)
+            ->assertDontSee('<dt class="font-semibold">Owner</dt>', false);
+
+        $this->v3Roles = [['id' => 'owner', 'label' => 'Owner']];
+        $this->get('/applications/example-app/access')->assertOk()->assertDontSee('Roles in Example Application');
+    }
+
     /** @return array<string, string> */
     private function removal(?string $operationId = null): array
     {
