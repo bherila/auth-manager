@@ -93,15 +93,18 @@ final class DelegatedAccessTransport
             }
             // A version 3 write whose outcome is uncertain is looked up once by its operation id,
             // never sent again.
+            $byReceipt = [];
             if ($exception->outcome === 'unknown_outcome' && $version === DelegatedContract::VERSION_3) {
                 try {
                     $result = $this->checkReceipt($entry, $signing, $actor, $application, $payload, $correlation, $via);
                 } catch (DelegatedAccessException $settled) {
                     $exception = $settled;
+                    // A stored refusal settles the write as surely as a stored success does.
+                    $byReceipt = $settled->outcome === self::STILL_UNKNOWN ? [] : ['confirmed_by' => 'receipt'];
                 }
             }
             if (! isset($result)) {
-                $this->audit($actor, $payload, $correlation, $exception->outcome, $via);
+                $this->audit($actor, $payload, $correlation, $exception->outcome, $via, $byReceipt);
                 throw $exception;
             }
             $this->audit($actor, $payload, $correlation, 'succeeded', $via, ['confirmed_by' => 'receipt']);

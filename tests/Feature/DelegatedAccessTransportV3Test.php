@@ -227,6 +227,8 @@ class DelegatedAccessTransportV3Test extends TestCase
         ], $this->audits());
         $check = AuthAuditLog::query()->where('event', 'delegated_access_receipt_check')->first()->metadata;
         $this->assertSame(['revision_conflict', 409, $this->operationId], [$check['refusal'], $check['refusal_status'], $check['operation_id']]);
+        // Settled by the receipt, not by an immediate answer: the result record says so (Codex review on #77).
+        $this->assertSame('receipt', AuthAuditLog::query()->where('event', 'delegated_access_update_result')->first()->metadata['confirmed_by'] ?? null);
     }
 
     public function test_an_uncertain_write_without_a_usable_receipt_stays_unknown_and_is_never_sent_again(): void
@@ -251,6 +253,7 @@ class DelegatedAccessTransportV3Test extends TestCase
                 ['delegated_access_receipt_check', 'unknown', false],
                 ['delegated_access_update_result', DelegatedAccessTransport::STILL_UNKNOWN, false],
             ], $this->audits(), $case);
+            $this->assertArrayNotHasKey('confirmed_by', AuthAuditLog::query()->where('event', 'delegated_access_update_result')->first()->metadata, $case);
         }
     }
 
