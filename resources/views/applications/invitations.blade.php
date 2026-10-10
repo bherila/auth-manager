@@ -13,11 +13,11 @@
 <section class="space-y-3 rounded border p-4" aria-labelledby="invitations-heading">
     <h2 id="invitations-heading" class="text-lg font-semibold">Invitations</h2>
     @if(session('invitation_notice'))<p role="status" class="rounded border p-3">{{ session('invitation_notice') }}</p>@endif
-    @if(session('invitation_link'))
+    @if($invitations['link'])
         <div class="space-y-2 rounded border p-3">
             <p role="alert">The invitation email could not be sent. Share this link with the person yourself, privately: whoever opens it can accept the invitation.</p>
             <label class="block">Invitation link, shown only now.
-                <input type="text" readonly value="{{ session('invitation_link') }}" class="mt-1 w-full rounded border bg-background p-2 font-mono text-sm">
+                <input type="text" readonly value="{{ $invitations['link'] }}" class="mt-1 w-full rounded border bg-background p-2 font-mono text-sm">
             </label>
             <p class="text-sm">It works once, for the invited address only, and expires in {{ config('delegated-access.invitations.expires_after_days', 7) }} days.</p>
         </div>

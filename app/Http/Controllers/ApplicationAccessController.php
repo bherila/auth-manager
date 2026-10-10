@@ -13,10 +13,12 @@ use App\Support\RelyingApplications;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use Closure;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Validation\ValidationException;
 
 class ApplicationAccessController extends Controller
@@ -332,6 +334,20 @@ class ApplicationAccessController extends Controller
         return $capabilities;
     }
 
+    /** The invitation link flashed, encrypted, after an email failed; null when absent or unreadable. */
+    private function flashedLink(Request $request): ?string
+    {
+        $sealed = $request->session()->get('invitation_link');
+        if (! is_string($sealed)) {
+            return null;
+        }
+        try {
+            return Crypt::decryptString($sealed);
+        } catch (DecryptException) {
+            return null;
+        }
+    }
+
     private function page(Request $request, string $application, ?string $subject = null,
         ?array $state = null, ?string $subjectCursor = null, ?string $workspaceCursor = null,
         bool $saved = false, string $directorySearch = '', int $directoryPage = 1): View
@@ -367,7 +383,7 @@ class ApplicationAccessController extends Controller
             'subject' => $subject, 'state' => $state, 'saved' => $saved,
             'directory' => $directory, 'directorySearch' => $directorySearch,
             'writes' => $writes, 'provisionByEmail' => $provisioning && $writes && $directory === null,
-            'invitations' => $this->invitations($actor, $application, $provisioning),
+            'invitations' => $this->invitations($request, $actor, $application, $provisioning),
         ]);
     }
 
@@ -375,9 +391,9 @@ class ApplicationAccessController extends Controller
      * The invitations panel, for holders of `access-view` or `access-manage` here; null otherwise or
      * while invitations are switched off. Only this application's invitations are listed.
      *
-     * @return array{list: Collection<int, AccessInvitation>, can_invite: bool, form: bool, unavailable: string|null}|null
+     * @return array{list: Collection<int, AccessInvitation>, can_invite: bool, form: bool, link: string|null, unavailable: string|null}|null
      */
-    private function invitations(User $actor, string $application, bool $provisioning): ?array
+    private function invitations(Request $request, User $actor, string $application, bool $provisioning): ?array
     {
         if (! $this->permissions->invitationsEnabled() || ! $this->permissions->canSeeInvitations($actor, $application)) {
             return null;
@@ -396,7 +412,7 @@ class ApplicationAccessController extends Controller
             ->concat(AccessInvitation::query()->where('application', $application)->whereNot($pending)->with('inviter')->latest('id')->limit(50)->get());
 
         return [
-            'list' => $list,
+            'list' => $list, 'link' => $this->flashedLink($request),
             'can_invite' => $canInvite, 'form' => $canInvite && $unavailable === null, 'unavailable' => $canInvite ? $unavailable : null,
         ];
     }

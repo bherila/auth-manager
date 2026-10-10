@@ -20,6 +20,7 @@ use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
@@ -748,11 +749,17 @@ class AccessInvitationTest extends TestCase
         Mail::swap(Mail::getFacadeRoot()->manager);
         config(['mail.default' => 'brevo', 'services.brevo.dsn' => null]);
 
-        $this->invite('person@example.test')
+        $response = $this->invite('person@example.test')
             ->assertSessionHas('invitation_notice', 'Invitation sent.')
             ->assertSessionHas('invitation_mail_failed', true)
             ->assertSessionHas('invitation_link');
-        $this->get('/applications/example-app/access')->assertSee('could not be sent')->assertSee('/invitations/', false);
+        // The session never holds the raw token: only an encryption of the link.
+        $sealed = $response->baseResponse->getSession()->get('invitation_link');
+        $link = Crypt::decryptString($sealed);
+        $token = basename($link);
+        $this->assertSame(hash('sha256', $token), AccessInvitation::query()->firstOrFail()->token_hash);
+        $this->assertStringNotContainsString($token, json_encode($response->baseResponse->getSession()->all()));
+        $this->get('/applications/example-app/access')->assertSee('could not be sent')->assertSee($link);
         $this->assertDatabaseHas('auth_audit_log', ['event' => InvitationAudit::SENT, 'succeeded' => false]);
         $this->assertDatabaseHas('auth_audit_log', ['event' => InvitationAudit::LINK_SHOWN]);
         $this->assertDatabaseHas('auth_audit_log', ['event' => InvitationAudit::CREATED, 'acting_user_id' => $this->inviter->id]);

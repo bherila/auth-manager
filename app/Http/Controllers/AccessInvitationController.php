@@ -12,6 +12,7 @@ use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -144,7 +145,8 @@ class AccessInvitationController extends Controller
         return redirect()->to($back)->with([
             'invitation_notice' => self::SENT_NOTICE,
             'invitation_mail_failed' => ! $issued->sent,
-            ...($issued->sent ? [] : ['invitation_link' => $issued->link]),
+            // Encrypted: the session payload may be stored as plain text, and the link is a bearer token.
+            ...($issued->sent ? [] : ['invitation_link' => Crypt::encryptString($issued->link)]),
         ]);
     }
 }
