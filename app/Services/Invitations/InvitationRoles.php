@@ -76,7 +76,10 @@ final class InvitationRoles
         $notApplied = fn (string $outcome): array => [AccessInvitation::ROLES_NOT_APPLIED, $outcome, null];
 
         $inviter = $invitation->inviter_id !== null ? User::query()->find($invitation->inviter_id) : null;
-        if (! $inviter instanceof User || ! $inviter->canLogin() || ! $this->permissions->invitationsEnabled()
+        $recorded = $invitation->inviter_credential_version;
+        // A credential reset or revocation since the invitation was created voids its roles.
+        if (! $inviter instanceof User || ! $inviter->canLogin() || ! is_int($recorded) || (int) $inviter->credential_version !== $recorded
+            || ! $this->permissions->invitationsEnabled()
             || ! $this->permissions->canInvite($inviter, $application) || ! $this->permissions->writesEnabled($application)) {
             return $notApplied('inviter_not_authorized');
         }
@@ -85,14 +88,14 @@ final class InvitationRoles
         }
 
         $access = $this->invitedAccess($invitation->access);
-        $capabilities = $this->transport->sendForInvitation($inviter, $application, ['operation' => 'capabilities']);
+        $capabilities = $this->transport->sendForInvitation($inviter, $recorded, $application, ['operation' => 'capabilities']);
         if ($access === null || ! $this->contract->rolesAreAdvertised($capabilities, $access)
             || ($access['application_admin'] && ($capabilities['controls']['application_admin'] ?? false) !== true)) {
             return $notApplied('roles_not_offered');
         }
 
         $subject = (string) $person->getKey();
-        $state = $this->transport->sendForInvitation($inviter, $application, ['operation' => 'read', 'subject' => $subject]);
+        $state = $this->transport->sendForInvitation($inviter, $recorded, $application, ['operation' => 'read', 'subject' => $subject]);
         if (! $this->contract->fitsCapabilities($capabilities, $state)) {
             return $notApplied('invalid_response');
         }
@@ -118,7 +121,7 @@ final class InvitationRoles
         }
 
         $correlation = bin2hex(random_bytes(32));
-        $answer = $this->transport->sendForInvitation($inviter, $application, $update, $correlation);
+        $answer = $this->transport->sendForInvitation($inviter, $recorded, $application, $update, $correlation);
         if (! $this->contract->fitsCapabilities($capabilities, $answer)) {
             return [AccessInvitation::ROLES_UNKNOWN, 'unknown_outcome', $correlation];
         }

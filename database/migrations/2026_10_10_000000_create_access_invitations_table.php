@@ -21,6 +21,8 @@ return new class extends Migration
             $table->string('email_normalized');
             $table->char('token_hash', 64)->unique();
             $table->foreignId('inviter_id')->nullable()->constrained('users')->nullOnDelete();
+            // The inviter's credential generation when they passed the write gate; a reset since voids the roles.
+            $table->unsignedInteger('inviter_credential_version');
             $table->json('access');
             $table->timestamp('expires_at');
             $table->timestamp('last_sent_at')->nullable();

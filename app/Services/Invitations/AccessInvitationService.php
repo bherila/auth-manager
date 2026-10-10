@@ -56,6 +56,7 @@ final class AccessInvitationService
                 'email_normalized' => AccessInvitation::normalizeEmail($email),
                 'token_hash' => AccessInvitation::hashToken($token),
                 'inviter_id' => $inviter->getKey(),
+                'inviter_credential_version' => (int) $inviter->credential_version,
                 'access' => $access,
                 'expires_at' => now()->addDays($this->expiresAfterDays()),
             ]);
@@ -79,11 +80,15 @@ final class AccessInvitationService
             if (! in_array($locked->status(), [AccessInvitation::STATUS_PENDING, AccessInvitation::STATUS_EXPIRED], true)) {
                 throw ValidationException::withMessages(['invitation' => 'Only a pending or expired invitation can be sent again.']);
             }
+            $previousInviter = $locked->inviter_id;
+            // Whoever resends passed the full write gate just now, so the roles are theirs to give.
             $locked->forceFill([
                 'token_hash' => AccessInvitation::hashToken($token),
                 'expires_at' => now()->addDays($this->expiresAfterDays()),
+                'inviter_id' => $actor->getKey(),
+                'inviter_credential_version' => (int) $actor->credential_version,
             ])->save();
-            $this->audit->record(InvitationAudit::RESENT, $locked, $request, $actor);
+            $this->audit->record(InvitationAudit::RESENT, $locked, $request, $actor, metadata: ['previous_inviter_id' => $previousInviter]);
             $this->supersede($request, $actor, $locked);
 
             return $locked;

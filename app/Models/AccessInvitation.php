@@ -44,6 +44,7 @@ class AccessInvitation extends Model
             'accepted_at' => 'datetime',
             'roles_checked_at' => 'datetime',
             'send_count' => 'integer',
+            'inviter_credential_version' => 'integer',
         ];
     }
 

@@ -521,6 +521,49 @@ class AccessInvitationTest extends TestCase
         $this->assertSame([], $this->updates());
     }
 
+    public function test_a_credential_reset_of_the_inviter_voids_the_roles_but_the_person_is_admitted(): void
+    {
+        $this->confirm();
+        $link = $this->inviteAndGetLink('person@example.test');
+        $this->assertSame(0, AccessInvitation::query()->firstOrFail()->inviter_credential_version);
+        $this->inviter->forceFill(['credential_version' => 1])->save();
+        $before = count(Http::recorded());
+
+        $person = $this->acceptAsNewPerson($link);
+
+        $this->assertCount($before, Http::recorded(), 'No application call is made for an inviter whose credentials changed.');
+        $this->assertTrue(DB::table('oauth_client_grants')->where('subject', $person->id)->where('oauth_client_id', $this->clients['example-app']->id)->exists());
+        $invitation = AccessInvitation::query()->firstOrFail();
+        $this->assertSame(AccessInvitation::ROLES_NOT_APPLIED, $invitation->roles_status);
+        $this->assertSame('inviter_not_authorized', $invitation->roles_outcome);
+
+        // The transport refuses the stale generation on its own too, before sending anything.
+        try {
+            app(DelegatedAccessTransport::class)->sendForInvitation($this->inviter->fresh(), 0, 'example-app', ['operation' => 'capabilities']);
+            $this->fail('A stale credential generation must be refused.');
+        } catch (DelegatedAccessException $refusal) {
+            $this->assertSame('not_authorized', $refusal->outcome);
+        }
+        $this->assertCount($before, Http::recorded());
+    }
+
+    public function test_resending_records_the_resenders_credential_generation_and_makes_them_the_inviter(): void
+    {
+        $this->confirm();
+        $this->inviteAndGetLink('person@example.test');
+        $invitation = AccessInvitation::query()->firstOrFail();
+        $this->inviter->forceFill(['credential_version' => 3])->save();
+        $this->signIn($this->inviter->fresh());
+        $this->confirm();
+
+        $this->post("/applications/example-app/access/invitations/{$invitation->id}/resend")->assertSessionHas('invitation_notice');
+        $link = parse_url(Mail::sent(AccessInvitationMail::class)->last()->link, PHP_URL_PATH);
+
+        $this->assertSame(3, $invitation->fresh()->inviter_credential_version);
+        $this->acceptAsNewPerson($link);
+        $this->assertSame(AccessInvitation::ROLES_APPLIED, AccessInvitation::query()->firstOrFail()->roles_status);
+    }
+
     public function test_roles_are_not_applied_when_the_application_refuses(): void
     {
         $this->confirm();
@@ -561,7 +604,7 @@ class AccessInvitationTest extends TestCase
         $before = count(Http::recorded());
 
         try {
-            app(DelegatedAccessTransport::class)->sendForInvitation($this->inviter, 'example-app', ['operation' => 'capabilities']);
+            app(DelegatedAccessTransport::class)->sendForInvitation($this->inviter, (int) $this->inviter->credential_version, 'example-app', ['operation' => 'capabilities']);
             $this->fail('The invitation path must refuse an inviter without access-invite.');
         } catch (DelegatedAccessException $refusal) {
             $this->assertSame('not_authorized', $refusal->outcome);

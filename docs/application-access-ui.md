@@ -103,7 +103,7 @@ page says so, and the link can be shared another way.
 
 **The link.** 32 random bytes, stored only as a SHA-256 hash. It works once, expires after seven
 days, and can be revoked. **Send again with a new link** replaces the token, so the old link stops
-working. Invitations are rate-limited to 20 per inviter per hour and 5 per recipient address per
+working, and makes whoever resends it the inviter. Invitations are rate-limited to 20 per inviter per hour and 5 per recipient address per
 day, counted the same whether or not the address has an account. Opening a link is limited per IP.
 
 **Accepting.** The page names the application and the invited address.
@@ -118,7 +118,7 @@ Acceptance, in order: the invitation is marked used under a lock, the person is 
 application's sign-in clients, and then the access is applied.
 
 **Applying the access.** As if the inviter made the change at that moment. The provider re-checks
-that the inviter is still active, still holds `access-invite` and `access-manage` for the
+that the inviter is still active, has had no credential reset or revocation since creating (or last resending) the invitation, still holds `access-invite` and `access-manage` for the
 application, and that writes are enabled (the credential check was required when the invitation
 was created). It then calls the application as the inviter, without the inviter's session,
 through a narrow path that only invitations use. An account the application has not seen is

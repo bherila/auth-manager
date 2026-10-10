@@ -42,14 +42,16 @@ final class DelegatedAccessTransport
      * here reads a session, so it cannot be reached by presenting one. The application then decides
      * with its own rules, as it does for any actor.
      *
+     * @param  int  $credentialVersion  the inviter's credential generation recorded with the invitation;
+     *                                  a reset or revocation since then refuses
      * @param  string|null  $correlation  64 lowercase hex characters to identify an update by, so its
      *                                    caller can record it; generated when null
      *
      * @throws DelegatedAccessException
      */
-    public function sendForInvitation(User $inviter, string $application, array $operation, ?string $correlation = null): array
+    public function sendForInvitation(User $inviter, int $credentialVersion, string $application, array $operation, ?string $correlation = null): array
     {
-        return $this->dispatch($application, $operation, fn (bool $write): User => $this->inviter($inviter, $application), $correlation, 'invitation');
+        return $this->dispatch($application, $operation, fn (bool $write): User => $this->inviter($inviter, $credentialVersion, $application), $correlation, 'invitation');
     }
 
     private function dispatch(string $application, array $operation, Closure $resolveActor, ?string $correlation = null, ?string $via = null): array
@@ -288,10 +290,10 @@ final class DelegatedAccessTransport
     }
 
     /** The inviter, re-checked now: {@see sendForInvitation()}. */
-    private function inviter(User $inviter, string $application): User
+    private function inviter(User $inviter, int $credentialVersion, string $application): User
     {
         $actor = User::query()->find($inviter->getKey());
-        if (! $actor instanceof User || ! $actor->canLogin()) {
+        if (! $actor instanceof User || ! $actor->canLogin() || (int) $actor->credential_version !== $credentialVersion) {
             throw new DelegatedAccessException('not_authorized', 403);
         }
         $permissions = app(DelegatedAccessPermissions::class);
