@@ -181,7 +181,9 @@ AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS=example-app|https://app.example.test/
   `example-app|https://app.example.test/application-access|2,other-app|https://other.example.test/application-access|1`.
   Each key must match the registry key format and appear once. Each endpoint must be the
   application's exact HTTPS delegated access URL with no credentials, query or fragment.
-  The version is `1` or `2`, as agreed with the application; it is never negotiated. Empty
+  The version is `1`, `2` or `3`, as agreed with the application; it is never negotiated.
+  Switching an application to `3` is a coordinated step: see
+  [Move an application to contract version 3](#move-an-application-to-contract-version-3). Empty
   or unset means no applications.
 
 - `WRITES_APPLICATIONS` is the comma-separated list of application keys whose writes are on.
@@ -269,6 +271,28 @@ If the old private key may be compromised, remove the old public key from that a
 first (it then refuses delegated calls until step 3), then continue from step 3. Other
 applications are unaffected. If the instance-wide fallback key may be compromised, remove it
 from every application that still trusts it.
+
+### Move an application to contract version 3
+
+An application on `bherila/auth-laravel` 0.21 or later serves contract version 3 only, and the
+provider speaks to it in the version its `APPLICATIONS` entry names. Move one application at a time:
+
+1. Deploy this provider release first. It still speaks version 2 to every entry that says `2`.
+2. Before upgrading the application, publish and apply the package's delegated access migrations
+   again (`php artisan vendor:publish --tag=bherila-auth-delegated-access-migrations`, then the
+   normal reviewed migration). Version 3 adds the receipts table; writes are refused until it
+   exists. Schedule `bherila-auth:prune-delegated-nonces` daily, which also prunes receipts.
+3. Deploy the application with the package upgrade and its version 3 adapter (search, `remove`,
+   metadata). From then until step 4, the provider's version 2 calls to it are refused as
+   `invalid_request`, so keep that window short and announce it to its managers.
+4. Change that application's entry from `|2` to `|3`, check it and rebuild the configuration
+   cache (above), and reload the PHP workers.
+5. Probe it as a manager (section 7): the access page reads, **Search accounts** finds a known
+   account, saving from a stale form is refused as changed since it was opened, and submitting the
+   same form twice is answered once. Optionally remove access from a test account and give it back.
+
+To step back, set the entry to `|2` again only together with an application release that serves
+version 2; an application on 0.21 cannot answer version 2.
 
 ## 6. Delegated access: the application
 
