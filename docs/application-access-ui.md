@@ -146,7 +146,9 @@ identity deletes the invitations sent to them.
 
 **Mail.** `MAIL_MAILER=hybrid` sends through Brevo's API (`MAILER_DSN=brevo+api://KEY@default`)
 and fails over to the SMTP settings; `MAIL_MAILER=brevo` uses the API alone. The local default
-stays `log`, which delivers nothing.
+stays `log`, which delivers nothing: invitations are refused, and the form says why, while the
+default mailer is `log` or `array` (or a failover or round-robin mailer that includes one), since
+either would report an invitation sent that nobody received and `log` writes its link to the log.
 
 **Enabling, per instance:**
 

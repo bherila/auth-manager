@@ -106,6 +106,8 @@ class AccessInvitationTest extends TestCase
         $this->grant($this->inviter, 'example-app');
         Http::preventStrayRequests();
         $this->fakeApplications();
+        // A delivering mailer name: invitations refuse `log` and `array`. Mail::fake() intercepts sending.
+        config(['mail.default' => 'smtp']);
         Mail::fake();
         $this->signIn($this->inviter);
     }
@@ -879,6 +881,26 @@ class AccessInvitationTest extends TestCase
             ->assertSee('first-recipient@example.test')->assertSee('second-recipient@example.test');
         $this->post("/applications/example-app/access/invitations/{$second->id}/revoke")->assertSessionHas('invitation_notice');
         $this->assertSame(AccessInvitation::STATUS_REVOKED, $second->fresh()->status());
+    }
+
+    public function test_invitations_are_refused_while_the_mailer_does_not_deliver(): void
+    {
+        $this->confirm();
+        $this->invite('person@example.test')->assertSessionHas('invitation_notice');
+        $invitation = AccessInvitation::query()->firstOrFail();
+        $hash = $invitation->token_hash;
+
+        foreach (['log', 'array', 'failover'] as $mailer) {
+            config(['mail.default' => $mailer]);
+            $this->get('/applications/example-app/access')->assertOk()
+                ->assertSee('Email is not configured to deliver on this provider')->assertDontSee('Send invitation');
+            $this->invite('other@example.test')->assertSessionHasErrors('invitation');
+            $this->post("/applications/example-app/access/invitations/{$invitation->id}/resend")->assertSessionHasErrors('invitation');
+        }
+
+        $this->assertSame(1, AccessInvitation::query()->count());
+        $this->assertSame($hash, $invitation->fresh()->token_hash);
+        Mail::assertSent(AccessInvitationMail::class, 1);
     }
 
     public function test_a_failed_email_still_answers_alike_and_shows_the_link(): void

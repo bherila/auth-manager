@@ -6,6 +6,7 @@ use App\Models\AccessInvitation;
 use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
+use App\Services\Invitations\AccessInvitationService;
 use App\Support\ApplicationGrantHolders;
 use App\Support\DelegatedAccessApplications;
 use App\Support\DelegatedAccessPermissions;
@@ -402,6 +403,7 @@ class ApplicationAccessController extends Controller
         $unavailable = match (true) {
             ! $provisioning => 'The application does not accept new accounts from this provider, so invitations to it are unavailable.',
             ! $this->permissions->writesEnabled($application) => 'Access changes are switched off for this application, so invitations to it are unavailable.',
+            ! AccessInvitationService::mailDelivers() => AccessInvitationController::MAIL_UNCONFIGURED,
             default => null,
         };
 

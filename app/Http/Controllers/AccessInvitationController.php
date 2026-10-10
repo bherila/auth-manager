@@ -28,6 +28,8 @@ class AccessInvitationController extends Controller
 {
     public const SENT_NOTICE = 'Invitation sent.';
 
+    public const MAIL_UNCONFIGURED = 'Email is not configured to deliver on this provider, so invitations cannot be sent. An operator must configure a mailer first.';
+
     public function __construct(
         private readonly DelegatedAccessTransport $transport,
         private readonly DelegatedAccessPermissions $permissions,
@@ -138,6 +140,10 @@ class AccessInvitationController extends Controller
             throw new DelegatedAccessException('not_authorized', 403);
         }
         $this->transport->authorizeWrite($request, $application);
+        if (! AccessInvitationService::mailDelivers()) {
+            throw ValidationException::withMessages(['invitation' => self::MAIL_UNCONFIGURED])
+                ->redirectTo(route('applications.access', ['application' => $application]));
+        }
     }
 
     /**

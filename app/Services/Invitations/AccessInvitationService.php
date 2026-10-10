@@ -293,6 +293,34 @@ final class AccessInvitationService
         });
     }
 
+    /**
+     * Whether the default mailer delivers mail. `log` writes the whole message, link included, to the
+     * application log, and `array` keeps it in memory; either would report an invitation sent that
+     * nobody received. A failover or round-robin mailer counts only if none of its mailers is one.
+     */
+    public static function mailDelivers(): bool
+    {
+        $mailers = (array) config('mail.mailers', []);
+        $pending = [(string) config('mail.default')];
+        $seen = [];
+        while ($pending !== []) {
+            $name = array_pop($pending);
+            if (isset($seen[$name])) {
+                continue;
+            }
+            $seen[$name] = true;
+            $transport = $mailers[$name]['transport'] ?? null;
+            if (! is_string($transport) || in_array($transport, ['log', 'array'], true)) {
+                return false;
+            }
+            if (in_array($transport, ['failover', 'roundrobin'], true)) {
+                array_push($pending, ...array_map('strval', (array) ($mailers[$name]['mailers'] ?? [])));
+            }
+        }
+
+        return true;
+    }
+
     public function link(#[SensitiveParameter] string $token): string
     {
         return route('invitations.show', ['token' => $token]);
