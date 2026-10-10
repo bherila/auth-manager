@@ -53,6 +53,12 @@ class AccessInvitation extends Model
         return hash('sha256', $token);
     }
 
+    /** The unique key a pending invitation holds for its application and normalized address. */
+    public static function pendingKey(string $application, string $emailNormalized): string
+    {
+        return hash('sha256', $application."\0".$emailNormalized);
+    }
+
     public static function normalizeEmail(string $email): string
     {
         return mb_strtolower(trim($email));

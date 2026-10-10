@@ -20,6 +20,9 @@ return new class extends Migration
             $table->string('email');
             $table->string('email_normalized');
             $table->char('token_hash', 64)->unique();
+            // Set only while pending: at most one pending invitation per application and address,
+            // enforced by the database so concurrent creates cannot both commit as pending.
+            $table->char('pending_key', 64)->nullable()->unique();
             $table->foreignId('inviter_id')->nullable()->constrained('users')->nullOnDelete();
             // The inviter's credential generation when they passed the write gate; a reset since voids the roles.
             $table->unsignedInteger('inviter_credential_version');

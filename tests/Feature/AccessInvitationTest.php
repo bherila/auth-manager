@@ -14,6 +14,7 @@ use App\Services\IdentityTombstonePurger;
 use App\Services\Invitations\InvitationAudit;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\Client\Request as ClientRequest;
@@ -329,6 +330,43 @@ class AccessInvitationTest extends TestCase
         $this->get($otherAddress)->assertOk();
         $this->get($otherApp)->assertOk();
         $this->assertSame(4, AccessInvitation::query()->whereNull('revoked_at')->count());
+    }
+
+    /**
+     * A create that loses the pending key to a concurrent one runs once more and supersedes it (#76
+     * review). Simulated: a competing pending row takes the key just before this create's insert.
+     */
+    public function test_the_database_allows_one_pending_invitation_per_application_and_address(): void
+    {
+        $this->confirm();
+        $competed = false;
+        AccessInvitation::creating(function (AccessInvitation $invitation) use (&$competed): void {
+            if ($competed) {
+                return;
+            }
+            $competed = true;
+            AccessInvitation::withoutEvents(fn () => AccessInvitation::query()->create([
+                ...$invitation->getAttributes(), 'token_hash' => hash('sha256', 'competitor'), 'access' => ['application_admin' => true, 'workspaces' => []],
+            ]));
+        });
+
+        $this->invite('person@example.test')->assertSessionHas('invitation_notice', 'Invitation sent.');
+
+        $this->assertTrue($competed);
+        $pending = AccessInvitation::query()->get()->filter(fn (AccessInvitation $invitation): bool => $invitation->isPending());
+        $this->assertCount(1, $pending);
+        $this->assertSame(['application_admin' => false, 'workspaces' => [['id' => 'workspace-a', 'role' => 'sender']]], $pending->first()->access);
+    }
+
+    public function test_a_second_pending_row_for_the_same_pair_cannot_be_stored(): void
+    {
+        $this->confirm();
+        $this->invite('person@example.test')->assertSessionHas('invitation_notice');
+        $row = (array) DB::table('access_invitations')->first();
+        unset($row['id']);
+
+        $this->expectException(UniqueConstraintViolationException::class);
+        DB::table('access_invitations')->insert([...$row, 'token_hash' => hash('sha256', 'concurrent'), 'email' => 'PERSON@example.test']);
     }
 
     public function test_a_new_person_creates_an_account_is_admitted_and_provisioned_as_the_inviter(): void

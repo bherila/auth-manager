@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\OAuthClientGrantService;
 use App\Support\StaticApplicationClients;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -49,22 +50,26 @@ final class AccessInvitationService
         $this->throttle($inviter, $email);
         $token = $this->newToken();
 
-        $invitation = DB::transaction(function () use ($request, $inviter, $application, $email, $access, $token): AccessInvitation {
+        $normalized = AccessInvitation::normalizeEmail($email);
+        $invitation = $this->serialized(fn (): AccessInvitation => DB::transaction(function () use ($request, $inviter, $application, $email, $normalized, $access, $token): AccessInvitation {
+            // Older invitations give up the pending key before this one takes it.
+            $superseded = $this->supersede($inviter, $application->key, $normalized, null);
             $invitation = AccessInvitation::query()->create([
                 'application' => $application->key,
                 'email' => $email,
-                'email_normalized' => AccessInvitation::normalizeEmail($email),
+                'email_normalized' => $normalized,
                 'token_hash' => AccessInvitation::hashToken($token),
+                'pending_key' => AccessInvitation::pendingKey($application->key, $normalized),
                 'inviter_id' => $inviter->getKey(),
                 'inviter_credential_version' => (int) $inviter->credential_version,
                 'access' => $access,
                 'expires_at' => now()->addDays($this->expiresAfterDays()),
             ]);
             $this->audit->record(InvitationAudit::CREATED, $invitation, $request, $inviter, metadata: ['access' => $access]);
-            $this->supersede($request, $inviter, $invitation);
+            $this->auditSuperseded($request, $inviter, $superseded, $invitation);
 
             return $invitation;
-        });
+        }));
 
         return new IssuedInvitation($invitation, $this->link($token), $this->deliver($request, $inviter, $invitation, $application, $token));
     }
@@ -75,24 +80,26 @@ final class AccessInvitationService
         $this->throttle($actor, $invitation->email);
         $token = $this->newToken();
 
-        $invitation = DB::transaction(function () use ($request, $actor, $invitation, $token): AccessInvitation {
+        $invitation = $this->serialized(fn (): AccessInvitation => DB::transaction(function () use ($request, $actor, $invitation, $token): AccessInvitation {
             $locked = AccessInvitation::query()->lockForUpdate()->findOrFail($invitation->getKey());
             if (! in_array($locked->status(), [AccessInvitation::STATUS_PENDING, AccessInvitation::STATUS_EXPIRED], true)) {
                 throw ValidationException::withMessages(['invitation' => 'Only a pending or expired invitation can be sent again.']);
             }
             $previousInviter = $locked->inviter_id;
+            $superseded = $this->supersede($actor, $locked->application, $locked->email_normalized, $locked->getKey());
             // Whoever resends passed the full write gate just now, so the roles are theirs to give.
             $locked->forceFill([
                 'token_hash' => AccessInvitation::hashToken($token),
                 'expires_at' => now()->addDays($this->expiresAfterDays()),
                 'inviter_id' => $actor->getKey(),
                 'inviter_credential_version' => (int) $actor->credential_version,
+                'pending_key' => AccessInvitation::pendingKey($locked->application, $locked->email_normalized),
             ])->save();
             $this->audit->record(InvitationAudit::RESENT, $locked, $request, $actor, metadata: ['previous_inviter_id' => $previousInviter]);
-            $this->supersede($request, $actor, $locked);
+            $this->auditSuperseded($request, $actor, $superseded, $locked);
 
             return $locked;
-        });
+        }));
 
         return new IssuedInvitation($invitation, $this->link($token), $this->deliver($request, $actor, $invitation, $application, $token));
     }
@@ -107,29 +114,70 @@ final class AccessInvitationService
             if ($locked->revoked_at !== null) {
                 return;
             }
-            $locked->forceFill(['revoked_at' => now(), 'revoked_by' => $actor->getKey()])->save();
+            $locked->forceFill(['revoked_at' => now(), 'revoked_by' => $actor->getKey(), 'pending_key' => null])->save();
             $this->audit->record(InvitationAudit::REVOKED, $locked, $request, $actor);
         });
     }
 
     /**
-     * Revoke every other pending invitation to the same address for the same application, so only the
-     * newest link works. Matches on invitations alone, never on accounts, so it reveals nothing more
-     * than creating one does. Called inside the creating or resending transaction.
+     * Free the pending key for this application and address: every other invitation holding it gives
+     * it up, and one still pending is revoked, so only the newest link works. Matches on invitations
+     * alone, never on accounts, so it reveals nothing more than creating one does. Runs inside the
+     * creating or resending transaction, before the key is taken.
+     *
+     * @return list<AccessInvitation> the invitations it revoked
      */
-    private function supersede(Request $request, User $actor, AccessInvitation $current): void
+    private function supersede(User $actor, string $application, string $normalized, ?int $except): array
     {
-        $older = AccessInvitation::query()
-            ->where('application', $current->application)
-            ->where('email_normalized', $current->email_normalized)
-            ->whereKeyNot($current->getKey())
-            ->whereNull('accepted_at')->whereNull('revoked_at')->where('expires_at', '>', now())
+        $holders = AccessInvitation::query()
+            ->where('application', $application)
+            ->where('email_normalized', $normalized)
+            ->whereNotNull('pending_key')
+            ->when($except !== null, fn ($query) => $query->whereKeyNot($except))
             ->lockForUpdate()->get();
-        foreach ($older as $invitation) {
-            $invitation->forceFill(['revoked_at' => now(), 'revoked_by' => $actor->getKey()])->save();
+        $revoked = [];
+        foreach ($holders as $invitation) {
+            $pending = $invitation->isPending();
+            $invitation->forceFill(['pending_key' => null, ...($pending ? ['revoked_at' => now(), 'revoked_by' => $actor->getKey()] : [])])->save();
+            if ($pending) {
+                $revoked[] = $invitation;
+            }
+        }
+
+        return $revoked;
+    }
+
+    /**
+     * @param  list<AccessInvitation>  $superseded
+     */
+    private function auditSuperseded(Request $request, User $actor, array $superseded, AccessInvitation $by): void
+    {
+        foreach ($superseded as $invitation) {
             $this->audit->record(InvitationAudit::REVOKED, $invitation, $request, $actor, metadata: [
-                'reason' => 'superseded', 'superseded_by' => $current->getKey(),
+                'reason' => 'superseded', 'superseded_by' => $by->getKey(),
             ]);
+        }
+    }
+
+    /**
+     * Run a create or resend; if a concurrent one took the pending key first, run it once more, when
+     * it supersedes that one. A second loss fails closed, with no invitation changed.
+     *
+     * @template T
+     *
+     * @param  \Closure(): T  $work
+     * @return T
+     */
+    private function serialized(\Closure $work): mixed
+    {
+        try {
+            return $work();
+        } catch (UniqueConstraintViolationException) {
+            try {
+                return $work();
+            } catch (UniqueConstraintViolationException) {
+                throw ValidationException::withMessages(['email' => 'Another invitation to this address was being sent at the same moment. Try again.']);
+            }
         }
     }
 
@@ -206,7 +254,7 @@ final class AccessInvitationService
                 $created = false;
             }
 
-            $locked->forceFill(['accepted_at' => now(), 'accepted_user_id' => $person->getKey()])->save();
+            $locked->forceFill(['accepted_at' => now(), 'accepted_user_id' => $person->getKey(), 'pending_key' => null])->save();
             $granted = [];
             foreach ($clientIds as $clientId) {
                 if ($this->grants->grant((string) $person->getKey(), $clientId)) {
