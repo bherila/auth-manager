@@ -27,6 +27,8 @@ class ApplicationAccessController extends Controller
     /** One reply for every exact-email provisioning outcome, so it reveals nobody. */
     public const EMAIL_PROVISION_NOTICE = 'If that person can sign in to this application and has no account there yet, their account now exists with the access you chose. Find them in the account list to confirm.';
 
+    public const REMOVED_NOTICE = 'The application removed the access you manage for this account. The account and its history remain in the application.';
+
     public function __construct(
         private readonly DelegatedAccessTransport $transport,
         private readonly ApplicationGrantHolders $grantHolders,
@@ -124,6 +126,50 @@ class ApplicationAccessController extends Controller
         // Only a validated canonical update response can produce the success notice.
         return redirect()->route('applications.access', ['application' => $application, 'subject' => $input['subject']])
             ->with('access_updated', true);
+    }
+
+    /**
+     * Contract version 3: remove this account's access to the application, as far as this actor
+     * manages it, and keep the account and its history there.
+     *
+     * A write like any other: manage permission, a current grant, writes enabled for the application,
+     * a recent confirmation and the application's own key, all checked before anything about the
+     * account is read. It also needs the person's explicit confirmation, and the application to offer
+     * the removal (`allowed_edits.remove`) in a fresh read; otherwise nothing is sent. The application
+     * then removes every membership and the administrator flag in the actor's projection, or refuses
+     * the whole removal.
+     */
+    public function remove(Request $request, string $application): RedirectResponse
+    {
+        abort_unless(DelegatedAccessTransport::contractVersion($application) >= DelegatedContract::VERSION_3, 404);
+        $input = $request->validate([
+            'subject' => ['required', 'string', 'max:191'],
+            'expected_revision' => ['required', 'string', 'max:128'],
+            'confirm_removal' => ['accepted'],
+        ], ['confirm_removal.accepted' => 'Confirm that you understand what removing this account\'s access does.']);
+        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
+        $operationId = $this->operationId($request, $application, $back);
+
+        $this->transport->authorizeWrite($request, $application);
+        $contract = new DelegatedContract;
+        $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
+        $current = $this->transport->send($request, $application, ['operation' => 'read', 'subject' => $input['subject']]);
+        if (! $contract->fitsCapabilities($capabilities, $current)) {
+            throw new DelegatedAccessException('invalid_response');
+        }
+        if (! $current['provisioned'] || $current['allowed_edits']['remove'] !== true) {
+            return redirect()->to($back)
+                ->with('access_failure', 'The application does not offer to remove this account\'s access now. Review its current access.');
+        }
+
+        $answer = $this->transport->send($request, $application, [
+            'operation' => 'remove', 'subject' => $input['subject'], 'expected_revision' => $input['expected_revision'], ...$operationId,
+        ]);
+        if (! $contract->fitsCapabilities($capabilities, $answer)) {
+            throw new DelegatedAccessException('unknown_outcome');
+        }
+
+        return redirect()->to($back)->with('access_notice', self::REMOVED_NOTICE);
     }
 
     /**

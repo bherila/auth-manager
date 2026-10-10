@@ -83,6 +83,8 @@ Route::middleware(['auth', RequireActiveUser::class, ApplicationAccessResponse::
         Route::get('/', [ApplicationAccessController::class, 'index'])->name('applications.access');
         Route::post('/browse', [ApplicationAccessController::class, 'browse'])->name('applications.access.browse');
         Route::post('/update', [ApplicationAccessController::class, 'update'])->name('applications.access.update');
+        // Contract version 3 only: take away the access the actor manages, keeping the account.
+        Route::post('/remove', [ApplicationAccessController::class, 'remove'])->name('applications.access.remove');
         // Contract version 2 only: create an application account for a grant holder.
         Route::post('/provision', [ApplicationAccessController::class, 'provision'])->name('applications.access.provision');
         Route::post('/confirm', ConfirmApplicationAccessController::class)

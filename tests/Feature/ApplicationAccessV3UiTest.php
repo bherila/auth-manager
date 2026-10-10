@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ApplicationAccessController;
 use App\Http\Middleware\EnsureCredentialVersion;
 use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
@@ -229,6 +230,125 @@ class ApplicationAccessV3UiTest extends TestCase
         $this->get('/applications/example-app/access?subject_query=example')->assertForbidden();
 
         Http::assertNothingSent();
+    }
+
+    public function test_remove_is_offered_only_when_the_application_allows_it_and_writes_are_possible(): void
+    {
+        $this->browse(['subject' => 'subject-example'])->assertOk()
+            ->assertSee('Remove from this application')
+            ->assertSee('The account and its history stay in Example Application.')
+            ->assertSee('name="confirm_removal"', false);
+
+        $this->v3RemoveAllowed = false;
+        $this->get('/applications/example-app/access?subject=subject-example')->assertOk()->assertDontSee('Remove from this application');
+
+        $this->v3RemoveAllowed = true;
+        config(['delegated-access.writes_applications' => []]);
+        $this->get('/applications/example-app/access?subject=subject-example')->assertOk()->assertDontSee('Remove from this application');
+    }
+
+    public function test_removing_sends_the_forms_operation_id_and_keeps_the_account(): void
+    {
+        $this->confirm();
+        $page = $this->get('/applications/example-app/access?subject=subject-example');
+        preg_match('/action="[^"]*\/remove".*?name="operation_id" value="([^"]+)"/s', $page->getContent(), $match);
+        $operationId = $match[1];
+
+        $this->post('/applications/example-app/access/remove', $this->removal($operationId))
+            ->assertRedirect('/applications/example-app/access?subject=subject-example')
+            ->assertSessionHas('access_notice', ApplicationAccessController::REMOVED_NOTICE);
+        // A resubmission of the same form is the same removal.
+        $this->post('/applications/example-app/access/remove', $this->removal($operationId))->assertSessionHas('access_notice');
+
+        $removals = Http::recorded(fn (ClientRequest $request) => $request['operation'] === 'remove');
+        $this->assertCount(2, $removals);
+        foreach ($removals as [$request]) {
+            $this->assertSame(['contract_version' => 3, 'application' => 'example-app', 'operation' => 'remove', 'subject' => 'subject-example',
+                'expected_revision' => 'revision-example', 'operation_id' => $operationId], $request->data());
+        }
+        $this->assertSame(['remove', 'remove'], DB::table('auth_audit_log')->where('event', 'delegated_access_update_attempt')->pluck('metadata')
+            ->map(fn ($metadata) => json_decode($metadata, true)['operation'])->all());
+    }
+
+    public function test_removing_needs_the_explicit_confirmation(): void
+    {
+        $this->confirm();
+        foreach ([null, '0', 'no'] as $confirmation) {
+            $this->from('/applications/example-app/access?subject=subject-example')
+                ->post('/applications/example-app/access/remove', array_filter([...$this->removal(), 'confirm_removal' => $confirmation], fn ($value) => $value !== null))
+                ->assertRedirect('/applications/example-app/access?subject=subject-example')
+                ->assertSessionHasErrors('confirm_removal');
+        }
+
+        $this->assertNothingRemoved();
+    }
+
+    public function test_removing_needs_a_recent_confirmation_like_any_other_write(): void
+    {
+        $this->post('/applications/example-app/access/remove', $this->removal())
+            ->assertRedirect('/applications/example-app/access?subject=subject-example')
+            ->assertSessionHas('access_failure', 'Confirm your password or sign in again before changing application access.');
+
+        $this->assertNothingRemoved();
+        // Refused before anything about the account was read.
+        $this->assertCount(0, Http::recorded(fn (ClientRequest $request) => $request['operation'] === 'read'));
+    }
+
+    public function test_removing_needs_manage_permission_and_writes_enabled(): void
+    {
+        $this->confirm();
+        config(['delegated-access.writes_applications' => []]);
+        $this->post('/applications/example-app/access/remove', $this->removal())->assertSessionHas('access_failure');
+        config(['delegated-access.writes_applications' => ['example-app']]);
+        $this->actor->update(['user_role' => 'user,access-view:example-app']);
+        $this->post('/applications/example-app/access/remove', $this->removal())->assertSessionHas('access_failure');
+
+        $this->assertNothingRemoved();
+    }
+
+    public function test_removal_is_not_sent_when_a_fresh_read_does_not_offer_it(): void
+    {
+        $this->confirm();
+        $this->v3RemoveAllowed = false;
+
+        $this->post('/applications/example-app/access/remove', $this->removal())
+            ->assertSessionHas('access_failure', 'The application does not offer to remove this account\'s access now. Review its current access.');
+
+        $this->assertNothingRemoved();
+    }
+
+    public function test_an_uncertain_removal_is_settled_by_its_receipt_and_never_resent(): void
+    {
+        $this->confirm();
+        $this->v3WriteFailure = 'timeout';
+        $this->v3Receipt = ['status' => 200, 'response' => ['operation' => 'remove', ...$this->v3UpdatedState('subject-example', [])]];
+
+        $this->post('/applications/example-app/access/remove', $this->removal())
+            ->assertSessionHas('access_notice', ApplicationAccessController::REMOVED_NOTICE);
+
+        $this->assertSame(['remove', 'receipt'], array_values(array_filter($this->v3Sent, fn (string $operation): bool => in_array($operation, ['remove', 'receipt'], true))));
+    }
+
+    public function test_a_version_2_application_has_no_removal(): void
+    {
+        $this->confirm();
+        config(['delegated-access.applications.example-app.contract_version' => 2]);
+
+        $this->post('/applications/example-app/access/remove', $this->removal())->assertNotFound();
+
+        $this->assertNothingRemoved();
+    }
+
+    /** @return array<string, string> */
+    private function removal(?string $operationId = null): array
+    {
+        return ['subject' => 'subject-example', 'expected_revision' => 'revision-example', 'confirm_removal' => '1',
+            'operation_id' => $operationId ?? DelegatedContract::operationId()];
+    }
+
+    private function assertNothingRemoved(): void
+    {
+        $this->assertNotContains('remove', $this->v3Sent);
     }
 
     private function operationIdIn(TestResponse $response): string

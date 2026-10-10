@@ -336,6 +336,9 @@
                         <button class="underline">More workspaces (reloads current access)</button>
                     </form>
                 @endif
+                @if($version >= 3 && $writes && $state['allowed_edits']['remove'])
+                    @include('applications.remove-access')
+                @endif
             @endif
         </section>
     @endif
