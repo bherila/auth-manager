@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -78,6 +79,32 @@ class AccessInvitation extends Model
     public function isPending(): bool
     {
         return $this->status() === self::STATUS_PENDING;
+    }
+
+    /**
+     * Which invitations an actor may see, revoke or resend, by the application's own scope: one that
+     * reports this actor as an application administrator (actor-scoped `controls.application_admin`)
+     * sees them all; anyone else, such as a workspace-scoped administrator, only those they sent or
+     * last resent. The provider cannot tell which workspaces another manager may see, so it never
+     * shows someone else's recipients or stored roles to them.
+     *
+     * @param  Builder<AccessInvitation>  $query
+     */
+    public function scopeVisibleTo(Builder $query, User $actor, array $capabilities): void
+    {
+        if (! self::applicationWide($capabilities)) {
+            $query->where('inviter_id', $actor->getKey());
+        }
+    }
+
+    public function isVisibleTo(User $actor, array $capabilities): bool
+    {
+        return self::applicationWide($capabilities) || $this->inviter_id === $actor->getKey();
+    }
+
+    private static function applicationWide(array $capabilities): bool
+    {
+        return ($capabilities['controls']['application_admin'] ?? false) === true;
     }
 
     /** @return BelongsTo<User, $this> */

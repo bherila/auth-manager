@@ -94,6 +94,7 @@ class AccessInvitationController extends Controller
         // stored role still advertised, checked before the token is replaced.
         $back = route('applications.access', ['application' => $application]);
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
+        abort_unless($invitation->isVisibleTo($request->user(), $capabilities), 404);
         if (($capabilities['controls']['provisioning'] ?? false) !== true) {
             throw ValidationException::withMessages(['invitation' => 'The application no longer accepts new accounts from this provider, so this invitation cannot be sent again. Revoke it instead.'])->redirectTo($back);
         }
@@ -114,6 +115,9 @@ class AccessInvitationController extends Controller
         if (! $this->permissions->canInvite($request->user(), $application)) {
             throw new DelegatedAccessException('not_authorized', 403);
         }
+        // The application's scope for this actor decides whose invitations they may revoke.
+        $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
+        abort_unless($invitation->isVisibleTo($request->user(), $capabilities), 404);
         $this->invitations->revoke($request, $request->user(), $invitation);
 
         return redirect()->route('applications.access', ['application' => $application])

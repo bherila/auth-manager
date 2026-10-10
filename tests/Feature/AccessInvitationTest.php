@@ -62,6 +62,9 @@ class AccessInvitationTest extends TestCase
 
     private bool $provisioning = true;
 
+    /** Actor-scoped `controls.application_admin`: false for a workspace-scoped administrator. */
+    private bool $applicationAdmin = true;
+
     /** Role ids the fake application advertises; null for all four. */
     private ?array $advertisedRoles = null;
 
@@ -842,6 +845,42 @@ class AccessInvitationTest extends TestCase
         $this->assertFalse(AuthAuditLog::query()->where('event', InvitationAudit::ACCEPTED)->firstOrFail()->metadata['link_handed_over']);
     }
 
+    public function test_a_scoped_administrator_sees_and_controls_only_the_invitations_they_sent(): void
+    {
+        $other = User::factory()->create(['name' => 'Second Inviter', 'user_role' => 'user,access-manage:example-app,access-invite:example-app',
+            'password' => Hash::make('current-password-example')]);
+        $this->grant($other, 'example-app');
+        $this->confirm();
+        $this->invite('first-recipient@example.test')->assertSessionHas('invitation_notice');
+        $this->signIn($other);
+        $this->confirm();
+        $this->invite('second-recipient@example.test')->assertSessionHas('invitation_notice');
+        [$first, $second] = AccessInvitation::query()->orderBy('id')->get()->all();
+
+        // The application reports neither as an application administrator.
+        $this->applicationAdmin = false;
+        $this->get('/applications/example-app/access')->assertOk()
+            ->assertSee('second-recipient@example.test')->assertDontSee('first-recipient@example.test');
+        $this->post("/applications/example-app/access/invitations/{$first->id}/revoke")->assertNotFound();
+        $this->post("/applications/example-app/access/invitations/{$first->id}/resend")->assertNotFound();
+        $this->assertTrue($first->fresh()->isPending());
+        $this->assertSame($this->inviter->id, $first->fresh()->inviter_id);
+
+        $this->signIn($this->inviter);
+        $this->confirm();
+        $this->get('/applications/example-app/access')->assertOk()
+            ->assertSee('first-recipient@example.test')->assertDontSee('second-recipient@example.test');
+        $this->post("/applications/example-app/access/invitations/{$second->id}/revoke")->assertNotFound();
+        $this->assertTrue($second->fresh()->isPending());
+
+        // An application-wide administrator sees and controls both.
+        $this->applicationAdmin = true;
+        $this->get('/applications/example-app/access')->assertOk()
+            ->assertSee('first-recipient@example.test')->assertSee('second-recipient@example.test');
+        $this->post("/applications/example-app/access/invitations/{$second->id}/revoke")->assertSessionHas('invitation_notice');
+        $this->assertSame(AccessInvitation::STATUS_REVOKED, $second->fresh()->status());
+    }
+
     public function test_a_failed_email_still_answers_alike_and_shows_the_link(): void
     {
         $this->confirm();
@@ -893,7 +932,7 @@ class AccessInvitationTest extends TestCase
                     'workspaces' => array_map(fn (array $membership): array => [...$membership, 'editable' => true], $request['access']['workspaces'])];
             }
             $data = match ($operation) {
-                'capabilities' => ['controls' => ['application_admin' => true, 'workspace_roles' => array_values(array_filter([
+                'capabilities' => ['controls' => ['application_admin' => $this->applicationAdmin, 'workspace_roles' => array_values(array_filter([
                     ['id' => 'owner', 'label' => 'Owner'], ['id' => 'admin', 'label' => 'Administrator'],
                     ['id' => 'sender', 'label' => 'Sender'], ['id' => 'auditor', 'label' => 'Auditor'],
                 ], fn (array $role): bool => $this->advertisedRoles === null || in_array($role['id'], $this->advertisedRoles, true))), 'provisioning' => $this->provisioning]],

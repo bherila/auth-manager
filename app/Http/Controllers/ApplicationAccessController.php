@@ -383,7 +383,7 @@ class ApplicationAccessController extends Controller
             'subject' => $subject, 'state' => $state, 'saved' => $saved,
             'directory' => $directory, 'directorySearch' => $directorySearch,
             'writes' => $writes, 'provisionByEmail' => $provisioning && $writes && $directory === null,
-            'invitations' => $this->invitations($request, $actor, $application, $provisioning),
+            'invitations' => $this->invitations($request, $actor, $application, $provisioning, $capabilities),
         ]);
     }
 
@@ -393,7 +393,7 @@ class ApplicationAccessController extends Controller
      *
      * @return array{list: Collection<int, AccessInvitation>, can_invite: bool, form: bool, link: string|null, unavailable: string|null}|null
      */
-    private function invitations(Request $request, User $actor, string $application, bool $provisioning): ?array
+    private function invitations(Request $request, User $actor, string $application, bool $provisioning, array $capabilities): ?array
     {
         if (! $this->permissions->invitationsEnabled() || ! $this->permissions->canSeeInvitations($actor, $application)) {
             return null;
@@ -408,8 +408,9 @@ class ApplicationAccessController extends Controller
         // Every pending invitation, however many, so each can still be revoked or resent; then the
         // newest 50 others as history.
         $pending = fn ($query) => $query->whereNull('accepted_at')->whereNull('revoked_at')->where('expires_at', '>', now());
-        $list = AccessInvitation::query()->where('application', $application)->where($pending)->with('inviter')->latest('id')->get()
-            ->concat(AccessInvitation::query()->where('application', $application)->whereNot($pending)->with('inviter')->latest('id')->limit(50)->get());
+        // Only those within the application's scope for this actor: {@see AccessInvitation::scopeVisibleTo()}.
+        $scoped = fn () => AccessInvitation::query()->where('application', $application)->visibleTo($actor, $capabilities)->with('inviter')->latest('id');
+        $list = $scoped()->where($pending)->get()->concat($scoped()->whereNot($pending)->limit(50)->get());
 
         return [
             'list' => $list, 'link' => $this->flashedLink($request),
