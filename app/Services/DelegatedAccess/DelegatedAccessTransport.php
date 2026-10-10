@@ -25,11 +25,23 @@ use Throwable;
 
 final class DelegatedAccessTransport
 {
+    /**
+     * A version 3 write whose answer was uncertain and whose receipt did not settle it: the
+     * application has no stored outcome for it yet. It may still have happened.
+     */
+    public const STILL_UNKNOWN = 'outcome_still_unknown';
+
     public function __construct(private readonly ActorAssertion $assertions, private readonly DelegatedContract $contract, private readonly TransportClock $clock) {}
 
-    public function send(Request $request, string $application, array $operation): array
+    /**
+     * @param  array<string, mixed>|null  $capabilities  for a write: the validated capabilities the caller
+     *                                                   checked it against. An answer that does not fit them
+     *                                                   cannot confirm the write, so it is treated as uncertain
+     *                                                   before the result is audited.
+     */
+    public function send(Request $request, string $application, array $operation, ?array $capabilities = null): array
     {
-        return $this->dispatch($application, $operation, fn (bool $write): User => $this->actor($request, $application, $write));
+        return $this->dispatch($application, $operation, fn (bool $write): User => $this->actor($request, $application, $write), capabilities: $capabilities);
     }
 
     /**
@@ -46,15 +58,16 @@ final class DelegatedAccessTransport
      *                                  a reset or revocation since then refuses
      * @param  string|null  $correlation  64 lowercase hex characters to identify an update by, so its
      *                                    caller can record it; generated when null
+     * @param  array<string, mixed>|null  $capabilities  as for {@see send()}
      *
      * @throws DelegatedAccessException
      */
-    public function sendForInvitation(User $inviter, int $credentialVersion, string $application, array $operation, ?string $correlation = null): array
+    public function sendForInvitation(User $inviter, int $credentialVersion, string $application, array $operation, ?string $correlation = null, ?array $capabilities = null): array
     {
-        return $this->dispatch($application, $operation, fn (bool $write): User => $this->inviter($inviter, $credentialVersion, $application), $correlation, 'invitation');
+        return $this->dispatch($application, $operation, fn (bool $write): User => $this->inviter($inviter, $credentialVersion, $application), $correlation, 'invitation', $capabilities);
     }
 
-    private function dispatch(string $application, array $operation, Closure $resolveActor, ?string $correlation = null, ?string $via = null): array
+    private function dispatch(string $application, array $operation, Closure $resolveActor, ?string $correlation = null, ?string $via = null, ?array $capabilities = null): array
     {
         if (! config('delegated-access.enabled', false)) {
             throw new DelegatedAccessException('integration_disabled');
@@ -63,19 +76,149 @@ final class DelegatedAccessTransport
         $entry = app(DelegatedAccessApplications::class)->find($application);
         $version = $entry['contract_version'] ?? DelegatedContract::VERSION_1;
         $payload = $this->contract->request($application, $operation, $version);
-        $write = $payload['operation'] === 'update';
+        $write = in_array($payload['operation'], DelegatedContract::WRITE_OPERATIONS, true);
         // A malformed key list is a configuration problem for reads and writes alike; resolved
         // first so a write is not refused as though the actor lacked permission.
         $signing = app(DelegatedAccessKeys::class)->for($application);
         $actor = $resolveActor($write);
-        $configuration = config('delegated-access');
-        $endpoint = $entry['endpoint'] ?? null;
-        $issuer = $configuration['issuer'] ?? null;
         // The application's own key when it has one; the instance-wide key otherwise, which
         // writesEnabled() has already refused for a write.
         if ($write && ! $signing['own']) {
             throw new DelegatedAccessException('not_authorized', 403);
         }
+        [$endpoint, $assertion, $body, $correlation] = $this->prepare($entry, $signing, $actor, $application, $payload, $correlation);
+
+        if ($write) {
+            $this->audit($actor, $payload, $correlation, 'attempt', $via);
+        }
+        try {
+            $answer = $this->exchange($endpoint, $assertion, $body, $application, $payload, $write);
+            // Checked before the result is audited: an answer that contradicts the capabilities it was
+            // checked against confirms nothing, and is uncertain like a malformed one.
+            if ($write && $capabilities !== null && ! $this->contract->fitsCapabilities($capabilities, $answer)) {
+                throw new DelegatedAccessException('unknown_outcome');
+            }
+            $result = $answer;
+        } catch (Throwable $failure) {
+            $exception = $failure instanceof DelegatedAccessException ? $failure : new DelegatedAccessException($write ? 'unknown_outcome' : 'unavailable');
+            if (! $write) {
+                throw $exception;
+            }
+            // A version 3 write whose outcome is uncertain is looked up once by its operation id,
+            // never sent again.
+            $byReceipt = [];
+            if ($exception->outcome === 'unknown_outcome' && $version === DelegatedContract::VERSION_3) {
+                try {
+                    $result = $this->checkReceipt($entry, $signing, $actor, $application, $payload, $correlation, $via, $capabilities);
+                } catch (DelegatedAccessException $settled) {
+                    $exception = $settled;
+                    // A stored refusal settles the write as surely as a stored success does.
+                    $byReceipt = $settled->outcome === self::STILL_UNKNOWN ? [] : ['confirmed_by' => 'receipt'];
+                }
+            }
+            if (! isset($result)) {
+                $this->audit($actor, $payload, $correlation, $exception->outcome, $via, $byReceipt);
+                throw $exception;
+            }
+            $this->audit($actor, $payload, $correlation, 'succeeded', $via, ['confirmed_by' => 'receipt']);
+
+            return $result;
+        }
+        if ($write) {
+            $this->audit($actor, $payload, $correlation, 'succeeded', $via);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Whether a refusal leaves a write's outcome unknown: the application never confirmed it, and for
+     * version 3 its receipt did not settle it either. Such a write may have happened.
+     */
+    public static function unconfirmed(DelegatedAccessException $exception): bool
+    {
+        return in_array($exception->outcome, ['unknown_outcome', self::STILL_UNKNOWN], true);
+    }
+
+    /**
+     * Ask the application, once, what became of a version 3 write whose answer was uncertain.
+     *
+     * The receipt is a read: nothing is sent again, and it never reaches the adapter. A stored success
+     * for this write is returned as its answer; a stored refusal is raised as that refusal; anything
+     * else (no receipt yet, a pending claim, or a receipt request that itself failed) leaves the
+     * outcome unknown. The check and what it found are audited before the caller sees either.
+     *
+     * @param  array{endpoint: string, contract_version: int}  $entry
+     * @param  array<string, mixed>  $signing
+     * @param  array<string, mixed>  $write  the write as the contract built it
+     * @return array<string, mixed> the application's stored answer to the write
+     *
+     * @throws DelegatedAccessException the stored refusal, or {@see STILL_UNKNOWN}
+     */
+    private function checkReceipt(array $entry, array $signing, User $actor, string $application, array $write, string $writeCorrelation, ?string $via, ?array $capabilities): array
+    {
+        $found = 'unknown';
+        $refusal = null;
+        $answer = null;
+        try {
+            $ask = $this->contract->request($application, ['operation' => 'receipt', 'operation_id' => $write['operation_id']], DelegatedContract::VERSION_3);
+            [$endpoint, $assertion, $body] = $this->prepare($entry, $signing, $actor, $application, $ask, null);
+            $receipt = $this->contract->receipt($this->exchange($endpoint, $assertion, $body, $application, $ask, false), $application, $write);
+            if ($receipt['status'] === 'known' && $receipt['response_status'] === 200) {
+                // A stored answer that does not fit the capabilities settles nothing either.
+                if ($capabilities !== null && ! $this->contract->fitsCapabilities($capabilities, $receipt['response'])) {
+                    throw new DelegatedAccessException('invalid_response');
+                }
+                $found = 'applied';
+                $answer = $receipt['response'];
+            } elseif ($receipt['status'] === 'known') {
+                $found = 'refused';
+                $refusal = ['status' => $receipt['response_status'], 'error' => $receipt['response']['error']];
+            }
+        } catch (Throwable) {
+            // The receipt request failed or was malformed: it settles nothing.
+        }
+
+        try {
+            $this->record($actor, 'delegated_access_receipt_check', $found !== 'unknown', [
+                ...$this->auditSubject($actor, $write), 'outcome' => $found, 'correlation' => $writeCorrelation,
+                'operation_id' => $write['operation_id'],
+                ...($refusal === null ? [] : ['refusal' => $refusal['error'], 'refusal_status' => $refusal['status']]),
+                ...($via === null ? [] : ['via' => $via]),
+            ]);
+        } catch (Throwable) {
+            throw new DelegatedAccessException(self::STILL_UNKNOWN);
+        }
+
+        if ($answer !== null) {
+            return $answer;
+        }
+        if ($refusal !== null) {
+            // Acted on by its status, as an immediate refusal would have been.
+            throw new DelegatedAccessException(match ($refusal['status']) {
+                403, 404 => 'not_authorized',
+                409 => 'revision_conflict',
+                default => 'invalid_request',
+            }, $refusal['status']);
+        }
+
+        throw new DelegatedAccessException(self::STILL_UNKNOWN);
+    }
+
+    /**
+     * The endpoint, a signed assertion over the exact body, the body and its correlation.
+     *
+     * @param  array{endpoint: string, contract_version: int}|null  $entry
+     * @param  array<string, mixed>  $signing
+     * @param  array<string, mixed>  $payload
+     * @return array{0: string, 1: string, 2: string, 3: string}
+     *
+     * @throws DelegatedAccessException
+     */
+    private function prepare(?array $entry, array $signing, User $actor, string $application, array $payload, ?string $correlation): array
+    {
+        $endpoint = $entry['endpoint'] ?? null;
+        $issuer = config('delegated-access.issuer');
         $keyPath = $signing['private_key_path'];
         $keyId = $signing['key_id'];
         try {
@@ -101,34 +244,9 @@ final class DelegatedAccessTransport
             throw new DelegatedAccessException('invalid_configuration');
         }
 
-        if ($write) {
-            $this->audit($actor, $application, $payload['subject'], $correlation, 'attempt', $via);
-        }
-        try {
-            $result = $this->exchange($endpoint, $assertion, $body, $application, $payload, $write);
-        } catch (Throwable $failure) {
-            $exception = $failure instanceof DelegatedAccessException ? $failure : new DelegatedAccessException($write ? 'unknown_outcome' : 'unavailable');
-            if ($write) {
-                $this->audit($actor, $application, $payload['subject'], $correlation, $exception->outcome, $via);
-            }
-            throw $exception;
-        }
-        if ($write) {
-            $this->audit($actor, $application, $payload['subject'], $correlation, 'succeeded', $via);
-        }
-
-        return $result;
+        return [$endpoint, $assertion, $body, $correlation];
     }
 
-    /**
-     * The contract version agreed with this application, from deployment configuration.
-     *
-     * Never negotiated at runtime and never taken from a response: an application that could
-     * choose the version could choose which rules its answers are checked against. An unknown
-     * value makes the whole map malformed, which refuses the call with `invalid_configuration`.
-     *
-     * @throws DelegatedAccessException when the application map is malformed
-     */
     /**
      * Refuse, before anything is sent, unless this actor could write to the application now.
      *
@@ -144,31 +262,70 @@ final class DelegatedAccessTransport
         $this->actor($request, $application, true);
     }
 
+    /**
+     * The contract version agreed with this application, from deployment configuration.
+     *
+     * Never negotiated at runtime and never taken from a response: an application that could
+     * choose the version could choose which rules its answers are checked against. An unknown
+     * value makes the whole map malformed, which refuses the call with `invalid_configuration`.
+     *
+     * @throws DelegatedAccessException when the application map is malformed
+     */
     public static function contractVersion(string $application): int
     {
         return app(DelegatedAccessApplications::class)->contractVersion($application);
     }
 
-    private function audit(User $actor, string $application, string $target, string $correlation, string $outcome, ?string $via = null): void
+    /**
+     * @param  array<string, mixed>  $payload  the write as the contract built it
+     * @param  array<string, mixed>  $extra
+     */
+    private function audit(User $actor, array $payload, string $correlation, string $outcome, ?string $via = null, array $extra = []): void
     {
         try {
-            if ((new AuthAuditLog)->getConnection()->transactionLevel() !== 0) {
-                throw new DelegatedAccessException('audit_unavailable');
-            }
-            $entry = AuthAuditLog::create([
-                'user_id' => $actor->id, 'acting_user_id' => $actor->id,
-                'event' => $outcome === 'attempt' ? 'delegated_access_update_attempt' : 'delegated_access_update_result',
-                'auth_method' => 'delegated', 'succeeded' => $outcome === 'succeeded',
-                'metadata' => ['actor' => (string) $actor->id, 'application' => $application, 'target' => $target, 'operation' => 'update',
-                    'outcome' => $outcome, 'correlation' => $correlation, ...($via === null ? [] : ['via' => $via])],
+            $this->record($actor, $outcome === 'attempt' ? 'delegated_access_update_attempt' : 'delegated_access_update_result', $outcome === 'succeeded', [
+                ...$this->auditSubject($actor, $payload), 'outcome' => $outcome, 'correlation' => $correlation,
+                ...(isset($payload['operation_id']) ? ['operation_id' => $payload['operation_id']] : []),
+                ...$extra, ...($via === null ? [] : ['via' => $via]),
             ]);
-            if (! $entry->exists) {
-                throw new DelegatedAccessException('audit_unavailable');
-            }
         } catch (Throwable) {
             // A missing attempt record prevents transmission. A failed result record
             // leaves a durable attempt and must never turn a remote write into success.
             throw new DelegatedAccessException($outcome === 'attempt' ? 'audit_unavailable' : 'unknown_outcome');
+        }
+    }
+
+    /**
+     * Who acted on what. Every write audit, the receipt check's included, starts with these, so one
+     * query finds a write's whole trail by its correlation or operation id.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, string>
+     */
+    private function auditSubject(User $actor, array $payload): array
+    {
+        return ['actor' => (string) $actor->id, 'application' => $payload['application'], 'target' => $payload['subject'], 'operation' => $payload['operation']];
+    }
+
+    /**
+     * Append one audit record, committed on its own: never inside a caller's transaction, whose
+     * rollback could erase it after the application acted.
+     *
+     * @param  array<string, mixed>  $metadata
+     *
+     * @throws DelegatedAccessException when it cannot be recorded
+     */
+    private function record(User $actor, string $event, bool $succeeded, array $metadata): void
+    {
+        if ((new AuthAuditLog)->getConnection()->transactionLevel() !== 0) {
+            throw new DelegatedAccessException('audit_unavailable');
+        }
+        $entry = AuthAuditLog::create([
+            'user_id' => $actor->id, 'acting_user_id' => $actor->id, 'event' => $event,
+            'auth_method' => 'delegated', 'succeeded' => $succeeded, 'metadata' => $metadata,
+        ]);
+        if (! $entry->exists) {
+            throw new DelegatedAccessException('audit_unavailable');
         }
     }
 

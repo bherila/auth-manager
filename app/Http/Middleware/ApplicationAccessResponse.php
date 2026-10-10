@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Controllers\ApplicationAccessController;
+use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use Closure;
 use Illuminate\Http\Request;
@@ -21,6 +23,8 @@ class ApplicationAccessResponse
     {
         $message = match ($exception->outcome) {
             'unknown_outcome' => 'The application did not confirm the result. The change may have completed. Reload current access before attempting another change.',
+            // Version 3: the receipt was asked for once and holds no outcome yet. Never retried for you.
+            DelegatedAccessTransport::STILL_UNKNOWN => 'The application did not confirm the result, and its record of this change does not show an outcome yet. The change may still complete. Reload current access before attempting another change.',
             'revision_conflict' => 'Access changed since you opened this form. Reload current access before editing again.',
             'recent_confirmation_required' => 'Confirm your password or sign in again before changing application access.',
             'not_authenticated' => 'Your authenticated session is no longer current. Sign in again.',
@@ -32,12 +36,13 @@ class ApplicationAccessResponse
         // A failed write must land on a GET page. Rendering it at the POST-only update
         // URL invites a refresh, which resubmits the write; when the first outcome is
         // unknown, that second write is exactly the retry the contract forbids.
-        if ($request->routeIs('applications.access.update', 'applications.access.provision', 'applications.access.invitations.*')) {
+        if ($request->routeIs('applications.access.update', 'applications.access.remove', 'applications.access.provision', 'applications.access.invitations.*')) {
             $subject = $request->input('subject');
 
             return redirect()->route('applications.access', array_filter([
                 'application' => $request->route('application'),
                 'subject' => is_string($subject) && $subject !== '' ? $subject : null,
+                ...ApplicationAccessController::keptSearches($request),
             ]))->with('access_failure', $message);
         }
 

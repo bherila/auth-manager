@@ -24,6 +24,12 @@ final class DelegatedAccessApplications
 {
     public const ENVIRONMENT = 'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS';
 
+    /**
+     * The contract versions an entry may name. Version 3 is current; 1 and 2 remain only for
+     * applications that have not moved yet, and go when the package removes them.
+     */
+    public const VERSIONS = [DelegatedContract::VERSION_1, DelegatedContract::VERSION_2, DelegatedContract::VERSION_3];
+
     /** @var array<string, array{endpoint: string, contract_version: int}>|null */
     private ?array $applications = null;
 
@@ -118,8 +124,8 @@ final class DelegatedAccessApplications
                 throw self::invalid("entry {$position} must have the form key|https://endpoint|contract_version");
             }
             [$key, $endpoint, $version] = array_map('trim', $fields);
-            if (! in_array($version, ['1', '2'], true)) {
-                throw self::invalid("entry {$position} contract version must be 1 or 2");
+            if (! in_array($version, ['1', '2', '3'], true)) {
+                throw self::invalid("entry {$position} contract version must be 1, 2 or 3");
             }
 
             $applications = self::withEntry($applications, $key, $endpoint, (int) $version, "entry {$position}");
@@ -148,8 +154,8 @@ final class DelegatedAccessApplications
             if (! is_array($entry) || ! is_string($key) || ! is_string($entry['endpoint'] ?? null)) {
                 throw self::invalid("{$label} must have a string key and endpoint", 'delegated-access.applications');
             }
-            if (! in_array($version, [DelegatedContract::VERSION_1, DelegatedContract::VERSION_2], true)) {
-                throw self::invalid("{$label} contract version must be 1 or 2", 'delegated-access.applications');
+            if (! in_array($version, self::VERSIONS, true)) {
+                throw self::invalid("{$label} contract version must be 1, 2 or 3", 'delegated-access.applications');
             }
 
             $applications = self::withEntry($applications, $key, $entry['endpoint'], $version, $label, 'delegated-access.applications');

@@ -23,7 +23,9 @@ use Throwable;
  * demoted.
  *
  * Any refusal leaves the person admitted with no roles applied, and the invitation records it for
- * managers. An unconfirmed write is recorded as unknown and is never retried.
+ * managers. An unconfirmed write is recorded as unknown and is never retried; on a version 3
+ * application the transport first asks for its receipt once, so a write the application did apply,
+ * or did refuse, is recorded as that.
  */
 final class InvitationRoles
 {
@@ -40,7 +42,7 @@ final class InvitationRoles
         try {
             [$status, $outcome, $correlation] = $this->attempt($invitation, $person, $correlation);
         } catch (DelegatedAccessException $refusal) {
-            $status = $refusal->outcome === 'unknown_outcome' ? AccessInvitation::ROLES_UNKNOWN : AccessInvitation::ROLES_NOT_APPLIED;
+            $status = DelegatedAccessTransport::unconfirmed($refusal) ? AccessInvitation::ROLES_UNKNOWN : AccessInvitation::ROLES_NOT_APPLIED;
             $outcome = $refusal->outcome;
         } catch (Throwable $failure) {
             Log::warning('Applying an invitation\'s access failed unexpectedly.', ['invitation_id' => $invitation->getKey(), 'exception' => $failure::class]);
@@ -57,7 +59,8 @@ final class InvitationRoles
         $this->audit->record(
             $status === AccessInvitation::ROLES_APPLIED ? InvitationAudit::ROLES_APPLIED : InvitationAudit::ROLES_NOT_APPLIED,
             $invitation, null, $inviter, $person, $status === AccessInvitation::ROLES_APPLIED,
-            ['status' => $status, 'outcome' => $outcome, 'correlation' => $correlation],
+            ['status' => $status, 'outcome' => $outcome, 'correlation' => $correlation,
+                ...($invitation->roles_operation_id === null ? [] : ['operation_id' => $invitation->roles_operation_id])],
         );
 
         return $status;
@@ -83,7 +86,8 @@ final class InvitationRoles
             || ! $this->permissions->canInvite($inviter, $application) || ! $this->permissions->writesEnabled($application)) {
             return $notApplied('inviter_not_authorized');
         }
-        if (DelegatedAccessTransport::contractVersion($application) !== DelegatedContract::VERSION_2) {
+        $version = DelegatedAccessTransport::contractVersion($application);
+        if ($version < DelegatedContract::VERSION_2) {
             return $notApplied('provisioning_unavailable');
         }
 
@@ -120,13 +124,33 @@ final class InvitationRoles
             $update = ['operation' => 'update', 'subject' => $subject, 'expected_revision' => $state['revision'], 'access' => $merged];
         }
 
-        $correlation = bin2hex(random_bytes(32));
-        $answer = $this->transport->sendForInvitation($inviter, $recorded, $application, $update, $correlation);
-        if (! $this->contract->fitsCapabilities($capabilities, $answer)) {
-            return [AccessInvitation::ROLES_UNKNOWN, 'unknown_outcome', $correlation];
+        if ($version >= DelegatedContract::VERSION_3) {
+            $update['operation_id'] = $this->operationId($invitation);
         }
+        $correlation = bin2hex(random_bytes(32));
+        // An answer that does not fit the capabilities is an unknown outcome from the transport.
+        $this->transport->sendForInvitation($inviter, $recorded, $application, $update, $correlation, $capabilities);
 
         return [AccessInvitation::ROLES_APPLIED, 'applied', $correlation];
+    }
+
+    /**
+     * The invitation's one `operation_id` for its acceptance-time write: stored before the write is
+     * sent, and reused by any later attempt for the same invitation, so the application answers a
+     * repeat from its receipt rather than applying it again. Only the first writer stores one.
+     */
+    private function operationId(AccessInvitation $invitation): string
+    {
+        if (! DelegatedContract::validOperationId($invitation->roles_operation_id)) {
+            AccessInvitation::query()->whereKey($invitation->getKey())->whereNull('roles_operation_id')
+                ->update(['roles_operation_id' => DelegatedContract::operationId()]);
+            $invitation->refresh();
+        }
+        if (! DelegatedContract::validOperationId($invitation->roles_operation_id)) {
+            throw new DelegatedAccessException('invalid_request', 422);
+        }
+
+        return $invitation->roles_operation_id;
     }
 
     /**

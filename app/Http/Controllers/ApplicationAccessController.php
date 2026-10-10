@@ -27,6 +27,8 @@ class ApplicationAccessController extends Controller
     /** One reply for every exact-email provisioning outcome, so it reveals nobody. */
     public const EMAIL_PROVISION_NOTICE = 'If that person can sign in to this application and has no account there yet, their account now exists with the access you chose. Find them in the account list to confirm.';
 
+    public const REMOVED_NOTICE = 'The application removed the access you manage for this account. The account and its history remain in the application.';
+
     public function __construct(
         private readonly DelegatedAccessTransport $transport,
         private readonly ApplicationGrantHolders $grantHolders,
@@ -55,7 +57,8 @@ class ApplicationAccessController extends Controller
         return $this->page($request, $application, $subject, $state,
             $input['subject_cursor'] ?? null, $input['workspace_cursor'] ?? null,
             $request->session()->get('access_updated') === true,
-            (string) ($input['directory_search'] ?? ''), (int) ($input['directory_page'] ?? 1));
+            (string) ($input['directory_search'] ?? ''), (int) ($input['directory_page'] ?? 1),
+            $input['subject_query'] ?? null, $input['workspace_query'] ?? null);
     }
 
     public function browse(Request $request, string $application): RedirectResponse
@@ -71,12 +74,41 @@ class ApplicationAccessController extends Controller
             'subject' => ['nullable', 'string', 'max:191'],
             'directory_search' => ['nullable', 'string', 'max:100'],
             'directory_page' => ['nullable', 'integer', 'min:1', 'max:1000'],
+            // Contract version 3 searches, answered by the application within what this actor may see.
+            'subject_query' => ['nullable', 'string', $this->searchRule()],
+            'workspace_query' => ['nullable', 'string', $this->searchRule()],
         ]);
+    }
+
+    /**
+     * The version 3 searches a write form carried back, so the page it returns to keeps them in force.
+     * Only values the contract accepts are kept; anything else is dropped rather than refused, since a
+     * stale filter must never block or alter the write itself.
+     *
+     * @return array{subject_query?: string, workspace_query?: string}
+     */
+    public static function keptSearches(Request $request): array
+    {
+        return array_filter(
+            ['subject_query' => $request->input('subject_query'), 'workspace_query' => $request->input('workspace_query')],
+            fn (mixed $query): bool => DelegatedContract::validQuery($query),
+        );
+    }
+
+    /** A search the contract accepts: 2 to 100 characters without control characters. */
+    private function searchRule(): Closure
+    {
+        return static function (string $attribute, mixed $value, Closure $fail): void {
+            if (! DelegatedContract::validQuery($value)) {
+                $fail('Search for 2 to 100 characters.');
+            }
+        };
     }
 
     public function update(Request $request, string $application): RedirectResponse
     {
-        if (DelegatedAccessTransport::contractVersion($application) === DelegatedContract::VERSION_2) {
+        // Version 3 is version 2 plus search, removal, metadata and receipts: roles work the same.
+        if (DelegatedAccessTransport::contractVersion($application) >= DelegatedContract::VERSION_2) {
             return $this->updateWithRoles($request, $application);
         }
 
@@ -112,7 +144,49 @@ class ApplicationAccessController extends Controller
     }
 
     /**
-     * Contract version 2: memberships name one of the application's own roles.
+     * Contract version 3: remove this account's access to the application, as far as this actor
+     * manages it, and keep the account and its history there.
+     *
+     * A write like any other: manage permission, a current grant, writes enabled for the application,
+     * a recent confirmation and the application's own key, all checked before anything about the
+     * account is read. It also needs the person's explicit confirmation, and the application to offer
+     * the removal (`allowed_edits.remove`) in a fresh read; otherwise nothing is sent. The application
+     * then removes every membership and the administrator flag in the actor's projection, or refuses
+     * the whole removal.
+     */
+    public function remove(Request $request, string $application): RedirectResponse
+    {
+        abort_unless(DelegatedAccessTransport::contractVersion($application) >= DelegatedContract::VERSION_3, 404);
+        $input = $request->validate([
+            'subject' => ['required', 'string', 'max:191'],
+            'expected_revision' => ['required', 'string', 'max:128'],
+            'confirm_removal' => ['accepted'],
+        ], ['confirm_removal.accepted' => 'Confirm that you understand what removing this account\'s access does.']);
+        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
+        $operationId = $this->operationId($request, $application, $back);
+
+        $this->transport->authorizeWrite($request, $application);
+        $contract = new DelegatedContract;
+        $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
+        $current = $this->transport->send($request, $application, ['operation' => 'read', 'subject' => $input['subject']]);
+        if (! $contract->fitsCapabilities($capabilities, $current)) {
+            throw new DelegatedAccessException('invalid_response');
+        }
+        if (! $current['provisioned'] || $current['allowed_edits']['remove'] !== true) {
+            return redirect()->to($back)
+                ->with('access_failure', 'The application does not offer to remove this account\'s access now. Review its current access.');
+        }
+
+        // The transport treats an answer that does not fit these capabilities as an unknown outcome.
+        $this->transport->send($request, $application, [
+            'operation' => 'remove', 'subject' => $input['subject'], 'expected_revision' => $input['expected_revision'], ...$operationId,
+        ], $capabilities);
+
+        return redirect()->to($back)->with('access_notice', self::REMOVED_NOTICE);
+    }
+
+    /**
+     * Contract version 2 and 3: memberships name one of the application's own roles.
      *
      * A membership the application reported as not editable is posted back as it was, from a hidden
      * field; the application refuses an update that changes one. An empty role removes a membership.
@@ -129,7 +203,8 @@ class ApplicationAccessController extends Controller
             'new_workspace' => ['nullable', 'string', 'max:191'],
             'new_role' => ['nullable', 'string', 'max:64', 'required_with:new_workspace'],
         ]);
-        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
+        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
+        $operationId = $this->operationId($request, $application, $back);
 
         $workspaces = [];
         foreach ($input['workspaces'] ?? [] as $workspace) {
@@ -148,17 +223,15 @@ class ApplicationAccessController extends Controller
         $access = ['application_admin' => (bool) $input['application_admin'], 'workspaces' => $workspaces];
         $capabilities = $this->assertRolesAdvertised($request, $application, $input['subject'], $access, $back);
 
-        $answer = $this->transport->send($request, $application, [
+        // An answer that does not fit what the application advertised cannot confirm the write: the
+        // transport reports it as an unknown outcome, and audits it as one, rather than as success.
+        $this->transport->send($request, $application, [
             'operation' => 'update',
             'subject' => $input['subject'],
             'expected_revision' => $input['expected_revision'],
             'access' => $access,
-        ]);
-        // The write was sent; an answer that does not fit what the application advertised cannot
-        // confirm it, so it is reported as an unknown outcome rather than as success.
-        if (! (new DelegatedContract)->fitsCapabilities($capabilities, $answer)) {
-            throw new DelegatedAccessException('unknown_outcome');
-        }
+            ...$operationId,
+        ], $capabilities);
 
         return redirect()->to($back)->with('access_updated', true);
     }
@@ -167,7 +240,7 @@ class ApplicationAccessController extends Controller
      * Give a grant holder an account in the application: with one workspace membership, or for an
      * account-only application, with the application administrator flag the actor chose.
      *
-     * Contract version 2 only. The person must hold a current grant to the application, the
+     * Contract version 2 and 3. The person must hold a current grant to the application, the
      * application must still advertise provisioning and still report this subject unprovisioned with
      * provisioning allowed, and the role must be one it advertises. The application then creates the
      * account bound to this provider's issuer and the exact subject, and decides everything else.
@@ -177,7 +250,7 @@ class ApplicationAccessController extends Controller
      */
     public function provision(Request $request, string $application): RedirectResponse
     {
-        abort_unless(DelegatedAccessTransport::contractVersion($application) === DelegatedContract::VERSION_2, 404);
+        abort_unless(DelegatedAccessTransport::contractVersion($application) >= DelegatedContract::VERSION_2, 404);
 
         // Directory holders pick a subject; every other administrator names a
         // person by exact email and gets the same answer whatever the outcome.
@@ -198,9 +271,11 @@ class ApplicationAccessController extends Controller
             ]),
         ]);
         $back = $byEmail
-            ? route('applications.access', ['application' => $application])
-            : route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
+            ? route('applications.access', ['application' => $application, ...self::keptSearches($request)])
+            : route('applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
         $quietly = fn (): RedirectResponse => redirect()->to($back)->with('access_notice', self::EMAIL_PROVISION_NOTICE);
+        // Checked before anybody is looked up: a stale form is refused alike whoever it names.
+        $operationId = $this->operationId($request, $application, $back);
 
         $registration = RegisteredApplication::query()->where('key', $application)->where('enabled', true)->firstOrFail();
 
@@ -223,7 +298,7 @@ class ApplicationAccessController extends Controller
         }
 
         try {
-            return $this->provisionPerson($request, $application, $person, $capabilities, $access, $byEmail, $back, $quietly);
+            return $this->provisionPerson($request, $application, $person, $capabilities, $access, $operationId, $byEmail, $back, $quietly);
         } catch (DelegatedAccessException $refusal) {
             // A refusal from here on is about this person: whether they exist there, what the
             // application lets this actor do to them, whether the write went through. The transport
@@ -268,9 +343,11 @@ class ApplicationAccessController extends Controller
     }
 
     /**
+     * @param  array{operation_id?: string}  $operationId
+     *
      * @throws DelegatedAccessException
      */
-    private function provisionPerson(Request $request, string $application, User $person, array $capabilities, array $access, bool $byEmail, string $back, Closure $quietly): RedirectResponse
+    private function provisionPerson(Request $request, string $application, User $person, array $capabilities, array $access, array $operationId, bool $byEmail, string $back, Closure $quietly): RedirectResponse
     {
         $subject = (string) $person->getKey();
 
@@ -284,17 +361,15 @@ class ApplicationAccessController extends Controller
                 ->with('access_failure', 'The application does not offer to create this account now. Review its current access.');
         }
 
-        $update = ['operation' => 'update', 'subject' => $subject, 'expected_revision' => null, 'access' => $access];
+        $update = ['operation' => 'update', 'subject' => $subject, 'expected_revision' => null, 'access' => $access, ...$operationId];
         $name = trim((string) $person->name);
         if ($name !== '') {
             // Contact data for the new account, bounded in bytes as the contract bounds it.
             $update['display_name'] = mb_strcut($name, 0, 255, 'UTF-8');
         }
-        $answer = $this->transport->send($request, $application, $update);
-        if (! (new DelegatedContract)->fitsCapabilities($capabilities, $answer)) {
-            // Caught by provision(): the uniform notice by email, an unknown outcome otherwise.
-            throw new DelegatedAccessException('unknown_outcome');
-        }
+        // A misfit answer is an unknown outcome from the transport, caught by provision(): the uniform
+        // notice by email, an unknown outcome otherwise.
+        $this->transport->send($request, $application, $update, $capabilities);
 
         return $byEmail ? $quietly() : redirect()->to($back)->with('access_updated', true);
     }
@@ -335,6 +410,30 @@ class ApplicationAccessController extends Controller
         return $capabilities;
     }
 
+    /**
+     * A version 3 write's `operation_id`, as the form that asked for it posted it back.
+     *
+     * Each write form carries one minted when it was rendered, so a resubmission of that form (a double
+     * click, a browser retry) is the same operation and the application answers it from its receipt
+     * rather than applying it again. The application keeps operations apart per actor, so one posted
+     * by someone else cannot reach another person's. Earlier contract versions have none.
+     *
+     * @return array{operation_id?: string}
+     */
+    private function operationId(Request $request, string $application, string $back): array
+    {
+        if (DelegatedAccessTransport::contractVersion($application) < DelegatedContract::VERSION_3) {
+            return [];
+        }
+        $operationId = $request->input('operation_id');
+        if (! DelegatedContract::validOperationId($operationId)) {
+            throw ValidationException::withMessages(['operation_id' => 'This form is out of date. Review current access and make the change again.'])
+                ->redirectTo($back);
+        }
+
+        return ['operation_id' => $operationId];
+    }
+
     /** The invitation link flashed, encrypted, after an email failed; null when absent or unreadable. */
     private function flashedLink(Request $request): ?string
     {
@@ -351,27 +450,36 @@ class ApplicationAccessController extends Controller
 
     private function page(Request $request, string $application, ?string $subject = null,
         ?array $state = null, ?string $subjectCursor = null, ?string $workspaceCursor = null,
-        bool $saved = false, string $directorySearch = '', int $directoryPage = 1): View
+        bool $saved = false, string $directorySearch = '', int $directoryPage = 1,
+        ?string $subjectQuery = null, ?string $workspaceQuery = null): View
     {
         $version = DelegatedAccessTransport::contractVersion($application);
+        // Only version 3 applications search. The query goes to the application, which matches it
+        // within this actor's scope exactly as it lists without one, and binds its cursors to it.
+        $searches = $version >= DelegatedContract::VERSION_3
+            ? array_filter(['subject_query' => $subjectQuery, 'workspace_query' => $workspaceQuery], fn ($value) => $value !== null)
+            : [];
         $contract = new DelegatedContract;
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
         // An account-only application has no workspaces to list, so it is not asked for them. Anything
         // it reports that only a workspace application could is refused rather than rendered.
-        $accountOnly = $version === DelegatedContract::VERSION_2 && $contract->accountOnly($capabilities);
-        if ($state !== null && $version === DelegatedContract::VERSION_2 && ! $contract->fitsCapabilities($capabilities, $state)) {
+        $roles = $version >= DelegatedContract::VERSION_2;
+        $accountOnly = $roles && $contract->accountOnly($capabilities);
+        if ($state !== null && $roles && ! $contract->fitsCapabilities($capabilities, $state)) {
             throw new DelegatedAccessException('invalid_response');
         }
-        $subjects = $this->transport->send($request, $application,
-            array_filter(['operation' => 'subjects', 'limit' => 50, 'cursor' => $subjectCursor], fn ($value) => $value !== null));
-        $workspaces = $accountOnly ? ['workspaces' => [], 'next_cursor' => null] : $this->transport->send($request, $application,
-            array_filter(['operation' => 'workspaces', 'limit' => 50, 'cursor' => $workspaceCursor], fn ($value) => $value !== null));
+        $subjects = $this->transport->send($request, $application, array_filter(
+            ['operation' => 'subjects', 'limit' => 50, 'cursor' => $subjectCursor, 'query' => $searches['subject_query'] ?? null],
+            fn ($value) => $value !== null));
+        $workspaces = $accountOnly ? ['workspaces' => [], 'next_cursor' => null] : $this->transport->send($request, $application, array_filter(
+            ['operation' => 'workspaces', 'limit' => 50, 'cursor' => $workspaceCursor, 'query' => $searches['workspace_query'] ?? null],
+            fn ($value) => $value !== null));
         $registration = RegisteredApplication::query()->where('key', $application)->firstOrFail();
 
         // The picker discloses grant holders across every workspace, so it needs the separate
         // directory permission as well as the application answering capabilities and advertising
         // provisioning. Without it, a manager names a person by exact email instead.
-        $provisioning = $version === DelegatedContract::VERSION_2 && ($capabilities['controls']['provisioning'] ?? false) === true;
+        $provisioning = $roles && ($capabilities['controls']['provisioning'] ?? false) === true;
         $actor = $request->user();
         $directory = $provisioning && $this->permissions->canBrowseDirectory($actor, $application)
             ? $this->grantHolders->search($registration, $directorySearch, $directoryPage)
@@ -382,7 +490,7 @@ class ApplicationAccessController extends Controller
             'application' => $registration, 'version' => $version, 'accountOnly' => $accountOnly,
             'capabilities' => $capabilities, 'subjects' => $subjects, 'workspaces' => $workspaces,
             'subject' => $subject, 'state' => $state, 'saved' => $saved,
-            'directory' => $directory, 'directorySearch' => $directorySearch,
+            'directory' => $directory, 'directorySearch' => $directorySearch, 'searches' => $searches,
             'writes' => $writes, 'provisionByEmail' => $provisioning && $writes && $directory === null,
             'invitations' => $this->invitations($request, $actor, $application, $provisioning, $capabilities),
         ]);
