@@ -24,7 +24,8 @@ use Tests\TestCase;
 
 /**
  * The transport talking contract version 3: what it sends for each operation, what it accepts back,
- * and the receipt check after an uncertain write. Version 1 is `DelegatedAccessTransportTest`'s.
+ * and the receipt check after an uncertain write. `DelegatedAccessTransportTest` covers the rest of
+ * the transport against the reference adapter.
  */
 class DelegatedAccessTransportV3Test extends TestCase
 {
@@ -278,36 +279,6 @@ class DelegatedAccessTransportV3Test extends TestCase
 
         $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', $this->remove()), DelegatedAccessTransport::STILL_UNKNOWN, 503);
         $this->assertSame(['remove', 'receipt'], $this->sentOperations());
-    }
-
-    public function test_a_version_2_application_is_still_spoken_to_in_version_2(): void
-    {
-        config(['delegated-access.applications.example-app.contract_version' => 2]);
-        Http::swap(new Factory);
-        Http::fake(fn () => Http::response(['contract_version' => 2, 'application' => 'example-app', 'operation' => 'update',
-            'subject' => 'subject-example', 'provisioned' => true, 'revision' => 'revision-after',
-            'access' => ['application_admin' => false, 'workspaces' => []],
-            'allowed_edits' => ['application_admin' => false, 'workspaces' => true, 'provision' => false]]));
-        $transport = app(DelegatedAccessTransport::class);
-        $update = $this->update();
-        unset($update['operation_id']);
-
-        $transport->send($this->request, 'example-app', $update);
-        // Neither an operation id nor a removal exists in version 2.
-        $this->refused(fn () => $transport->send($this->request, 'example-app', $this->update()), 'invalid_request', 422);
-        $this->refused(fn () => $transport->send($this->request, 'example-app', $this->remove()), 'invalid_request', 422);
-        $this->refused(fn () => $transport->send($this->request, 'example-app', ['operation' => 'subjects', 'query' => 'Example']), 'invalid_request', 422);
-
-        Http::assertSentCount(1);
-        Http::assertSent(fn (ClientRequest $request) => $request['contract_version'] === 2 && ! isset($request['operation_id']));
-        $this->assertArrayNotHasKey('operation_id', AuthAuditLog::query()->first()->metadata);
-
-        // Nothing to look up an uncertain version 2 write by: it stays unknown, with no receipt asked for.
-        Http::swap(new Factory);
-        Http::fake(fn () => Http::response(['error' => 'server_error'], 500));
-        $this->refused(fn () => $transport->send($this->request, 'example-app', $update), 'unknown_outcome', 503);
-        Http::assertSentCount(1);
-        $this->assertSame(0, AuthAuditLog::query()->where('event', 'delegated_access_receipt_check')->count());
     }
 
     private function resetFake(): void

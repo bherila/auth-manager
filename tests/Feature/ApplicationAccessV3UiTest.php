@@ -23,8 +23,8 @@ use Tests\TestCase;
 /**
  * The application-access page for an application on delegated access contract version 3.
  *
- * Version 3 is version 2 plus search, removal, metadata and operation receipts. What version 2 does
- * (roles, editable memberships, provisioning) is `ApplicationAccessV2UiTest`'s, and stays there.
+ * Search, removal, metadata and operation receipts. Roles, editable memberships and provisioning
+ * are `ApplicationAccessRolesUiTest`'s; the page's general behavior is `ApplicationAccessUiTest`'s.
  */
 class ApplicationAccessV3UiTest extends TestCase
 {
@@ -397,16 +397,6 @@ class ApplicationAccessV3UiTest extends TestCase
             ->assertSessionHas('access_notice', ApplicationAccessController::REMOVED_NOTICE);
 
         $this->assertSame(['remove', 'receipt'], array_values(array_filter($this->v3Sent, fn (string $operation): bool => in_array($operation, ['remove', 'receipt'], true))));
-    }
-
-    public function test_a_version_2_application_has_no_removal(): void
-    {
-        $this->confirm();
-        config(['delegated-access.applications.example-app.contract_version' => 2]);
-
-        $this->post('/applications/example-app/access/remove', $this->removal())->assertNotFound();
-
-        $this->assertNothingRemoved();
     }
 
     public function test_the_account_list_shows_the_observations_the_application_reports(): void

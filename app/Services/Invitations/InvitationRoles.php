@@ -5,6 +5,7 @@ namespace App\Services\Invitations;
 use App\Models\AccessInvitation;
 use App\Models\User;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
+use App\Support\DelegatedAccessApplications;
 use App\Support\DelegatedAccessPermissions;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
@@ -23,8 +24,8 @@ use Throwable;
  * demoted.
  *
  * Any refusal leaves the person admitted with no roles applied, and the invitation records it for
- * managers. An unconfirmed write is recorded as unknown and is never retried; on a version 3
- * application the transport first asks for its receipt once, so a write the application did apply,
+ * managers. An unconfirmed write is recorded as unknown and is never retried; the transport
+ * first asks for its receipt once, so a write the application did apply,
  * or did refuse, is recorded as that.
  */
 final class InvitationRoles
@@ -86,8 +87,7 @@ final class InvitationRoles
             || ! $this->permissions->canInvite($inviter, $application) || ! $this->permissions->writesEnabled($application)) {
             return $notApplied('inviter_not_authorized');
         }
-        $version = DelegatedAccessTransport::contractVersion($application);
-        if ($version < DelegatedContract::VERSION_2) {
+        if (app(DelegatedAccessApplications::class)->find($application) === null) {
             return $notApplied('provisioning_unavailable');
         }
 
@@ -124,9 +124,7 @@ final class InvitationRoles
             $update = ['operation' => 'update', 'subject' => $subject, 'expected_revision' => $state['revision'], 'access' => $merged];
         }
 
-        if ($version >= DelegatedContract::VERSION_3) {
-            $update['operation_id'] = $this->operationId($invitation);
-        }
+        $update['operation_id'] = $this->operationId($invitation);
         $correlation = bin2hex(random_bytes(32));
         // An answer that does not fit the capabilities is an unknown outcome from the transport.
         $this->transport->sendForInvitation($inviter, $recorded, $application, $update, $correlation, $capabilities);

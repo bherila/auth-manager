@@ -9,11 +9,10 @@ use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Support\DelegatedAccessKeys;
-use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
-use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -24,13 +23,14 @@ use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
- * The application-access page for an application on delegated access contract version 2 (#56).
+ * Roles, provisioning and account-only applications on the application-access page (#56).
  *
- * Version 2 applications advertise their own workspace roles, say per membership whether it can be
- * edited here, and may accept provisioning of a grant holder they have not seen. Version 1
- * applications keep `ApplicationAccessUiTest`, unchanged.
+ * Applications advertise their own workspace roles, say per membership whether it can be edited
+ * here, and may accept provisioning of a grant holder they have not seen. Introduced with contract
+ * version 2 and unchanged in version 3; search, removal, metadata and receipts are
+ * `ApplicationAccessV3UiTest`'s.
  */
-class ApplicationAccessV2UiTest extends TestCase
+class ApplicationAccessRolesUiTest extends TestCase
 {
     use DatabaseMigrations;
 
@@ -91,7 +91,7 @@ class ApplicationAccessV2UiTest extends TestCase
         config(['application-registry.launch_enabled' => true, 'delegated-access' => [
             'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'], 'issuer' => 'https://identity.example.test',
             'key_id' => null, 'private_key_path' => null, 'keys_environment' => 'example-app|example-v1|'.$this->keyPath,
-            'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 2]],
+            'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 3]],
         ]]);
         $this->actor = User::factory()->create(['name' => 'Example Actor', 'user_role' => 'user,access-manage:example-app,access-directory:example-app', 'password' => Hash::make('current-password-example')]);
         $this->client = PassportClient::create(['id' => (string) Str::uuid(), 'name' => 'Example Client',
@@ -122,31 +122,7 @@ class ApplicationAccessV2UiTest extends TestCase
             ->assertSee('<option value="auditor">Auditor</option>', false)
             ->assertDontSee('Read and write');
 
-        Http::assertSent(fn ($request) => $request['contract_version'] === 2);
-    }
-
-    /** Version 2 has no operation ids: its forms carry none and its writes send none. */
-    public function test_a_version_2_write_carries_no_operation_id(): void
-    {
-        $this->browse(['subject' => 'subject-example'])->assertOk()->assertDontSee('name="operation_id"', false);
-
-        $this->confirm();
-        $this->post('/applications/example-app/access/update', [
-            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
-            'workspaces' => [['id' => 'workspace-a', 'role' => 'owner'], ['id' => 'workspace-b', 'role' => 'auditor']],
-            'operation_id' => str_repeat('a', 43),
-        ])->assertRedirect()->assertSessionHas('access_updated', true);
-
-        Http::assertSent(fn ($request) => $request['operation'] === 'update' && ! isset($request['operation_id']));
-    }
-
-    /** Version 2 has no search: no boxes, and a query is never sent to it. */
-    public function test_a_version_2_application_offers_no_search_and_is_never_sent_one(): void
-    {
-        $this->browse(['subject_query' => 'Example', 'workspace_query' => 'Workspace'])->assertOk()
-            ->assertSee('Select an account')->assertDontSee('Search accounts')->assertDontSee('Search workspaces');
-
-        $this->assertCount(0, Http::recorded(fn ($request) => isset($request['query'])));
+        Http::assertSent(fn ($request) => $request['contract_version'] === 3);
     }
 
     public function test_an_update_names_roles_and_echoes_the_non_editable_membership(): void
@@ -158,7 +134,7 @@ class ApplicationAccessV2UiTest extends TestCase
         ])->assertRedirect()->assertSessionHas('access_updated', true);
 
         Http::assertSent(fn ($request) => $request['operation'] === 'update'
-            && $request['contract_version'] === 2
+            && $request['contract_version'] === 3
             && $request['access'] === ['application_admin' => false, 'workspaces' => [
                 ['id' => 'workspace-a', 'role' => 'owner'], ['id' => 'workspace-b', 'role' => 'auditor'],
             ]]);
@@ -518,7 +494,7 @@ class ApplicationAccessV2UiTest extends TestCase
         ])->assertRedirect()->assertSessionHas('access_updated', true);
 
         Http::assertSent(fn ($request) => $request['operation'] === 'update'
-            && $request['contract_version'] === 2
+            && $request['contract_version'] === 3
             && $request['subject'] === (string) $holder->id
             && array_key_exists('expected_revision', $request->data()) && $request['expected_revision'] === null
             && $request['display_name'] === 'Example Holder'
@@ -582,7 +558,7 @@ class ApplicationAccessV2UiTest extends TestCase
             'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '1',
         ])->assertRedirect()->assertSessionHas('access_updated', true);
 
-        Http::assertSent(fn ($request) => $request['operation'] === 'update' && $request['contract_version'] === 2
+        Http::assertSent(fn ($request) => $request['operation'] === 'update' && $request['contract_version'] === 3
             && $request['expected_revision'] === 'revision-example'
             && $request['access'] === ['application_admin' => true, 'workspaces' => []]);
     }
@@ -636,10 +612,10 @@ class ApplicationAccessV2UiTest extends TestCase
         $this->post('/applications/example-app/access/update', [
             'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '1',
         ])->assertRedirect()->assertSessionMissing('access_updated')
-            ->assertSessionHas('access_failure', 'The application did not confirm the result. The change may have completed. Reload current access before attempting another change.');
+            ->assertSessionHas('access_failure', fn (string $message): bool => str_contains($message, 'does not show an outcome yet'));
         $this->assertCount(1, Http::recorded(fn ($request) => $request['operation'] === 'update'));
         // Audited as it was reported, never as a success (Codex review on #77).
-        $this->assertSame(['unknown_outcome'], DB::table('auth_audit_log')->where('event', 'delegated_access_update_result')->pluck('metadata')
+        $this->assertSame([DelegatedAccessTransport::STILL_UNKNOWN], DB::table('auth_audit_log')->where('event', 'delegated_access_update_result')->pluck('metadata')
             ->map(fn ($metadata) => json_decode($metadata, true)['outcome'])->all());
     }
 
@@ -781,29 +757,15 @@ class ApplicationAccessV2UiTest extends TestCase
         $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
     }
 
-    public function test_a_version_one_answer_from_a_version_two_application_is_refused(): void
-    {
-        Http::swap(new Factory);
-        Http::fake(['*' => Http::response(['contract_version' => 1, 'application' => 'example-app', 'operation' => 'capabilities',
-            'controls' => ['application_admin' => false, 'workspace_permissions' => ['read', 'write']]], 200)]);
-
-        $request = Request::create('/synthetic-delegated-ui', 'POST');
-        $request->setUserResolver(fn (): User => $this->actor);
-        $request->setLaravelSession(app('session.store'));
-        $request->session()->put(EnsureCredentialVersion::SESSION_KEY, 0);
-
-        try {
-            app(DelegatedAccessTransport::class)->send($request, 'example-app', ['operation' => 'capabilities']);
-            $this->fail('A version 1 answer was accepted from an application configured for version 2.');
-        } catch (DelegatedAccessException $exception) {
-            $this->assertSame('invalid_response', $exception->outcome);
-        }
-    }
-
     private function fakeApplication(): void
     {
         Http::fake(function ($request) {
             $operation = $request['operation'];
+            // No receipts are kept here: an uncertain write stays unknown.
+            if ($operation === 'receipt') {
+                return Http::response(['contract_version' => 3, 'application' => 'example-app', 'operation' => 'receipt',
+                    'operation_id' => $request['operation_id'], 'status' => 'unknown']);
+            }
             $data = $this->accountOnly ? $this->accountOnlyAnswer($request) : match ($operation) {
                 'capabilities' => ['controls' => ['application_admin' => false, 'workspace_roles' => [
                     ['id' => 'owner', 'label' => 'Owner'], ['id' => 'admin', 'label' => 'Administrator'],
@@ -817,19 +779,19 @@ class ApplicationAccessV2UiTest extends TestCase
                 'update' => ['subject' => $request['subject'], 'provisioned' => true, 'revision' => 'revision-after',
                     'access' => ['application_admin' => false, 'workspaces' => array_map(
                         fn (array $membership): array => [...$membership, 'editable' => true], $request['access']['workspaces'])],
-                    'allowed_edits' => ['application_admin' => false, 'workspaces' => true, 'provision' => false]],
+                    'allowed_edits' => ['application_admin' => false, 'workspaces' => true, 'provision' => false, 'remove' => false]],
                 default => ['subject' => $request['subject'], 'provisioned' => $this->provisioned,
                     'revision' => $this->provisioned ? 'revision-example' : null,
                     'access' => $this->provisioned ? ['application_admin' => false, 'workspaces' => $this->memberships] : null,
                     'allowed_edits' => ['application_admin' => false, 'workspaces' => $this->provisioned,
-                        'provision' => ! $this->provisioned && $this->provisionAllowed]],
+                        'provision' => ! $this->provisioned && $this->provisionAllowed, 'remove' => false]],
             };
 
             if ($operation === 'update' && $this->refuseUpdates) {
                 return Http::response(['error' => 'not_authorized'], 403);
             }
 
-            return Http::response(['contract_version' => 2, 'application' => 'example-app', 'operation' => $operation, ...$data]);
+            return Http::response(['contract_version' => 3, 'application' => 'example-app', 'operation' => $operation, ...$data]);
         });
     }
 
@@ -847,12 +809,12 @@ class ApplicationAccessV2UiTest extends TestCase
             'workspaces' => ['workspaces' => [], 'next_cursor' => null],
             'update' => ['subject' => $request['subject'], 'provisioned' => true, 'revision' => 'revision-after',
                 'access' => ['application_admin' => $request['access']['application_admin'], 'workspaces' => $this->updateAnswerMemberships],
-                'allowed_edits' => ['application_admin' => $this->adminEditable, 'workspaces' => false, 'provision' => false]],
+                'allowed_edits' => ['application_admin' => $this->adminEditable, 'workspaces' => false, 'provision' => false, 'remove' => false]],
             default => ['subject' => $request['subject'], 'provisioned' => $this->provisioned,
                 'revision' => $this->provisioned ? 'revision-example' : null,
                 'access' => $this->provisioned ? ['application_admin' => false, 'workspaces' => $this->memberships] : null,
                 'allowed_edits' => ['application_admin' => $this->provisioned && $this->adminEditable, 'workspaces' => $this->workspaceEditsOffered,
-                    'provision' => ! $this->provisioned && $this->provisionAllowed]],
+                    'provision' => ! $this->provisioned && $this->provisionAllowed, 'remove' => false]],
         };
     }
 
@@ -892,6 +854,19 @@ class ApplicationAccessV2UiTest extends TestCase
     {
         $this->post('/applications/example-app/access/confirm', ['password' => 'current-password-example'])
             ->assertRedirect('/applications/example-app/access');
+    }
+
+    /**
+     * Every write form carries an operation id minted when it renders; these tests post a fresh one
+     * unless they name it, so each post is a new user action.
+     */
+    public function post($uri, array $data = [], array $headers = [])
+    {
+        if (preg_match('#/access/(update|provision)$#', $uri) === 1 && ! array_key_exists('operation_id', $data)) {
+            $data['operation_id'] = DelegatedContract::operationId();
+        }
+
+        return parent::post($uri, $data, $headers);
     }
 
     private function browse(array $input): TestResponse

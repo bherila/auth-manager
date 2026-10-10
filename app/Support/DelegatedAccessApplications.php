@@ -25,10 +25,13 @@ final class DelegatedAccessApplications
     public const ENVIRONMENT = 'AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS';
 
     /**
-     * The contract versions an entry may name. Version 3 is current; 1 and 2 remain only for
-     * applications that have not moved yet, and go when the package removes them.
+     * The one contract version an entry may name. Versions 1 and 2 are no longer spoken; an entry
+     * still naming one makes the map malformed rather than being talked to in a version it
+     * no longer matches. The field stays so a future version is again an explicit, per-entry change.
      */
-    public const VERSIONS = [DelegatedContract::VERSION_1, DelegatedContract::VERSION_2, DelegatedContract::VERSION_3];
+    public const VERSION = DelegatedContract::VERSION_3;
+
+    private const VERSION_RULE = 'contract version must be 3; earlier versions are no longer supported';
 
     /** @var array<string, array{endpoint: string, contract_version: int}>|null */
     private ?array $applications = null;
@@ -76,16 +79,6 @@ final class DelegatedAccessApplications
     }
 
     /**
-     * The contract version agreed with this application; version 1 when it is not configured.
-     *
-     * @throws DelegatedAccessException when the map is malformed
-     */
-    public function contractVersion(string $application): int
-    {
-        return $this->find($application)['contract_version'] ?? DelegatedContract::VERSION_1;
-    }
-
-    /**
      * A literal `applications` map in configuration takes precedence over the environment
      * string. Both are validated with the same rules.
      *
@@ -124,8 +117,8 @@ final class DelegatedAccessApplications
                 throw self::invalid("entry {$position} must have the form key|https://endpoint|contract_version");
             }
             [$key, $endpoint, $version] = array_map('trim', $fields);
-            if (! in_array($version, ['1', '2', '3'], true)) {
-                throw self::invalid("entry {$position} contract version must be 1, 2 or 3");
+            if ($version !== (string) self::VERSION) {
+                throw self::invalid("entry {$position} ".self::VERSION_RULE);
             }
 
             $applications = self::withEntry($applications, $key, $endpoint, (int) $version, "entry {$position}");
@@ -150,12 +143,13 @@ final class DelegatedAccessApplications
         foreach ($map as $key => $entry) {
             $position++;
             $label = "entry {$position}";
-            $version = is_array($entry) ? ($entry['contract_version'] ?? DelegatedContract::VERSION_1) : null;
+            // Required: an entry without one used to mean version 1.
+            $version = is_array($entry) ? ($entry['contract_version'] ?? null) : null;
             if (! is_array($entry) || ! is_string($key) || ! is_string($entry['endpoint'] ?? null)) {
                 throw self::invalid("{$label} must have a string key and endpoint", 'delegated-access.applications');
             }
-            if (! in_array($version, self::VERSIONS, true)) {
-                throw self::invalid("{$label} contract version must be 1, 2 or 3", 'delegated-access.applications');
+            if ($version !== self::VERSION) {
+                throw self::invalid("{$label} ".self::VERSION_RULE, 'delegated-access.applications');
             }
 
             $applications = self::withEntry($applications, $key, $entry['endpoint'], $version, $label, 'delegated-access.applications');

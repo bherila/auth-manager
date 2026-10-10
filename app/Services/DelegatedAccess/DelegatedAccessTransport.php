@@ -26,7 +26,7 @@ use Throwable;
 final class DelegatedAccessTransport
 {
     /**
-     * A version 3 write whose answer was uncertain and whose receipt did not settle it: the
+     * A write whose answer was uncertain and whose receipt did not settle it: the
      * application has no stored outcome for it yet. It may still have happened.
      */
     public const STILL_UNKNOWN = 'outcome_still_unknown';
@@ -74,8 +74,8 @@ final class DelegatedAccessTransport
         }
         // A malformed application map refuses every call here, before anything is signed or sent.
         $entry = app(DelegatedAccessApplications::class)->find($application);
-        $version = $entry['contract_version'] ?? DelegatedContract::VERSION_1;
-        $payload = $this->contract->request($application, $operation, $version);
+        // Contract version 3, the only one: the map refuses an entry naming any other.
+        $payload = $this->contract->request($application, $operation, DelegatedContract::VERSION_3);
         $write = in_array($payload['operation'], DelegatedContract::WRITE_OPERATIONS, true);
         // A malformed key list is a configuration problem for reads and writes alike; resolved
         // first so a write is not refused as though the actor lacked permission.
@@ -104,10 +104,9 @@ final class DelegatedAccessTransport
             if (! $write) {
                 throw $exception;
             }
-            // A version 3 write whose outcome is uncertain is looked up once by its operation id,
-            // never sent again.
+            // A write whose outcome is uncertain is looked up once by its operation id, never sent again.
             $byReceipt = [];
-            if ($exception->outcome === 'unknown_outcome' && $version === DelegatedContract::VERSION_3) {
+            if ($exception->outcome === 'unknown_outcome') {
                 try {
                     $result = $this->checkReceipt($entry, $signing, $actor, $application, $payload, $correlation, $via, $capabilities);
                 } catch (DelegatedAccessException $settled) {
@@ -132,8 +131,9 @@ final class DelegatedAccessTransport
     }
 
     /**
-     * Whether a refusal leaves a write's outcome unknown: the application never confirmed it, and for
-     * version 3 its receipt did not settle it either. Such a write may have happened.
+     * Whether a refusal leaves a write's outcome unknown: its receipt did not settle it
+     * ({@see STILL_UNKNOWN}), or the application answered but its result could not be recorded
+     * (`unknown_outcome`). Such a write may have happened.
      */
     public static function unconfirmed(DelegatedAccessException $exception): bool
     {
@@ -141,7 +141,7 @@ final class DelegatedAccessTransport
     }
 
     /**
-     * Ask the application, once, what became of a version 3 write whose answer was uncertain.
+     * Ask the application, once, what became of a write whose answer was uncertain.
      *
      * The receipt is a read: nothing is sent again, and it never reaches the adapter. A stored success
      * for this write is returned as its answer; a stored refusal is raised as that refusal; anything
@@ -260,20 +260,6 @@ final class DelegatedAccessTransport
     {
         app(DelegatedAccessKeys::class)->for($application);
         $this->actor($request, $application, true);
-    }
-
-    /**
-     * The contract version agreed with this application, from deployment configuration.
-     *
-     * Never negotiated at runtime and never taken from a response: an application that could
-     * choose the version could choose which rules its answers are checked against. An unknown
-     * value makes the whole map malformed, which refuses the call with `invalid_configuration`.
-     *
-     * @throws DelegatedAccessException when the application map is malformed
-     */
-    public static function contractVersion(string $application): int
-    {
-        return app(DelegatedAccessApplications::class)->contractVersion($application);
     }
 
     /**
@@ -403,7 +389,7 @@ final class DelegatedAccessTransport
                     throw new DelegatedAccessException('invalid_response');
                 }
 
-                return $this->contract->response(json_decode($bytes, true, 64, JSON_THROW_ON_ERROR), $application, $payload['operation'], $payload['subject'] ?? null, $payload['contract_version']);
+                return $this->contract->response(json_decode($bytes, true, 64, JSON_THROW_ON_ERROR), $application, $payload['operation'], $payload['subject'] ?? null, DelegatedContract::VERSION_3);
             } catch (Throwable) {
                 throw new DelegatedAccessException($write ? 'unknown_outcome' : 'invalid_response');
             }

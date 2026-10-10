@@ -77,7 +77,7 @@ class DelegatedAccessTransportTest extends TestCase
             'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'],
             'issuer' => 'https://identity.example.test', 'key_id' => null, 'private_key_path' => null,
             'keys_environment' => 'example-app|integration-v1|'.$this->keyPath,
-            'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access']],
+            'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 3]],
         ]]);
         $this->actor = User::factory()->create(['user_role' => 'user,access-manage:example-app']);
         $this->client = PassportClient::create(['id' => (string) Str::uuid(), 'name' => 'Example Client', 'secret' => 'synthetic-secret', 'grant_types' => ['authorization_code'], 'redirect_uris' => ['https://app.example.test/callback'], 'revoked' => false]);
@@ -106,8 +106,8 @@ class DelegatedAccessTransportTest extends TestCase
             $table->string('revision');
         });
         $this->account((string) $this->actor->id, false, ['workspace-a']);
-        $this->account('target-a', false, [], [['id' => 'workspace-a', 'permission' => 'read']]);
-        $this->account('target-b', false, [], [['id' => 'workspace-b', 'permission' => 'read']]);
+        $this->account('target-a', false, [], [['id' => 'workspace-a', 'role' => 'reader']]);
+        $this->account('target-b', false, [], [['id' => 'workspace-b', 'role' => 'reader']]);
         $this->fakeAdapter();
     }
 
@@ -131,7 +131,7 @@ class DelegatedAccessTransportTest extends TestCase
         $update = $this->update($read['revision']);
         $saved = $transport->send($this->request, 'example-app', $update);
         $this->assertNotSame($read['revision'], $saved['revision']);
-        $this->assertSame('write', $saved['access']['workspaces'][0]['permission']);
+        $this->assertSame('editor', $saved['access']['workspaces'][0]['role']);
         $this->assertDatabaseHas('reference_access_audit', ['actor' => (string) $this->actor->id, 'target' => 'target-a', 'revision' => $saved['revision']]);
         $this->refused(fn () => $transport->send($this->request, 'example-app', $update), 'revision_conflict', 409);
         $this->assertDatabaseCount('reference_access_audit', 1);
@@ -140,7 +140,7 @@ class DelegatedAccessTransportTest extends TestCase
         $this->assertSame(DB::table('reference_access_audit')->value('correlation'), $providerRecords[0]->metadata['correlation']);
         $this->assertSame($providerRecords[0]->metadata['correlation'], $providerRecords[1]->metadata['correlation']);
         $this->assertNotSame($providerRecords[0]->metadata['correlation'], $providerRecords[2]->metadata['correlation']);
-        $this->assertSame(['actor', 'application', 'target', 'operation', 'outcome', 'correlation'], array_keys($providerRecords[0]->metadata));
+        $this->assertSame(['actor', 'application', 'target', 'operation', 'outcome', 'correlation', 'operation_id'], array_keys($providerRecords[0]->metadata));
         $this->assertSame($this->actor->id, $providerRecords[0]->acting_user_id);
         $unprovisioned = $transport->send($this->request, 'example-app', ['operation' => 'read', 'subject' => 'unknown-subject']);
         $this->assertFalse($unprovisioned['provisioned']);
@@ -219,11 +219,12 @@ class DelegatedAccessTransportTest extends TestCase
         $transport = app(DelegatedAccessTransport::class);
         Http::swap(new Factory);
         Http::fake(fn () => throw new ConnectionException('synthetic timeout'));
-        $this->refused(fn () => $transport->send($this->request, 'example-app', $this->update('revision-initial')), 'unknown_outcome', 503);
+        // Uncertain: the receipt is asked for once (and fails too), and the write is never resent.
+        $this->refused(fn () => $transport->send($this->request, 'example-app', $this->update('revision-initial')), DelegatedAccessTransport::STILL_UNKNOWN, 503);
         Http::swap(new Factory);
         Http::fake(['*' => Http::response(['success' => true], 200)]);
-        $this->refused(fn () => $transport->send($this->request, 'example-app', $this->update('revision-initial')), 'unknown_outcome', 503);
-        Http::assertSentCount(1);
+        $this->refused(fn () => $transport->send($this->request, 'example-app', $this->update('revision-initial')), DelegatedAccessTransport::STILL_UNKNOWN, 503);
+        $this->assertSame(['update', 'receipt'], Http::recorded()->map(fn (array $pair): string => $pair[0]['operation'])->values()->all());
         Http::swap(new Factory);
         Http::fake(['*' => Http::response('', 302, ['Location' => 'https://untrusted.example.test'])]);
         $this->refused(fn () => $transport->send($this->request, 'example-app', ['operation' => 'capabilities']), 'unavailable', 503);
@@ -233,22 +234,16 @@ class DelegatedAccessTransportTest extends TestCase
         $this->refused(fn () => $transport->send($this->request, 'example-app', ['operation' => 'capabilities']), 'invalid_response', 503);
     }
 
-    public function test_capability_subsets_are_supported_and_state_must_echo_the_requested_subject(): void
+    public function test_state_must_echo_the_requested_subject(): void
     {
         $transport = app(DelegatedAccessTransport::class);
-        foreach ([[], ['read'], ['write'], ['read', 'write']] as $permissions) {
-            Http::swap(new Factory);
-            Http::fake(['*' => Http::response(['contract_version' => 1, 'application' => 'example-app', 'operation' => 'capabilities',
-                'controls' => ['application_admin' => false, 'workspace_permissions' => $permissions]], 200)]);
-            $this->assertSame($permissions, $transport->send($this->request, 'example-app', ['operation' => 'capabilities'])['controls']['workspace_permissions']);
-        }
         foreach (['read', 'update'] as $operation) {
             Http::swap(new Factory);
-            Http::fake(['*' => Http::response(['contract_version' => 1, 'application' => 'example-app', 'operation' => $operation,
+            Http::fake(['*' => Http::response(['contract_version' => 3, 'application' => 'example-app', 'operation' => $operation,
                 'subject' => 'wrong-subject', 'provisioned' => false, 'revision' => null, 'access' => null,
-                'allowed_edits' => ['application_admin' => false, 'workspaces' => false]], 200)]);
+                'allowed_edits' => ['application_admin' => false, 'workspaces' => false, 'provision' => false, 'remove' => false]], 200)]);
             $input = $operation === 'update' ? $this->update('revision-initial') : ['operation' => 'read', 'subject' => 'target-a'];
-            $this->refused(fn () => $transport->send($this->request, 'example-app', $input), $operation === 'update' ? 'unknown_outcome' : 'invalid_response', 503);
+            $this->refused(fn () => $transport->send($this->request, 'example-app', $input), $operation === 'update' ? DelegatedAccessTransport::STILL_UNKNOWN : 'invalid_response', 503);
         }
     }
 
@@ -274,14 +269,13 @@ class DelegatedAccessTransportTest extends TestCase
         $transport = app(DelegatedAccessTransport::class);
         // The first entry is valid and matches the configured application; it is not partly honoured.
         config(['delegated-access.applications' => [],
-            'delegated-access.applications_environment' => 'example-app|https://app.example.test/access|1,other-app|https://app.example.test/access|7']);
+            'delegated-access.applications_environment' => 'example-app|https://app.example.test/access|3,other-app|https://app.example.test/access|7']);
         // The refusal comes first: even input the contract would reject as invalid_request is refused as configuration.
         foreach ([['operation' => 'capabilities'], ['operation' => 'read', 'subject' => 'target-a'], $this->update('revision-a'),
             ['operation' => 'subjects', 'limit' => 51]] as $input) {
             $this->refused(fn () => $transport->send($this->request, 'example-app', $input), 'invalid_configuration', 503);
         }
         Exceptions::assertReportedCount(1);
-        $this->refused(fn () => DelegatedAccessTransport::contractVersion('example-app'), 'invalid_configuration', 503);
         Http::assertNothingSent();
         $this->assertSame(0, AuthAuditLog::query()->where('event', 'like', 'delegated_access_%')->count());
         Exceptions::assertReportedCount(1);
@@ -319,8 +313,8 @@ class DelegatedAccessTransportTest extends TestCase
         Http::fake(function ($request, array $options) use (&$captured) {
             $captured = $options;
 
-            return Http::response(['contract_version' => 1, 'application' => 'example-app', 'operation' => 'capabilities',
-                'controls' => ['application_admin' => true, 'workspace_permissions' => ['read', 'write']]]);
+            return Http::response(['contract_version' => 3, 'application' => 'example-app', 'operation' => 'capabilities',
+                'controls' => ['application_admin' => true, 'workspace_roles' => [['id' => 'reader', 'label' => 'Reader']], 'provisioning' => false]]);
         });
         $transport->send($this->request, 'example-app', ['operation' => 'capabilities']);
         // No handler-specific option: the stream handler rejects every curl option, and current
@@ -380,9 +374,9 @@ class DelegatedAccessTransportTest extends TestCase
             };
             $this->app->instance(TransportClock::class, $clock);
             $closed = false;
-            $body = Utils::streamFor(json_encode(['contract_version' => 1, 'application' => 'example-app', 'operation' => $operation,
+            $body = Utils::streamFor(json_encode(['contract_version' => 3, 'application' => 'example-app', 'operation' => $operation,
                 'subject' => 'target-a', 'provisioned' => false, 'revision' => null, 'access' => null,
-                'allowed_edits' => ['application_admin' => false, 'workspaces' => false]], JSON_THROW_ON_ERROR));
+                'allowed_edits' => ['application_admin' => false, 'workspaces' => false, 'provision' => false, 'remove' => false]], JSON_THROW_ON_ERROR));
             $stream = FnStream::decorate($body, [
                 'read' => function (int $length) use ($body, $clock): string {
                     $clock->elapsed = 11;
@@ -398,7 +392,7 @@ class DelegatedAccessTransportTest extends TestCase
             Http::fake(fn () => Http::response($stream));
             $input = $operation === 'update' ? $this->update('revision-initial') : ['operation' => 'read', 'subject' => 'target-a'];
             $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', $input),
-                $operation === 'update' ? 'unknown_outcome' : 'invalid_response', 503);
+                $operation === 'update' ? DelegatedAccessTransport::STILL_UNKNOWN : 'invalid_response', 503);
             $this->assertTrue($closed);
         }
     }
@@ -464,7 +458,8 @@ class DelegatedAccessTransportTest extends TestCase
 
     private function update(string $revision): array
     {
-        return ['operation' => 'update', 'subject' => 'target-a', 'expected_revision' => $revision, 'access' => ['application_admin' => false, 'workspaces' => [['id' => 'workspace-a', 'permission' => 'write']]]];
+        return ['operation' => 'update', 'subject' => 'target-a', 'expected_revision' => $revision,
+            'access' => ['application_admin' => false, 'workspaces' => [['id' => 'workspace-a', 'role' => 'editor']]], 'operation_id' => DelegatedContract::operationId()];
     }
 
     private function refused(callable $action, string $outcome, int $status): void

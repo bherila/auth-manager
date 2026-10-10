@@ -7,6 +7,7 @@ use App\Models\RegisteredApplication;
 use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use App\Services\Invitations\AccessInvitationService;
 use App\Services\Invitations\IssuedInvitation;
+use App\Support\DelegatedAccessApplications;
 use App\Support\DelegatedAccessPermissions;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
@@ -127,7 +128,7 @@ class AccessInvitationController extends Controller
     }
 
     /**
-     * Everything inviting needs that does not depend on whom: the switch, contract version 2 or 3, the
+     * Everything inviting needs that does not depend on whom: the switch, a configured application, the
      * permissions, and the transport's own write checks.
      *
      * @throws DelegatedAccessException
@@ -135,7 +136,7 @@ class AccessInvitationController extends Controller
     private function authorizeInvite(Request $request, string $application): void
     {
         abort_unless($this->permissions->invitationsEnabled(), 404);
-        abort_unless(DelegatedAccessTransport::contractVersion($application) >= DelegatedContract::VERSION_2, 404);
+        abort_unless(app(DelegatedAccessApplications::class)->find($application) !== null, 404);
         if (! $this->permissions->canInvite($request->user(), $application)) {
             throw new DelegatedAccessException('not_authorized', 403);
         }

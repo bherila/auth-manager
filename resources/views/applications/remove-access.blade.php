@@ -1,4 +1,4 @@
-{{-- Contract version 3, offered only while the application's read says the removal would succeed (allowed_edits.remove). --}}
+{{-- Offered only while the application's read says the removal would succeed (allowed_edits.remove). --}}
 <div class="space-y-3 rounded border p-4">
     <h3 class="font-semibold">Remove from this application</h3>
     <p>This removes the access you manage for this account in {{ $application->name }}: {{ $accountOnly ? 'application administration' : 'its workspace memberships and application administration' }}. Access you cannot manage here is not changed.</p>

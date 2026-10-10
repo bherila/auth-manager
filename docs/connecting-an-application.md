@@ -166,7 +166,7 @@ AUTH_MANAGER_DELEGATED_ACCESS_ISSUER=https://identity.example.test
 AUTH_MANAGER_DELEGATED_ACCESS_KEY_ID=integration-2026-09
 AUTH_MANAGER_DELEGATED_ACCESS_PRIVATE_KEY_PATH=/path/to/delegated-access-integration-2026-09.key
 AUTH_MANAGER_DELEGATED_ACCESS_KEYS=example-app|example-app-2026-10|/path/to/delegated-access-example-app-2026-10.key
-AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS=example-app|https://app.example.test/application-access|2
+AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS=example-app|https://app.example.test/application-access|3
 ```
 
 - `ISSUER` is the provider's root HTTPS URL with no path. The application pins it exactly.
@@ -178,13 +178,12 @@ AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS=example-app|https://app.example.test/
   without its own entry. Leave them unset once every application has one.
 - `APPLICATIONS` is a comma-separated list of `key|https://endpoint|contract_version`
   entries, for example
-  `example-app|https://app.example.test/application-access|2,other-app|https://other.example.test/application-access|1`.
+  `example-app|https://app.example.test/application-access|3,other-app|https://other.example.test/application-access|3`.
   Each key must match the registry key format and appear once. Each endpoint must be the
   application's exact HTTPS delegated access URL with no credentials, query or fragment.
-  The version is `1`, `2` or `3`, as agreed with the application; it is never negotiated.
-  Switching an application to `3` is a coordinated step: see
-  [Move an application to contract version 3](#move-an-application-to-contract-version-3). Empty
-  or unset means no applications.
+  The version must be `3`, the only contract version the provider speaks; it is never
+  negotiated. An entry naming `1` or `2` makes the whole map malformed (see
+  [the history](#history-the-move-to-contract-version-3)). Empty or unset means no applications.
 
 - `WRITES_APPLICATIONS` is the comma-separated list of application keys whose writes are on.
   `WRITES_ENABLED` is the instance-wide switch, and an application is writable only when both
@@ -272,27 +271,14 @@ first (it then refuses delegated calls until step 3), then continue from step 3.
 applications are unaffected. If the instance-wide fallback key may be compromised, remove it
 from every application that still trusts it.
 
-### Move an application to contract version 3
+### History: the move to contract version 3
 
-An application on `bherila/auth-laravel` 0.21 or later serves contract version 3 only, and the
-provider speaks to it in the version its `APPLICATIONS` entry names. Move one application at a time:
-
-1. Deploy this provider release first. It still speaks version 2 to every entry that says `2`.
-2. Before upgrading the application, publish and apply the package's delegated access migrations
-   again (`php artisan vendor:publish --tag=bherila-auth-delegated-access-migrations`, then the
-   normal reviewed migration). Version 3 adds the receipts table; writes are refused until it
-   exists. Schedule `bherila-auth:prune-delegated-nonces` daily, which also prunes receipts.
-3. Deploy the application with the package upgrade and its version 3 adapter (search, `remove`,
-   metadata). From then until step 4, the provider's version 2 calls to it are refused as
-   `invalid_request`, so keep that window short and announce it to its managers.
-4. Change that application's entry from `|2` to `|3`, check it and rebuild the configuration
-   cache (above), and reload the PHP workers.
-5. Probe it as a manager (section 7): the access page reads, **Search accounts** finds a known
-   account, saving from a stale form is refused as changed since it was opened, and submitting the
-   same form twice is answered once. Optionally remove access from a test account and give it back.
-
-To step back, set the entry to `|2` again only together with an application release that serves
-version 2; an application on 0.21 cannot answer version 2.
+Applications moved from contract version 2 to 3 one at a time, while the provider spoke both: each
+application re-published the package's delegated access migrations (version 3 added the receipts
+table), deployed `bherila/auth-laravel` 0.21 with its version 3 adapter, and then had its entry
+switched from `|2` to `|3` and probed. Once every application was on version 3, the provider
+upgraded to 0.22 and dropped versions 1 and 2. An entry still naming `1` or `2` now makes the map
+malformed; there is no stepping back to version 2.
 
 ## 6. Delegated access: the application
 
@@ -330,12 +316,17 @@ provider refuses to sign writes with the instance-wide key, but anyone holding t
 key can still mint an assertion for every application that trusts its public half, so the
 per-application key protects an application only once it stops trusting the shared one.
 
-The application publishes the package's delegated access nonce migration and applies it
-through its normal reviewed deployment before enabling the endpoint:
+The application publishes the package's delegated access migrations (the nonce and receipt
+tables) and applies them through its normal reviewed deployment before enabling the endpoint;
+writes are refused until the receipts table exists. It schedules
+`bherila-auth:prune-delegated-nonces` daily, which also prunes receipts after 30 days:
 
 ```sh
 php artisan vendor:publish --tag=bherila-auth-delegated-access-migrations
 ```
+
+The application implements contract version 3 (`bherila/auth-laravel` 0.21 or later): search,
+`remove` and the optional metadata, besides roles and provisioning.
 
 The application implements the package's adapter, which decides every authorization: who
 the actor may see and change, in which workspaces, with which roles, and its own

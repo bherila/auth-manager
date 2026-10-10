@@ -34,7 +34,7 @@ use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
- * Invitations by email to a contract version 2 (and, where noted, 3) application: who may send them, what the inviter
+ * Invitations by email to an application: who may send them, what the inviter
  * learns, the link's life, and applying the invited access at acceptance as the inviter.
  */
 class AccessInvitationTest extends TestCase
@@ -74,13 +74,10 @@ class AccessInvitationTest extends TestCase
 
     private bool $failUpdates = false;
 
-    /** The contract version the fake applications speak: 3 adds operation ids, receipts and `allowed_edits.remove`. */
-    private int $contractVersion = 2;
-
-    /** Version 3: apply the write, then answer it with a 503 as though the answer were lost. */
+    /** Apply the write, then answer it with a 503 as though the answer were lost. */
     private bool $loseUpdateAnswers = false;
 
-    /** Version 3: stored outcomes by operation id, as the package endpoint keeps them. */
+    /** Stored outcomes by operation id, as the package endpoint keeps them. */
     private array $receipts = [];
 
     protected function setUp(): void
@@ -100,8 +97,8 @@ class AccessInvitationTest extends TestCase
             'issuer' => 'https://identity.example.test', 'key_id' => null, 'private_key_path' => null,
             'keys_environment' => 'example-app|example-v1|'.$this->keyPath.',other-app|other-v1|'.$this->otherKeyPath,
             'applications' => [
-                'example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 2],
-                'other-app' => ['endpoint' => 'https://other.example.test/access', 'contract_version' => 2],
+                'example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 3],
+                'other-app' => ['endpoint' => 'https://other.example.test/access', 'contract_version' => 3],
             ],
             'invitations' => ['enabled' => true, 'expires_after_days' => 7, 'per_inviter_per_hour' => 20, 'per_recipient_per_day' => 5],
         ]]);
@@ -708,27 +705,8 @@ class AccessInvitationTest extends TestCase
         $this->assertTrue(DB::table('oauth_client_grants')->where('subject', $person->id)->exists());
     }
 
-    public function test_an_uncertain_write_is_recorded_as_unknown_and_never_retried(): void
+    public function test_the_acceptance_write_carries_the_invitations_operation_id(): void
     {
-        $this->confirm();
-        $link = $this->inviteAndGetLink('person@example.test');
-        $this->failUpdates = true;
-
-        $this->acceptAsNewPerson($link);
-
-        $this->assertCount(1, $this->updates());
-        $invitation = AccessInvitation::query()->firstOrFail();
-        $this->assertSame(AccessInvitation::ROLES_UNKNOWN, $invitation->roles_status);
-        $this->assertSame('unknown_outcome', $invitation->roles_outcome);
-
-        $this->signIn($this->inviter);
-        $this->get('/applications/example-app/access')->assertSee('Accepted; roles not confirmed');
-        $this->assertCount(1, $this->updates());
-    }
-
-    public function test_on_a_version_3_application_the_acceptance_write_carries_the_invitations_operation_id(): void
-    {
-        $this->useVersion3();
         $this->confirm();
         $link = $this->inviteAndGetLink('person@example.test');
 
@@ -750,7 +728,6 @@ class AccessInvitationTest extends TestCase
 
     public function test_applying_an_invitation_again_reuses_its_stored_operation_id(): void
     {
-        $this->useVersion3();
         $this->confirm();
         $link = $this->inviteAndGetLink('person@example.test');
         $this->failUpdates = true;
@@ -768,9 +745,8 @@ class AccessInvitationTest extends TestCase
         $this->assertSame($stored, $invitation->fresh()->roles_operation_id);
     }
 
-    public function test_on_a_version_3_application_a_lost_answer_is_settled_by_the_receipt_and_never_resent(): void
+    public function test_a_lost_answer_is_settled_by_the_receipt_and_never_resent(): void
     {
-        $this->useVersion3();
         $this->confirm();
         $link = $this->inviteAndGetLink('person@example.test');
         $this->loseUpdateAnswers = true;
@@ -787,9 +763,8 @@ class AccessInvitationTest extends TestCase
         $this->assertSame(['applied', 'invitation'], [$check->metadata['outcome'], $check->metadata['via']]);
     }
 
-    public function test_on_a_version_3_application_an_unsettled_write_is_recorded_as_unknown(): void
+    public function test_an_unsettled_write_is_recorded_as_unknown_and_never_retried(): void
     {
-        $this->useVersion3();
         $this->confirm();
         $link = $this->inviteAndGetLink('person@example.test');
         $this->failUpdates = true;
@@ -802,17 +777,6 @@ class AccessInvitationTest extends TestCase
         $this->assertCount(1, $this->updates());
         $this->signIn($this->inviter);
         $this->get('/applications/example-app/access')->assertSee('its record of the change showed no outcome yet');
-    }
-
-    public function test_a_version_2_acceptance_write_carries_no_operation_id(): void
-    {
-        $this->confirm();
-        $link = $this->inviteAndGetLink('person@example.test');
-
-        $this->acceptAsNewPerson($link);
-
-        $this->assertArrayNotHasKey('operation_id', $this->updates()[0]);
-        $this->assertNull(AccessInvitation::query()->firstOrFail()->roles_operation_id);
     }
 
     public function test_the_invitation_path_refuses_without_the_invite_permission_whatever_the_session(): void
@@ -1031,14 +995,15 @@ class AccessInvitationTest extends TestCase
             $application = $request['application'];
             $operation = $request['operation'];
             $subject = $request['subject'] ?? null;
-            $envelope = ['contract_version' => $this->contractVersion, 'application' => $application];
+            $envelope = ['contract_version' => 3, 'application' => $application];
             $state = function (string $subject): array {
                 $account = $this->accounts[$subject] ?? null;
 
                 return ['subject' => $subject, 'provisioned' => $account !== null, 'revision' => $account['revision'] ?? null,
                     'access' => $account === null ? null : ['application_admin' => $account['application_admin'], 'workspaces' => $account['workspaces']],
                     'allowed_edits' => ['application_admin' => $account !== null, 'workspaces' => $account !== null, 'provision' => $account === null,
-                        ...($this->contractVersion === 3 ? ['remove' => $account !== null] : [])]];
+                        // A removal is never offered over a protected membership.
+                        'remove' => $account !== null && ! in_array(false, array_column($account['workspaces'], 'editable'), true)]];
             };
             if ($operation === 'receipt') {
                 $stored = $this->receipts[$request['operation_id']] ?? null;
@@ -1050,8 +1015,8 @@ class AccessInvitationTest extends TestCase
                 if ($this->failUpdates) {
                     return Http::response(['error' => 'unavailable'], 503);
                 }
-                // Version 3: a repeat of the same operation is answered from its receipt, and the same
-                // id on a different request is refused.
+                // A repeat of the same operation is answered from its receipt, and the same id on a
+                // different request is refused.
                 $fingerprint = hash('sha256', json_encode(array_diff_key($request->data(), ['operation_id' => true])));
                 if (isset($request['operation_id'], $this->receipts[$request['operation_id']])) {
                     $stored = $this->receipts[$request['operation_id']];
@@ -1148,12 +1113,6 @@ class AccessInvitationTest extends TestCase
             ->assertRedirect('/invitations/accepted');
 
         return User::query()->findOrFail(AccessInvitation::query()->where('token_hash', hash('sha256', basename($link)))->value('accepted_user_id'));
-    }
-
-    private function useVersion3(): void
-    {
-        $this->contractVersion = 3;
-        config(['delegated-access.applications.example-app.contract_version' => 3, 'delegated-access.applications.other-app.contract_version' => 3]);
     }
 
     private function grant(User $user, string $application): void

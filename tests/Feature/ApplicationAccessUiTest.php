@@ -7,6 +7,7 @@ use App\Http\Middleware\RequireRecentPasskeyAuthentication;
 use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
 use App\Models\User;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,10 @@ use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
+/**
+ * The application-access page's general behavior: confirmation, CSRF, failures landing on a GET page,
+ * cursors, limits and a malformed map. Version 3 specifics are `ApplicationAccessV3UiTest`'s.
+ */
 class ApplicationAccessUiTest extends TestCase
 {
     use DatabaseMigrations;
@@ -42,7 +47,7 @@ class ApplicationAccessUiTest extends TestCase
 
     private bool $editable = true;
 
-    private array $memberships = [['id' => 'workspace-current', 'permission' => 'read']];
+    private array $memberships = [['id' => 'workspace-current', 'role' => 'reader', 'editable' => true]];
 
     protected function setUp(): void
     {
@@ -56,7 +61,7 @@ class ApplicationAccessUiTest extends TestCase
         config(['application-registry.launch_enabled' => true, 'delegated-access' => [
             'enabled' => true, 'writes_enabled' => true, 'writes_applications' => ['example-app'], 'issuer' => 'https://identity.example.test',
             'key_id' => null, 'private_key_path' => null, 'keys_environment' => 'example-app|example-v1|'.$this->keyPath,
-            'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access']],
+            'applications' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 3]],
         ]]);
         $this->actor = User::factory()->create(['user_role' => 'user,access-manage:example-app,access-directory:example-app', 'password' => Hash::make('current-password-example')]);
         $client = PassportClient::create(['id' => (string) Str::uuid(), 'name' => 'Example Client',
@@ -74,7 +79,11 @@ class ApplicationAccessUiTest extends TestCase
                 return Http::response([], $this->remoteStatus !== 200 ? $this->remoteStatus : $this->updateStatus);
             }
             $data = match ($operation) {
-                'capabilities' => ['controls' => ['application_admin' => true, 'workspace_permissions' => ['read', 'write']]],
+                'capabilities' => ['controls' => ['application_admin' => true, 'workspace_roles' => [
+                    ['id' => 'reader', 'label' => 'Reader'], ['id' => 'editor', 'label' => 'Editor'],
+                ], 'provisioning' => false]],
+                // No receipt is kept here: an uncertain write stays unknown.
+                'receipt' => ['operation_id' => $request['operation_id'], 'status' => 'unknown'],
                 'subjects' => ['subjects' => [['subject' => 'subject-example', 'label' => '<script>Example</script>']], 'next_cursor' => 'next-subjects'],
                 'workspaces' => ['workspaces' => [['id' => 'workspace-new', 'label' => 'Example Workspace']], 'next_cursor' => 'next-workspaces'],
                 default => ['subject' => $request['subject'], 'provisioned' => $this->provisioned,
@@ -82,10 +91,10 @@ class ApplicationAccessUiTest extends TestCase
                     'access' => $this->provisioned ? ['application_admin' => false,
                         'workspaces' => $this->memberships] : null,
                     'allowed_edits' => ['application_admin' => $this->provisioned && $this->editable,
-                        'workspaces' => $this->provisioned && $this->editable]],
+                        'workspaces' => $this->provisioned && $this->editable, 'provision' => false, 'remove' => false]],
             };
 
-            return Http::response(['contract_version' => 1, 'application' => 'example-app', 'operation' => $operation, ...$data]);
+            return Http::response(['contract_version' => 3, 'application' => 'example-app', 'operation' => $operation, ...$data]);
         });
         $this->actingAs($this->actor)->withSession([EnsureCredentialVersion::SESSION_KEY => 0]);
     }
@@ -137,7 +146,7 @@ class ApplicationAccessUiTest extends TestCase
             && $request['expected_revision'] === 'revision-example'
             && $request['subject'] === 'subject-example'
             && $request['access'] === ['application_admin' => false,
-                'workspaces' => [['id' => 'workspace-new', 'permission' => 'write']]]);
+                'workspaces' => [['id' => 'workspace-new', 'role' => 'editor']]]);
     }
 
     public function test_conflict_and_unknown_outcomes_land_on_a_get_page_without_success_or_retried_writes(): void
@@ -150,11 +159,11 @@ class ApplicationAccessUiTest extends TestCase
             ->assertSee('Current access')->assertDontSee('confirmed the access update');
         $this->updateStatus = 503;
         $unknown = $this->post('/applications/example-app/access/update', $this->update())->assertRedirect();
-        $page = $this->get($unknown->headers->get('Location'))->assertOk()->assertSee('change may have completed')
+        $page = $this->get($unknown->headers->get('Location'))->assertOk()->assertSee('The change may still complete')
             ->assertDontSee('confirmed the access update')->assertHeader('Cache-Control', 'no-store, private');
         // The failure notice is a one-time flash, so a refresh of the GET page shows neither the
         // stale notice nor a success, and never resubmits the write.
-        $this->get($unknown->headers->get('Location'))->assertOk()->assertDontSee('change may have completed');
+        $this->get($unknown->headers->get('Location'))->assertOk()->assertDontSee('The change may still complete');
         $this->assertCount(2, Http::recorded(fn ($request) => $request['operation'] === 'update'));
         // Read failures on the GET page itself still render the error page directly: refreshing a GET is harmless.
         $this->remoteStatus = 503;
@@ -215,15 +224,16 @@ class ApplicationAccessUiTest extends TestCase
 
     public function test_membership_limit_hides_add_and_rejects_combined_overflow_before_transport(): void
     {
-        $this->memberships = array_map(fn (int $index): array => ['id' => 'workspace-'.$index, 'permission' => 'read'], range(1, 100));
+        $this->memberships = array_map(fn (int $index): array => ['id' => 'workspace-'.$index, 'role' => 'reader', 'editable' => true], range(1, 100));
         $this->browse(['subject' => 'subject-example'])->assertOk()
             ->assertDontSee('name="new_workspace"', false)->assertSee('Remove and save a workspace membership');
         $this->confirm();
-        $this->post('/applications/example-app/access/update', [...$this->update(), 'workspaces' => $this->memberships])
+        $posted = array_map(fn (array $membership): array => ['id' => $membership['id'], 'role' => $membership['role']], $this->memberships);
+        $this->post('/applications/example-app/access/update', [...$this->update(), 'workspaces' => $posted])
             ->assertRedirect()->assertSessionHasErrors('new_workspace');
         $this->assertCount(0, Http::recorded(fn ($request) => $request['operation'] === 'update'));
-        $replacement = $this->memberships;
-        $replacement[0]['permission'] = 'none';
+        $replacement = $posted;
+        $replacement[0]['role'] = '';
         $this->post('/applications/example-app/access/update', [...$this->update(), 'workspaces' => $replacement])
             ->assertRedirect()->assertSessionHas('access_updated', true);
         Http::assertSent(fn ($request) => $request['operation'] === 'update' && count($request['access']['workspaces']) === 100);
@@ -233,7 +243,7 @@ class ApplicationAccessUiTest extends TestCase
     {
         Exceptions::fake();
         config(['delegated-access.applications' => [],
-            'delegated-access.applications_environment' => 'example-app|https://app.example.test/access|1,example-app|https://app.example.test/access|1']);
+            'delegated-access.applications_environment' => 'example-app|https://app.example.test/access|3,example-app|https://app.example.test/access|3']);
         // Confirmation itself asks the application for capabilities, so it is refused too.
         $this->post('/applications/example-app/access/confirm', ['password' => 'current-password-example'])
             ->assertStatus(503)->assertSee('unavailable');
@@ -264,7 +274,7 @@ class ApplicationAccessUiTest extends TestCase
     private function update(): array
     {
         return ['subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
-            'workspaces' => [['id' => 'workspace-current', 'permission' => 'none']],
-            'new_workspace' => 'workspace-new', 'new_permission' => 'write'];
+            'workspaces' => [['id' => 'workspace-current', 'role' => '']],
+            'new_workspace' => 'workspace-new', 'new_role' => 'editor', 'operation_id' => DelegatedContract::operationId()];
     }
 }

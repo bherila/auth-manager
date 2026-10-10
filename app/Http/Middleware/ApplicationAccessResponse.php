@@ -23,7 +23,7 @@ class ApplicationAccessResponse
     {
         $message = match ($exception->outcome) {
             'unknown_outcome' => 'The application did not confirm the result. The change may have completed. Reload current access before attempting another change.',
-            // Version 3: the receipt was asked for once and holds no outcome yet. Never retried for you.
+            // The receipt was asked for once and holds no outcome yet. Never retried for you.
             DelegatedAccessTransport::STILL_UNKNOWN => 'The application did not confirm the result, and its record of this change does not show an outcome yet. The change may still complete. Reload current access before attempting another change.',
             'revision_conflict' => 'Access changed since you opened this form. Reload current access before editing again.',
             'recent_confirmation_required' => 'Confirm your password or sign in again before changing application access.',
