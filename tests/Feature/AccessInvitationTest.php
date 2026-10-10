@@ -554,7 +554,29 @@ class AccessInvitationTest extends TestCase
 
         // The service refuses on its own too, whoever is named as signed in.
         $this->expectException(InvitationUnavailable::class);
-        app(AccessInvitationService::class)->accept(request(), AccessInvitation::query()->firstOrFail(), $lower, null);
+        app(AccessInvitationService::class)->accept(request(), $invitation = AccessInvitation::query()->firstOrFail(), $invitation->token_hash, $lower, null);
+    }
+
+    public function test_a_link_replaced_by_a_resend_after_it_was_opened_cannot_accept(): void
+    {
+        $this->confirm();
+        $this->invite('person@example.test')->assertSessionHas('invitation_notice');
+        $old = basename($this->lastMailedLink());
+        $service = app(AccessInvitationService::class);
+        $opened = $service->findPending($old);
+        $this->assertNotNull($opened);
+
+        // A resend commits between opening the old link and accepting it.
+        $this->post("/applications/example-app/access/invitations/{$opened->id}/resend")->assertSessionHas('invitation_notice');
+
+        try {
+            $service->accept(request(), $opened, AccessInvitation::hashToken($old), null, ['name' => 'Example Person', 'password' => 'a-new-password-example']);
+            $this->fail('The replaced link must not accept.');
+        } catch (InvitationUnavailable $refusal) {
+            $this->assertSame('not_pending', $refusal->reason);
+        }
+        $this->assertTrue($opened->fresh()->isPending());
+        $this->assertSame(0, User::query()->where('email', 'person@example.test')->count());
     }
 
     public function test_a_disabled_account_cannot_accept(): void

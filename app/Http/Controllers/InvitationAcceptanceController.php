@@ -69,7 +69,7 @@ class InvitationAcceptanceController extends Controller
         ]) : null;
 
         try {
-            [$person, $created] = $this->invitations->accept($request, $invitation, $state === 'accept' ? $request->user() : null,
+            [$person, $created] = $this->invitations->accept($request, $invitation, AccessInvitation::hashToken($token), $state === 'accept' ? $request->user() : null,
                 $newAccount === null ? null : ['name' => $newAccount['name'], 'password' => $newAccount['password']]);
         } catch (InvitationUnavailable) {
             return redirect()->route('invitations.show', ['token' => $token])

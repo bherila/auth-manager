@@ -227,16 +227,19 @@ final class AccessInvitationService
      * one with that address when none exists. Anything else, or an invitation that stopped being
      * pending, throws without changing anything.
      *
+     * @param  string  $tokenHash  the hash of the token the request presented
      * @param  array{name: string, password: string}|null  $newAccount
      * @return array{0: User, 1: bool} the person, and whether their account was created now
      *
      * @throws InvitationUnavailable
      */
-    public function accept(Request $request, AccessInvitation $invitation, ?User $signedIn, #[SensitiveParameter] ?array $newAccount): array
+    public function accept(Request $request, AccessInvitation $invitation, string $tokenHash, ?User $signedIn, #[SensitiveParameter] ?array $newAccount): array
     {
-        return DB::transaction(function () use ($request, $invitation, $signedIn, $newAccount): array {
+        return DB::transaction(function () use ($request, $invitation, $tokenHash, $signedIn, $newAccount): array {
             $locked = AccessInvitation::query()->lockForUpdate()->find($invitation->getKey());
-            if (! $locked instanceof AccessInvitation || ! $locked->isPending()) {
+            // The presented token must still be the current one: a resend that committed after the link
+            // was opened replaced it, and the old link must not accept.
+            if (! $locked instanceof AccessInvitation || ! $locked->isPending() || ! hash_equals($locked->token_hash, $tokenHash)) {
                 throw new InvitationUnavailable('not_pending');
             }
             $clientIds = $this->clientIds($locked->application);
