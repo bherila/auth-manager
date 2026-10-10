@@ -96,7 +96,7 @@
                                     ({{ $outcomeLabels[$invitation->roles_outcome] ?? 'the application did not apply this access' }}). The person can sign in to the application; give them access above.
                                 @else
                                     <strong>Accepted; roles not confirmed</strong>.
-                                    The application did not confirm the change. Review this person's current access before changing it.
+                                    The application did not confirm the change{{ $invitation->roles_outcome === \App\Services\DelegatedAccess\DelegatedAccessTransport::STILL_UNKNOWN ? ', and its record of the change showed no outcome yet' : '' }}. Review this person's current access before changing it.
                                 @endif
                         @endswitch
                     </p>

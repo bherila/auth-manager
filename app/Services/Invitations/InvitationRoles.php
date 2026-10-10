@@ -23,7 +23,9 @@ use Throwable;
  * demoted.
  *
  * Any refusal leaves the person admitted with no roles applied, and the invitation records it for
- * managers. An unconfirmed write is recorded as unknown and is never retried.
+ * managers. An unconfirmed write is recorded as unknown and is never retried; on a version 3
+ * application the transport first asks for its receipt once, so a write the application did apply,
+ * or did refuse, is recorded as that.
  */
 final class InvitationRoles
 {
@@ -40,7 +42,7 @@ final class InvitationRoles
         try {
             [$status, $outcome, $correlation] = $this->attempt($invitation, $person, $correlation);
         } catch (DelegatedAccessException $refusal) {
-            $status = $refusal->outcome === 'unknown_outcome' ? AccessInvitation::ROLES_UNKNOWN : AccessInvitation::ROLES_NOT_APPLIED;
+            $status = DelegatedAccessTransport::unconfirmed($refusal) ? AccessInvitation::ROLES_UNKNOWN : AccessInvitation::ROLES_NOT_APPLIED;
             $outcome = $refusal->outcome;
         } catch (Throwable $failure) {
             Log::warning('Applying an invitation\'s access failed unexpectedly.', ['invitation_id' => $invitation->getKey(), 'exception' => $failure::class]);

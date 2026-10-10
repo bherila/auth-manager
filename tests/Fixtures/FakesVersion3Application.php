@@ -67,10 +67,15 @@ trait FakesVersion3Application
      */
     private array|string|null $v3Receipt = null;
 
+    /** @var list<string> every operation the application was sent, in order, including any that timed out */
+    private array $v3Sent = [];
+
     private function fakeVersion3Application(): void
     {
+        $this->v3Sent = [];
         Http::fake(function (ClientRequest $request) {
             $operation = $request['operation'];
+            $this->v3Sent[] = $operation;
             if (in_array($operation, ['update', 'remove'], true)) {
                 if ($this->v3WriteFailure === 'timeout') {
                     throw new ConnectionException('synthetic timeout');

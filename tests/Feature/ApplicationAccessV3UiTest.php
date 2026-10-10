@@ -147,6 +147,35 @@ class ApplicationAccessV3UiTest extends TestCase
             && $request['operation_id'] === $operationId && $request['contract_version'] === 3);
     }
 
+    public function test_after_an_uncertain_update_the_page_shows_what_the_receipt_says(): void
+    {
+        $this->confirm();
+        $this->v3WriteFailure = 'server_error';
+        $form = fn (): array => [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'owner'], ['id' => 'workspace-b', 'role' => 'auditor']],
+            'operation_id' => DelegatedContract::operationId(),
+        ];
+        $back = '/applications/example-app/access?subject=subject-example';
+
+        // Applied after all.
+        $this->v3Receipt = ['status' => 200, 'response' => ['operation' => 'update', ...$this->v3UpdatedState('subject-example', [['id' => 'workspace-a', 'role' => 'owner'], ['id' => 'workspace-b', 'role' => 'auditor']])]];
+        $this->post('/applications/example-app/access/update', $form())->assertRedirect($back)->assertSessionHas('access_updated', true);
+        // Refused, with the refusal it got.
+        $this->v3Receipt = ['status' => 409, 'response' => ['error' => 'revision_conflict']];
+        $this->post('/applications/example-app/access/update', $form())->assertRedirect($back)
+            ->assertSessionHas('access_failure', 'Access changed since you opened this form. Reload current access before editing again.');
+        // Still unknown.
+        $this->v3Receipt = null;
+        $this->post('/applications/example-app/access/update', $form())->assertRedirect($back)
+            ->assertSessionHas('access_failure', fn (string $message): bool => str_contains($message, 'does not show an outcome yet'));
+        $this->get($back)->assertOk()->assertSee('does not show an outcome yet');
+
+        // Each write was sent once and looked up once; none was sent again.
+        $this->assertSame(['update', 'receipt', 'update', 'receipt', 'update', 'receipt'],
+            array_values(array_filter($this->v3Sent, fn (string $operation): bool => in_array($operation, ['update', 'receipt'], true))));
+    }
+
     private function operationIdIn(TestResponse $response): string
     {
         preg_match('/name="operation_id" value="([^"]+)"/', $response->getContent(), $match);

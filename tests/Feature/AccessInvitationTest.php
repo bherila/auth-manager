@@ -768,6 +768,42 @@ class AccessInvitationTest extends TestCase
         $this->assertSame($stored, $invitation->fresh()->roles_operation_id);
     }
 
+    public function test_on_a_version_3_application_a_lost_answer_is_settled_by_the_receipt_and_never_resent(): void
+    {
+        $this->useVersion3();
+        $this->confirm();
+        $link = $this->inviteAndGetLink('person@example.test');
+        $this->loseUpdateAnswers = true;
+
+        $this->acceptAsNewPerson($link);
+
+        $invitation = AccessInvitation::query()->firstOrFail();
+        $this->assertSame(AccessInvitation::ROLES_APPLIED, $invitation->roles_status);
+        $this->assertCount(1, $this->updates());
+        $receipts = Http::recorded(fn (ClientRequest $request): bool => ($request->data()['operation'] ?? null) === 'receipt');
+        $this->assertCount(1, $receipts);
+        $this->assertSame($invitation->roles_operation_id, $receipts->first()[0]['operation_id']);
+        $check = AuthAuditLog::query()->where('event', 'delegated_access_receipt_check')->firstOrFail();
+        $this->assertSame(['applied', 'invitation'], [$check->metadata['outcome'], $check->metadata['via']]);
+    }
+
+    public function test_on_a_version_3_application_an_unsettled_write_is_recorded_as_unknown(): void
+    {
+        $this->useVersion3();
+        $this->confirm();
+        $link = $this->inviteAndGetLink('person@example.test');
+        $this->failUpdates = true;
+
+        $this->acceptAsNewPerson($link);
+
+        $invitation = AccessInvitation::query()->firstOrFail();
+        $this->assertSame(AccessInvitation::ROLES_UNKNOWN, $invitation->roles_status);
+        $this->assertSame(DelegatedAccessTransport::STILL_UNKNOWN, $invitation->roles_outcome);
+        $this->assertCount(1, $this->updates());
+        $this->signIn($this->inviter);
+        $this->get('/applications/example-app/access')->assertSee('its record of the change showed no outcome yet');
+    }
+
     public function test_a_version_2_acceptance_write_carries_no_operation_id(): void
     {
         $this->confirm();

@@ -134,10 +134,11 @@ class DelegatedAccessTransportV3Test extends TestCase
         $cases = [
             // A version 2 state: no allowed_edits.remove.
             ['read', ['operation' => 'read', 'subject' => 'subject-example'], $version2State, 'invalid_response'],
-            ['update', $this->update(), $version2State, 'unknown_outcome'],
+            // A malformed answer to a write is uncertain: the receipt is asked for, and has none here.
+            ['update', $this->update(), $version2State, DelegatedAccessTransport::STILL_UNKNOWN],
             // A removal that leaves a membership behind is not a removal.
             ['remove', $this->remove(), [...$version2State, 'access' => ['application_admin' => false, 'workspaces' => [['id' => 'workspace-a', 'role' => 'owner', 'editable' => true]]],
-                'allowed_edits' => [...$version2State['allowed_edits'], 'remove' => true]], 'unknown_outcome'],
+                'allowed_edits' => [...$version2State['allowed_edits'], 'remove' => true]], DelegatedAccessTransport::STILL_UNKNOWN],
             // Metadata that is not a timestamp.
             ['subjects', ['operation' => 'subjects'], ['subjects' => [['subject' => 'subject-example', 'label' => 'Example', 'last_seen_at' => 'yesterday']], 'next_cursor' => null], 'invalid_response'],
             // A role description that is empty.
@@ -145,7 +146,9 @@ class DelegatedAccessTransportV3Test extends TestCase
         ];
         foreach ($cases as [$name, $operation, $answer, $outcome]) {
             Http::swap(new Factory);
-            Http::fake(fn () => Http::response($this->v3Envelope($name, $answer)));
+            Http::fake(fn (ClientRequest $request) => Http::response($request['operation'] === 'receipt'
+                ? $this->v3Envelope('receipt', ['operation_id' => $request['operation_id'], 'status' => 'unknown'])
+                : $this->v3Envelope($name, $answer)));
             $this->refused(fn () => $transport->send($this->request, 'example-app', $operation), $outcome, 503, $name);
         }
         // And a version 2 envelope is not a version 3 answer.
@@ -184,6 +187,96 @@ class DelegatedAccessTransportV3Test extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_an_uncertain_write_is_settled_by_one_receipt_when_the_application_applied_it(): void
+    {
+        foreach (['server_error', 'in_progress', 'timeout'] as $failure) {
+            $this->resetFake();
+            $this->v3WriteFailure = $failure;
+            $this->v3Receipt = ['status' => 200, 'response' => ['operation' => 'remove', ...$this->v3UpdatedState('subject-example', [])]];
+
+            $state = app(DelegatedAccessTransport::class)->send($this->request, 'example-app', $this->remove());
+
+            $this->assertSame('revision-removed', $state['revision'], $failure);
+            $this->assertSame(['remove', 'receipt'], $this->sentOperations(), $failure);
+            $receipt = Http::recorded(fn (ClientRequest $request) => $request['operation'] === 'receipt')->first()[0];
+            $this->assertSame(['contract_version' => 3, 'application' => 'example-app', 'operation' => 'receipt', 'operation_id' => $this->operationId], $receipt->data());
+            if ($failure !== 'timeout') {
+                $this->assertNotSame($this->jti(Http::recorded()->first()[0]), $this->jti($receipt), 'A new assertion for the receipt.');
+            }
+            $this->assertSame([
+                ['delegated_access_update_attempt', 'attempt', false],
+                ['delegated_access_receipt_check', 'applied', true],
+                ['delegated_access_update_result', 'succeeded', true],
+            ], $this->audits(), $failure);
+            $this->assertSame('receipt', AuthAuditLog::query()->where('event', 'delegated_access_update_result')->first()->metadata['confirmed_by']);
+        }
+    }
+
+    public function test_an_uncertain_write_the_application_refused_is_reported_as_that_refusal(): void
+    {
+        $this->v3WriteFailure = 'server_error';
+        $this->v3Receipt = ['status' => 409, 'response' => ['error' => 'revision_conflict']];
+
+        $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', $this->update()), 'revision_conflict', 409);
+
+        $this->assertSame(['update', 'receipt'], $this->sentOperations());
+        $this->assertSame([
+            ['delegated_access_update_attempt', 'attempt', false],
+            ['delegated_access_receipt_check', 'refused', true],
+            ['delegated_access_update_result', 'revision_conflict', false],
+        ], $this->audits());
+        $check = AuthAuditLog::query()->where('event', 'delegated_access_receipt_check')->first()->metadata;
+        $this->assertSame(['revision_conflict', 409, $this->operationId], [$check['refusal'], $check['refusal_status'], $check['operation_id']]);
+    }
+
+    public function test_an_uncertain_write_without_a_usable_receipt_stays_unknown_and_is_never_sent_again(): void
+    {
+        $cases = [
+            'no receipt' => null,
+            'receipt request failed' => 'fail',
+            // A stored success for some other write cannot vouch for this one.
+            'receipt for another subject' => ['status' => 200, 'response' => ['operation' => 'update', ...$this->v3UpdatedState('subject-other', [['id' => 'workspace-a', 'role' => 'owner']])]],
+            'receipt for another operation' => ['status' => 200, 'response' => ['operation' => 'remove', ...$this->v3UpdatedState('subject-example', [])]],
+        ];
+        foreach ($cases as $case => $receipt) {
+            $this->resetFake();
+            $this->v3WriteFailure = 'server_error';
+            $this->v3Receipt = $receipt;
+
+            $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', $this->update()), DelegatedAccessTransport::STILL_UNKNOWN, 503, $case);
+
+            $this->assertSame(['update', 'receipt'], $this->sentOperations(), $case);
+            $this->assertSame([
+                ['delegated_access_update_attempt', 'attempt', false],
+                ['delegated_access_receipt_check', 'unknown', false],
+                ['delegated_access_update_result', DelegatedAccessTransport::STILL_UNKNOWN, false],
+            ], $this->audits(), $case);
+        }
+    }
+
+    public function test_a_definite_refusal_is_not_followed_by_a_receipt_check(): void
+    {
+        $this->v3WriteRefusal = [403, 'protected_membership'];
+
+        $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', $this->remove()), 'not_authorized', 403);
+
+        $this->assertSame(['remove'], $this->sentOperations());
+    }
+
+    public function test_a_receipt_check_that_cannot_be_audited_leaves_the_outcome_unknown(): void
+    {
+        $this->v3WriteFailure = 'server_error';
+        $this->v3Receipt = ['status' => 200, 'response' => ['operation' => 'remove', ...$this->v3UpdatedState('subject-example', [])]];
+        AuthAuditLog::creating(function (AuthAuditLog $record): void {
+            if ($record->event === 'delegated_access_receipt_check') {
+                throw new \RuntimeException('synthetic audit failure');
+            }
+        });
+
+        $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', $this->remove()), DelegatedAccessTransport::STILL_UNKNOWN, 503);
+        $this->assertSame(['remove', 'receipt'], $this->sentOperations());
+    }
+
     public function test_a_version_2_application_is_still_spoken_to_in_version_2(): void
     {
         config(['delegated-access.applications.example-app.contract_version' => 2]);
@@ -205,6 +298,41 @@ class DelegatedAccessTransportV3Test extends TestCase
         Http::assertSentCount(1);
         Http::assertSent(fn (ClientRequest $request) => $request['contract_version'] === 2 && ! isset($request['operation_id']));
         $this->assertArrayNotHasKey('operation_id', AuthAuditLog::query()->first()->metadata);
+
+        // Nothing to look up an uncertain version 2 write by: it stays unknown, with no receipt asked for.
+        Http::swap(new Factory);
+        Http::fake(fn () => Http::response(['error' => 'server_error'], 500));
+        $this->refused(fn () => $transport->send($this->request, 'example-app', $update), 'unknown_outcome', 503);
+        Http::assertSentCount(1);
+        $this->assertSame(0, AuthAuditLog::query()->where('event', 'delegated_access_receipt_check')->count());
+    }
+
+    private function resetFake(): void
+    {
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        $this->fakeVersion3Application();
+        AuthAuditLog::query()->delete();
+    }
+
+    /** @return list<string> */
+    private function sentOperations(): array
+    {
+        return $this->v3Sent;
+    }
+
+    /** @return list<array{0: string, 1: string, 2: bool}> */
+    private function audits(): array
+    {
+        return AuthAuditLog::query()->orderBy('id')->get()
+            ->map(fn (AuthAuditLog $row): array => [$row->event, $row->metadata['outcome'], (bool) $row->succeeded])->all();
+    }
+
+    private function jti(ClientRequest $request): string
+    {
+        $payload = explode('.', substr($request->header('Authorization')[0], strlen('Bearer ')))[1];
+
+        return json_decode(base64_decode(strtr($payload, '-_', '+/')), true)['jti'];
     }
 
     /** @return array<string, mixed> */

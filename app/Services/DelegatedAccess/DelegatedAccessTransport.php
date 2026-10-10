@@ -25,6 +25,12 @@ use Throwable;
 
 final class DelegatedAccessTransport
 {
+    /**
+     * A version 3 write whose answer was uncertain and whose receipt did not settle it: the
+     * application has no stored outcome for it yet. It may still have happened.
+     */
+    public const STILL_UNKNOWN = 'outcome_still_unknown';
+
     public function __construct(private readonly ActorAssertion $assertions, private readonly DelegatedContract $contract, private readonly TransportClock $clock) {}
 
     public function send(Request $request, string $application, array $operation): array
@@ -82,16 +88,101 @@ final class DelegatedAccessTransport
             $result = $this->exchange($endpoint, $assertion, $body, $application, $payload, $write);
         } catch (Throwable $failure) {
             $exception = $failure instanceof DelegatedAccessException ? $failure : new DelegatedAccessException($write ? 'unknown_outcome' : 'unavailable');
-            if ($write) {
-                $this->audit($actor, $payload, $correlation, $exception->outcome, $via);
+            if (! $write) {
+                throw $exception;
             }
-            throw $exception;
+            // A version 3 write whose outcome is uncertain is looked up once by its operation id,
+            // never sent again.
+            if ($exception->outcome === 'unknown_outcome' && $version === DelegatedContract::VERSION_3) {
+                try {
+                    $result = $this->checkReceipt($entry, $signing, $actor, $application, $payload, $correlation, $via);
+                } catch (DelegatedAccessException $settled) {
+                    $exception = $settled;
+                }
+            }
+            if (! isset($result)) {
+                $this->audit($actor, $payload, $correlation, $exception->outcome, $via);
+                throw $exception;
+            }
+            $this->audit($actor, $payload, $correlation, 'succeeded', $via, ['confirmed_by' => 'receipt']);
+
+            return $result;
         }
         if ($write) {
             $this->audit($actor, $payload, $correlation, 'succeeded', $via);
         }
 
         return $result;
+    }
+
+    /**
+     * Whether a refusal leaves a write's outcome unknown: the application never confirmed it, and for
+     * version 3 its receipt did not settle it either. Such a write may have happened.
+     */
+    public static function unconfirmed(DelegatedAccessException $exception): bool
+    {
+        return in_array($exception->outcome, ['unknown_outcome', self::STILL_UNKNOWN], true);
+    }
+
+    /**
+     * Ask the application, once, what became of a version 3 write whose answer was uncertain.
+     *
+     * The receipt is a read: nothing is sent again, and it never reaches the adapter. A stored success
+     * for this write is returned as its answer; a stored refusal is raised as that refusal; anything
+     * else (no receipt yet, a pending claim, or a receipt request that itself failed) leaves the
+     * outcome unknown. The check and what it found are audited before the caller sees either.
+     *
+     * @param  array{endpoint: string, contract_version: int}  $entry
+     * @param  array<string, mixed>  $signing
+     * @param  array<string, mixed>  $write  the write as the contract built it
+     * @return array<string, mixed> the application's stored answer to the write
+     *
+     * @throws DelegatedAccessException the stored refusal, or {@see STILL_UNKNOWN}
+     */
+    private function checkReceipt(array $entry, array $signing, User $actor, string $application, array $write, string $writeCorrelation, ?string $via): array
+    {
+        $found = 'unknown';
+        $refusal = null;
+        $answer = null;
+        try {
+            $ask = $this->contract->request($application, ['operation' => 'receipt', 'operation_id' => $write['operation_id']], DelegatedContract::VERSION_3);
+            [$endpoint, $assertion, $body] = $this->prepare($entry, $signing, $actor, $application, $ask, null);
+            $receipt = $this->contract->receipt($this->exchange($endpoint, $assertion, $body, $application, $ask, false), $application, $write);
+            if ($receipt['status'] === 'known' && $receipt['response_status'] === 200) {
+                $found = 'applied';
+                $answer = $receipt['response'];
+            } elseif ($receipt['status'] === 'known') {
+                $found = 'refused';
+                $refusal = ['status' => $receipt['response_status'], 'error' => $receipt['response']['error']];
+            }
+        } catch (Throwable) {
+            // The receipt request failed or was malformed: it settles nothing.
+        }
+
+        try {
+            $this->record($actor, 'delegated_access_receipt_check', $found !== 'unknown', [
+                ...$this->auditSubject($actor, $write), 'outcome' => $found, 'correlation' => $writeCorrelation,
+                'operation_id' => $write['operation_id'],
+                ...($refusal === null ? [] : ['refusal' => $refusal['error'], 'refusal_status' => $refusal['status']]),
+                ...($via === null ? [] : ['via' => $via]),
+            ]);
+        } catch (Throwable) {
+            throw new DelegatedAccessException(self::STILL_UNKNOWN);
+        }
+
+        if ($answer !== null) {
+            return $answer;
+        }
+        if ($refusal !== null) {
+            // Acted on by its status, as an immediate refusal would have been.
+            throw new DelegatedAccessException(match ($refusal['status']) {
+                403, 404 => 'not_authorized',
+                409 => 'revision_conflict',
+                default => 'invalid_request',
+            }, $refusal['status']);
+        }
+
+        throw new DelegatedAccessException(self::STILL_UNKNOWN);
     }
 
     /**
