@@ -65,7 +65,11 @@ final class AccessInvitationService
                 'access' => $access,
                 'expires_at' => now()->addDays($this->expiresAfterDays()),
             ]);
-            $this->audit->record(InvitationAudit::CREATED, $invitation, $request, $inviter, metadata: ['access' => $access]);
+            // Only the shape: workspace ids and role names are the application's, and the invitation
+            // row that holds them goes when it is purged; the audit row stays.
+            $this->audit->record(InvitationAudit::CREATED, $invitation, $request, $inviter, metadata: [
+                'application_admin' => $access['application_admin'], 'workspace_count' => count($access['workspaces']),
+            ]);
             $this->auditSuperseded($request, $inviter, $superseded, $invitation);
 
             return $invitation;

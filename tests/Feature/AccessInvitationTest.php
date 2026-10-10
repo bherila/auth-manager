@@ -743,6 +743,21 @@ class AccessInvitationTest extends TestCase
         $page->assertSee('old-54@example.test')->assertDontSee('old-4@example.test');
     }
 
+    public function test_the_created_audit_row_records_no_workspace_or_role(): void
+    {
+        $this->confirm();
+        $this->invite('person@example.test', access: ['application_admin' => '1', 'workspaces' => [
+            ['id' => 'workspace-a', 'role' => 'sender'], ['id' => 'workspace-b', 'role' => 'auditor'],
+        ]])->assertSessionHas('invitation_notice');
+
+        $row = AuthAuditLog::query()->where('event', InvitationAudit::CREATED)->firstOrFail();
+        $invitation = AccessInvitation::query()->firstOrFail();
+        $this->assertSame(['invitation_id' => $invitation->id, 'application' => 'example-app', 'application_admin' => true, 'workspace_count' => 2], $row->metadata);
+        foreach (['workspace-a', 'workspace-b', 'sender', 'auditor'] as $value) {
+            $this->assertStringNotContainsString($value, (string) DB::table('auth_audit_log')->pluck('metadata')->implode(' '));
+        }
+    }
+
     public function test_a_failed_email_still_answers_alike_and_shows_the_link(): void
     {
         $this->confirm();
