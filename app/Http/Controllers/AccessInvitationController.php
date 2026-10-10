@@ -89,6 +89,18 @@ class AccessInvitationController extends Controller
     {
         abort_unless($invitation->application === $application, 404);
         $this->authorizeInvite($request, $application);
+        // A new link must still be one the application would accept now: provisioning and every
+        // stored role still advertised, checked before the token is replaced.
+        $back = route('applications.access', ['application' => $application]);
+        $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
+        if (($capabilities['controls']['provisioning'] ?? false) !== true) {
+            throw ValidationException::withMessages(['invitation' => 'The application no longer accepts new accounts from this provider, so this invitation cannot be sent again. Revoke it instead.'])->redirectTo($back);
+        }
+        $access = is_array($invitation->access) ? $invitation->access : [];
+        if (! (new DelegatedContract)->rolesAreAdvertised($capabilities, $access)
+            || (($access['application_admin'] ?? false) === true && ($capabilities['controls']['application_admin'] ?? false) !== true)) {
+            throw ValidationException::withMessages(['invitation' => 'The application no longer offers the access this invitation gives, so it cannot be sent again. Revoke it and send a new one.'])->redirectTo($back);
+        }
         $registration = RegisteredApplication::query()->where('key', $application)->where('enabled', true)->firstOrFail();
 
         return $this->issued(route('applications.access', ['application' => $application]),

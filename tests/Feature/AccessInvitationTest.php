@@ -58,6 +58,9 @@ class AccessInvitationTest extends TestCase
 
     private bool $provisioning = true;
 
+    /** Role ids the fake application advertises; null for all four. */
+    private ?array $advertisedRoles = null;
+
     private bool $refuseUpdates = false;
 
     private bool $failUpdates = false;
@@ -367,6 +370,26 @@ class AccessInvitationTest extends TestCase
 
         $this->expectException(UniqueConstraintViolationException::class);
         DB::table('access_invitations')->insert([...$row, 'token_hash' => hash('sha256', 'concurrent'), 'email' => 'PERSON@example.test']);
+    }
+
+    public function test_resending_is_refused_when_the_application_no_longer_offers_provisioning_or_the_role(): void
+    {
+        $this->confirm();
+        $this->invite('person@example.test')->assertSessionHas('invitation_notice');
+        $invitation = AccessInvitation::query()->firstOrFail();
+        $hash = $invitation->token_hash;
+
+        $this->provisioning = false;
+        $this->post("/applications/example-app/access/invitations/{$invitation->id}/resend")
+            ->assertSessionHasErrors(['invitation' => 'The application no longer accepts new accounts from this provider, so this invitation cannot be sent again. Revoke it instead.']);
+        $this->provisioning = true;
+        $this->advertisedRoles = ['owner', 'auditor'];
+        $this->post("/applications/example-app/access/invitations/{$invitation->id}/resend")
+            ->assertSessionHasErrors(['invitation' => 'The application no longer offers the access this invitation gives, so it cannot be sent again. Revoke it and send a new one.']);
+
+        $this->assertSame($hash, $invitation->fresh()->token_hash);
+        Mail::assertSent(AccessInvitationMail::class, 1);
+        $this->assertDatabaseMissing('auth_audit_log', ['event' => InvitationAudit::RESENT]);
     }
 
     public function test_a_new_person_creates_an_account_is_admitted_and_provisioned_as_the_inviter(): void
@@ -730,10 +753,10 @@ class AccessInvitationTest extends TestCase
                     'workspaces' => array_map(fn (array $membership): array => [...$membership, 'editable' => true], $request['access']['workspaces'])];
             }
             $data = match ($operation) {
-                'capabilities' => ['controls' => ['application_admin' => true, 'workspace_roles' => [
+                'capabilities' => ['controls' => ['application_admin' => true, 'workspace_roles' => array_values(array_filter([
                     ['id' => 'owner', 'label' => 'Owner'], ['id' => 'admin', 'label' => 'Administrator'],
                     ['id' => 'sender', 'label' => 'Sender'], ['id' => 'auditor', 'label' => 'Auditor'],
-                ], 'provisioning' => $this->provisioning]],
+                ], fn (array $role): bool => $this->advertisedRoles === null || in_array($role['id'], $this->advertisedRoles, true))), 'provisioning' => $this->provisioning]],
                 'subjects' => ['subjects' => [], 'next_cursor' => null],
                 'workspaces' => ['workspaces' => [
                     ['id' => 'workspace-a', 'label' => 'Workspace A'], ['id' => 'workspace-b', 'label' => 'Workspace B'],
