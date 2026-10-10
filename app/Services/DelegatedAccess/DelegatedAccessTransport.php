@@ -33,9 +33,15 @@ final class DelegatedAccessTransport
 
     public function __construct(private readonly ActorAssertion $assertions, private readonly DelegatedContract $contract, private readonly TransportClock $clock) {}
 
-    public function send(Request $request, string $application, array $operation): array
+    /**
+     * @param  array<string, mixed>|null  $capabilities  for a write: the validated capabilities the caller
+     *                                                   checked it against. An answer that does not fit them
+     *                                                   cannot confirm the write, so it is treated as uncertain
+     *                                                   before the result is audited.
+     */
+    public function send(Request $request, string $application, array $operation, ?array $capabilities = null): array
     {
-        return $this->dispatch($application, $operation, fn (bool $write): User => $this->actor($request, $application, $write));
+        return $this->dispatch($application, $operation, fn (bool $write): User => $this->actor($request, $application, $write), capabilities: $capabilities);
     }
 
     /**
@@ -52,15 +58,16 @@ final class DelegatedAccessTransport
      *                                  a reset or revocation since then refuses
      * @param  string|null  $correlation  64 lowercase hex characters to identify an update by, so its
      *                                    caller can record it; generated when null
+     * @param  array<string, mixed>|null  $capabilities  as for {@see send()}
      *
      * @throws DelegatedAccessException
      */
-    public function sendForInvitation(User $inviter, int $credentialVersion, string $application, array $operation, ?string $correlation = null): array
+    public function sendForInvitation(User $inviter, int $credentialVersion, string $application, array $operation, ?string $correlation = null, ?array $capabilities = null): array
     {
-        return $this->dispatch($application, $operation, fn (bool $write): User => $this->inviter($inviter, $credentialVersion, $application), $correlation, 'invitation');
+        return $this->dispatch($application, $operation, fn (bool $write): User => $this->inviter($inviter, $credentialVersion, $application), $correlation, 'invitation', $capabilities);
     }
 
-    private function dispatch(string $application, array $operation, Closure $resolveActor, ?string $correlation = null, ?string $via = null): array
+    private function dispatch(string $application, array $operation, Closure $resolveActor, ?string $correlation = null, ?string $via = null, ?array $capabilities = null): array
     {
         if (! config('delegated-access.enabled', false)) {
             throw new DelegatedAccessException('integration_disabled');
@@ -85,7 +92,13 @@ final class DelegatedAccessTransport
             $this->audit($actor, $payload, $correlation, 'attempt', $via);
         }
         try {
-            $result = $this->exchange($endpoint, $assertion, $body, $application, $payload, $write);
+            $answer = $this->exchange($endpoint, $assertion, $body, $application, $payload, $write);
+            // Checked before the result is audited: an answer that contradicts the capabilities it was
+            // checked against confirms nothing, and is uncertain like a malformed one.
+            if ($write && $capabilities !== null && ! $this->contract->fitsCapabilities($capabilities, $answer)) {
+                throw new DelegatedAccessException('unknown_outcome');
+            }
+            $result = $answer;
         } catch (Throwable $failure) {
             $exception = $failure instanceof DelegatedAccessException ? $failure : new DelegatedAccessException($write ? 'unknown_outcome' : 'unavailable');
             if (! $write) {
@@ -96,7 +109,7 @@ final class DelegatedAccessTransport
             $byReceipt = [];
             if ($exception->outcome === 'unknown_outcome' && $version === DelegatedContract::VERSION_3) {
                 try {
-                    $result = $this->checkReceipt($entry, $signing, $actor, $application, $payload, $correlation, $via);
+                    $result = $this->checkReceipt($entry, $signing, $actor, $application, $payload, $correlation, $via, $capabilities);
                 } catch (DelegatedAccessException $settled) {
                     $exception = $settled;
                     // A stored refusal settles the write as surely as a stored success does.
@@ -142,7 +155,7 @@ final class DelegatedAccessTransport
      *
      * @throws DelegatedAccessException the stored refusal, or {@see STILL_UNKNOWN}
      */
-    private function checkReceipt(array $entry, array $signing, User $actor, string $application, array $write, string $writeCorrelation, ?string $via): array
+    private function checkReceipt(array $entry, array $signing, User $actor, string $application, array $write, string $writeCorrelation, ?string $via, ?array $capabilities): array
     {
         $found = 'unknown';
         $refusal = null;
@@ -152,6 +165,10 @@ final class DelegatedAccessTransport
             [$endpoint, $assertion, $body] = $this->prepare($entry, $signing, $actor, $application, $ask, null);
             $receipt = $this->contract->receipt($this->exchange($endpoint, $assertion, $body, $application, $ask, false), $application, $write);
             if ($receipt['status'] === 'known' && $receipt['response_status'] === 200) {
+                // A stored answer that does not fit the capabilities settles nothing either.
+                if ($capabilities !== null && ! $this->contract->fitsCapabilities($capabilities, $receipt['response'])) {
+                    throw new DelegatedAccessException('invalid_response');
+                }
                 $found = 'applied';
                 $answer = $receipt['response'];
             } elseif ($receipt['status'] === 'known') {

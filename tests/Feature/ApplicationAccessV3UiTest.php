@@ -7,6 +7,7 @@ use App\Http\Middleware\EnsureCredentialVersion;
 use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
 use App\Models\User;
+use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
@@ -175,6 +176,31 @@ class ApplicationAccessV3UiTest extends TestCase
         // Each write was sent once and looked up once; none was sent again.
         $this->assertSame(['update', 'receipt', 'update', 'receipt', 'update', 'receipt'],
             array_values(array_filter($this->v3Sent, fn (string $operation): bool => in_array($operation, ['update', 'receipt'], true))));
+    }
+
+    /**
+     * Codex review on #77: an answer that does not fit the advertised capabilities is uncertain inside
+     * the transport, so it is never audited as a success and its receipt is asked for, once.
+     */
+    public function test_an_answer_that_does_not_fit_the_capabilities_is_never_audited_as_success(): void
+    {
+        $this->v3Roles = [];
+        $this->v3Memberships = [];
+        $this->v3AnswerMemberships = [['id' => 'workspace-a', 'role' => 'owner']];
+        // The receipt holds the same misfit answer: it settles nothing.
+        $this->v3Receipt = ['status' => 200, 'response' => ['operation' => 'update', ...$this->v3UpdatedState('subject-example', $this->v3AnswerMemberships)]];
+        $this->confirm();
+
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'operation_id' => DelegatedContract::operationId(),
+        ])->assertRedirect()->assertSessionMissing('access_updated')
+            ->assertSessionHas('access_failure', fn (string $message): bool => str_contains($message, 'does not show an outcome yet'));
+
+        $outcomes = DB::table('auth_audit_log')->whereIn('event', ['delegated_access_receipt_check', 'delegated_access_update_result'])->orderBy('id')
+            ->pluck('metadata')->map(fn ($metadata) => json_decode($metadata, true)['outcome'])->all();
+        $this->assertSame(['unknown', DelegatedAccessTransport::STILL_UNKNOWN], $outcomes);
+        $this->assertSame(['update', 'receipt'], array_values(array_filter($this->v3Sent, fn (string $operation): bool => in_array($operation, ['update', 'receipt'], true))));
     }
 
     public function test_searching_people_sends_the_query_as_the_actor_and_keeps_paging_within_it(): void

@@ -638,6 +638,9 @@ class ApplicationAccessV2UiTest extends TestCase
         ])->assertRedirect()->assertSessionMissing('access_updated')
             ->assertSessionHas('access_failure', 'The application did not confirm the result. The change may have completed. Reload current access before attempting another change.');
         $this->assertCount(1, Http::recorded(fn ($request) => $request['operation'] === 'update'));
+        // Audited as it was reported, never as a success (Codex review on #77).
+        $this->assertSame(['unknown_outcome'], DB::table('auth_audit_log')->where('event', 'delegated_access_update_result')->pluck('metadata')
+            ->map(fn ($metadata) => json_decode($metadata, true)['outcome'])->all());
     }
 
     /** An application that advertises no roles but reports a membership is refused, never rendered. */

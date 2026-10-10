@@ -128,10 +128,8 @@ final class InvitationRoles
             $update['operation_id'] = $this->operationId($invitation);
         }
         $correlation = bin2hex(random_bytes(32));
-        $answer = $this->transport->sendForInvitation($inviter, $recorded, $application, $update, $correlation);
-        if (! $this->contract->fitsCapabilities($capabilities, $answer)) {
-            return [AccessInvitation::ROLES_UNKNOWN, 'unknown_outcome', $correlation];
-        }
+        // An answer that does not fit the capabilities is an unknown outcome from the transport.
+        $this->transport->sendForInvitation($inviter, $recorded, $application, $update, $correlation, $capabilities);
 
         return [AccessInvitation::ROLES_APPLIED, 'applied', $correlation];
     }

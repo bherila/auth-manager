@@ -55,6 +55,9 @@ trait FakesVersion3Application
         ['id' => 'auditor', 'label' => 'Auditor'],
     ];
 
+    /** Misbehaving: the memberships an update answer reports, whatever was asked. */
+    private ?array $v3AnswerMemberships = null;
+
     /** How writes fail: null answers them, `server_error` with a 500, `in_progress` a 503, `timeout` throws. */
     private ?string $v3WriteFailure = null;
 
@@ -103,7 +106,7 @@ trait FakesVersion3Application
             'capabilities' => ['controls' => ['application_admin' => false, 'workspace_roles' => $this->v3Roles, 'provisioning' => $this->v3Provisioning]],
             'subjects' => $this->v3Page($request, $this->v3Subjects, 'subjects'),
             'workspaces' => $this->v3Page($request, $this->v3Workspaces, 'workspaces'),
-            'update' => $this->v3UpdatedState($request['subject'], $request['access']['workspaces']),
+            'update' => $this->v3UpdatedState($request['subject'], $this->v3AnswerMemberships ?? $request['access']['workspaces']),
             'remove' => $this->v3UpdatedState($request['subject'], []),
             'receipt' => $this->v3Receipt === null
                 ? ['operation_id' => $request['operation_id'], 'status' => 'unknown']
@@ -156,7 +159,7 @@ trait FakesVersion3Application
 
         return ['subject' => $subject, 'provisioned' => true, 'revision' => 'revision-example',
             'access' => ['application_admin' => false, 'workspaces' => $this->v3Memberships],
-            'allowed_edits' => ['application_admin' => false, 'workspaces' => true, 'provision' => false, 'remove' => $this->v3RemoveAllowed],
+            'allowed_edits' => ['application_admin' => false, 'workspaces' => $this->v3Roles !== [], 'provision' => false, 'remove' => $this->v3RemoveAllowed],
             ...$this->v3StateMetadata];
     }
 
@@ -166,6 +169,6 @@ trait FakesVersion3Application
         return ['subject' => $subject, 'provisioned' => true, 'revision' => $workspaces === [] ? 'revision-removed' : 'revision-after',
             'access' => ['application_admin' => false, 'workspaces' => array_map(
                 fn (array $membership): array => ['id' => $membership['id'], 'role' => $membership['role'], 'editable' => true], $workspaces)],
-            'allowed_edits' => ['application_admin' => false, 'workspaces' => true, 'provision' => false, 'remove' => true]];
+            'allowed_edits' => ['application_admin' => false, 'workspaces' => $this->v3Roles !== [], 'provision' => false, 'remove' => true]];
     }
 }

@@ -177,12 +177,10 @@ class ApplicationAccessController extends Controller
                 ->with('access_failure', 'The application does not offer to remove this account\'s access now. Review its current access.');
         }
 
-        $answer = $this->transport->send($request, $application, [
+        // The transport treats an answer that does not fit these capabilities as an unknown outcome.
+        $this->transport->send($request, $application, [
             'operation' => 'remove', 'subject' => $input['subject'], 'expected_revision' => $input['expected_revision'], ...$operationId,
-        ]);
-        if (! $contract->fitsCapabilities($capabilities, $answer)) {
-            throw new DelegatedAccessException('unknown_outcome');
-        }
+        ], $capabilities);
 
         return redirect()->to($back)->with('access_notice', self::REMOVED_NOTICE);
     }
@@ -225,18 +223,15 @@ class ApplicationAccessController extends Controller
         $access = ['application_admin' => (bool) $input['application_admin'], 'workspaces' => $workspaces];
         $capabilities = $this->assertRolesAdvertised($request, $application, $input['subject'], $access, $back);
 
-        $answer = $this->transport->send($request, $application, [
+        // An answer that does not fit what the application advertised cannot confirm the write: the
+        // transport reports it as an unknown outcome, and audits it as one, rather than as success.
+        $this->transport->send($request, $application, [
             'operation' => 'update',
             'subject' => $input['subject'],
             'expected_revision' => $input['expected_revision'],
             'access' => $access,
             ...$operationId,
-        ]);
-        // The write was sent; an answer that does not fit what the application advertised cannot
-        // confirm it, so it is reported as an unknown outcome rather than as success.
-        if (! (new DelegatedContract)->fitsCapabilities($capabilities, $answer)) {
-            throw new DelegatedAccessException('unknown_outcome');
-        }
+        ], $capabilities);
 
         return redirect()->to($back)->with('access_updated', true);
     }
@@ -372,11 +367,9 @@ class ApplicationAccessController extends Controller
             // Contact data for the new account, bounded in bytes as the contract bounds it.
             $update['display_name'] = mb_strcut($name, 0, 255, 'UTF-8');
         }
-        $answer = $this->transport->send($request, $application, $update);
-        if (! (new DelegatedContract)->fitsCapabilities($capabilities, $answer)) {
-            // Caught by provision(): the uniform notice by email, an unknown outcome otherwise.
-            throw new DelegatedAccessException('unknown_outcome');
-        }
+        // A misfit answer is an unknown outcome from the transport, caught by provision(): the uniform
+        // notice by email, an unknown outcome otherwise.
+        $this->transport->send($request, $application, $update, $capabilities);
 
         return $byEmail ? $quietly() : redirect()->to($back)->with('access_updated', true);
     }
