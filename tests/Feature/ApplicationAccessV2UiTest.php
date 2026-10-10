@@ -140,6 +140,15 @@ class ApplicationAccessV2UiTest extends TestCase
         Http::assertSent(fn ($request) => $request['operation'] === 'update' && ! isset($request['operation_id']));
     }
 
+    /** Version 2 has no search: no boxes, and a query is never sent to it. */
+    public function test_a_version_2_application_offers_no_search_and_is_never_sent_one(): void
+    {
+        $this->browse(['subject_query' => 'Example', 'workspace_query' => 'Workspace'])->assertOk()
+            ->assertSee('Select an account')->assertDontSee('Search accounts')->assertDontSee('Search workspaces');
+
+        $this->assertCount(0, Http::recorded(fn ($request) => isset($request['query'])));
+    }
+
     public function test_an_update_names_roles_and_echoes_the_non_editable_membership(): void
     {
         $this->confirm();

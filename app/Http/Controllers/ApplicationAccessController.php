@@ -55,7 +55,8 @@ class ApplicationAccessController extends Controller
         return $this->page($request, $application, $subject, $state,
             $input['subject_cursor'] ?? null, $input['workspace_cursor'] ?? null,
             $request->session()->get('access_updated') === true,
-            (string) ($input['directory_search'] ?? ''), (int) ($input['directory_page'] ?? 1));
+            (string) ($input['directory_search'] ?? ''), (int) ($input['directory_page'] ?? 1),
+            $input['subject_query'] ?? null, $input['workspace_query'] ?? null);
     }
 
     public function browse(Request $request, string $application): RedirectResponse
@@ -71,7 +72,20 @@ class ApplicationAccessController extends Controller
             'subject' => ['nullable', 'string', 'max:191'],
             'directory_search' => ['nullable', 'string', 'max:100'],
             'directory_page' => ['nullable', 'integer', 'min:1', 'max:1000'],
+            // Contract version 3 searches, answered by the application within what this actor may see.
+            'subject_query' => ['nullable', 'string', $this->searchRule()],
+            'workspace_query' => ['nullable', 'string', $this->searchRule()],
         ]);
+    }
+
+    /** A search the contract accepts: 2 to 100 characters without control characters. */
+    private function searchRule(): Closure
+    {
+        return static function (string $attribute, mixed $value, Closure $fail): void {
+            if (! DelegatedContract::validQuery($value)) {
+                $fail('Search for 2 to 100 characters.');
+            }
+        };
     }
 
     public function update(Request $request, string $application): RedirectResponse
@@ -382,9 +396,15 @@ class ApplicationAccessController extends Controller
 
     private function page(Request $request, string $application, ?string $subject = null,
         ?array $state = null, ?string $subjectCursor = null, ?string $workspaceCursor = null,
-        bool $saved = false, string $directorySearch = '', int $directoryPage = 1): View
+        bool $saved = false, string $directorySearch = '', int $directoryPage = 1,
+        ?string $subjectQuery = null, ?string $workspaceQuery = null): View
     {
         $version = DelegatedAccessTransport::contractVersion($application);
+        // Only version 3 applications search. The query goes to the application, which matches it
+        // within this actor's scope exactly as it lists without one, and binds its cursors to it.
+        $searches = $version >= DelegatedContract::VERSION_3
+            ? array_filter(['subject_query' => $subjectQuery, 'workspace_query' => $workspaceQuery], fn ($value) => $value !== null)
+            : [];
         $contract = new DelegatedContract;
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
         // An account-only application has no workspaces to list, so it is not asked for them. Anything
@@ -394,10 +414,12 @@ class ApplicationAccessController extends Controller
         if ($state !== null && $roles && ! $contract->fitsCapabilities($capabilities, $state)) {
             throw new DelegatedAccessException('invalid_response');
         }
-        $subjects = $this->transport->send($request, $application,
-            array_filter(['operation' => 'subjects', 'limit' => 50, 'cursor' => $subjectCursor], fn ($value) => $value !== null));
-        $workspaces = $accountOnly ? ['workspaces' => [], 'next_cursor' => null] : $this->transport->send($request, $application,
-            array_filter(['operation' => 'workspaces', 'limit' => 50, 'cursor' => $workspaceCursor], fn ($value) => $value !== null));
+        $subjects = $this->transport->send($request, $application, array_filter(
+            ['operation' => 'subjects', 'limit' => 50, 'cursor' => $subjectCursor, 'query' => $searches['subject_query'] ?? null],
+            fn ($value) => $value !== null));
+        $workspaces = $accountOnly ? ['workspaces' => [], 'next_cursor' => null] : $this->transport->send($request, $application, array_filter(
+            ['operation' => 'workspaces', 'limit' => 50, 'cursor' => $workspaceCursor, 'query' => $searches['workspace_query'] ?? null],
+            fn ($value) => $value !== null));
         $registration = RegisteredApplication::query()->where('key', $application)->firstOrFail();
 
         // The picker discloses grant holders across every workspace, so it needs the separate
@@ -414,7 +436,7 @@ class ApplicationAccessController extends Controller
             'application' => $registration, 'version' => $version, 'accountOnly' => $accountOnly,
             'capabilities' => $capabilities, 'subjects' => $subjects, 'workspaces' => $workspaces,
             'subject' => $subject, 'state' => $state, 'saved' => $saved,
-            'directory' => $directory, 'directorySearch' => $directorySearch,
+            'directory' => $directory, 'directorySearch' => $directorySearch, 'searches' => $searches,
             'writes' => $writes, 'provisionByEmail' => $provisioning && $writes && $directory === null,
             'invitations' => $this->invitations($request, $actor, $application, $provisioning, $capabilities),
         ]);

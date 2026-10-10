@@ -176,12 +176,86 @@ class ApplicationAccessV3UiTest extends TestCase
             array_values(array_filter($this->v3Sent, fn (string $operation): bool => in_array($operation, ['update', 'receipt'], true))));
     }
 
+    public function test_searching_people_sends_the_query_as_the_actor_and_keeps_paging_within_it(): void
+    {
+        $this->v3Subjects = [
+            ['subject' => 'subject-1', 'label' => 'Example One'], ['subject' => 'subject-2', 'label' => 'Unrelated Person'],
+            ['subject' => 'subject-3', 'label' => 'example two'], ['subject' => 'subject-4', 'label' => 'EXAMPLE three'],
+        ];
+
+        $page = $this->browse(['subject_query' => 'example'])->assertOk()
+            ->assertSee('Example One')->assertSee('example two')->assertDontSee('Unrelated Person')->assertDontSee('EXAMPLE three')
+            ->assertSee('<input type="hidden" name="subject_query" value="example">', false)
+            ->assertSee('<input type="hidden" name="subject_cursor" value="q:example|2">', false);
+        $this->assertSame('example', $this->lastSent('subjects')['query']);
+        $this->assertSame((string) $this->actor->id, $this->claims($this->lastSentRequest('subjects'))['sub']);
+        // The person's review link keeps the search, so the list stays as it was.
+        $page->assertSee(e(route('applications.access', ['application' => 'example-app', 'subject' => 'subject-1', 'subject_query' => 'example'])), false);
+
+        // The next page asks for the same search with its cursor.
+        $this->browse(['subject_query' => 'example', 'subject_cursor' => 'q:example|2'])->assertOk()
+            ->assertSee('EXAMPLE three')->assertDontSee('Example One');
+        $this->assertSame(['cursor' => 'q:example|2', 'query' => 'example'], array_intersect_key($this->lastSent('subjects'), ['cursor' => 1, 'query' => 1]));
+
+        $this->browse(['subject_query' => 'nobody'])->assertOk()->assertSee('No account you can see matches this search.');
+    }
+
+    public function test_searching_workspaces_narrows_the_workspace_choices_and_keeps_the_account(): void
+    {
+        $this->browse(['subject' => 'subject-example', 'workspace_query' => 'Workspace C'])->assertOk()
+            ->assertSee('<option value="workspace-c">Workspace C</option>', false)
+            ->assertDontSee('<option value="workspace-a">', false)
+            ->assertSee('Workspace choices on this page list only workspaces matching this search.');
+        $this->assertSame('Workspace C', $this->lastSent('workspaces')['query']);
+        $this->assertSame('subject-example', $this->lastSent('read')['subject']);
+        $this->assertArrayNotHasKey('query', $this->lastSent('subjects'));
+    }
+
+    public function test_a_search_the_contract_would_refuse_is_never_sent(): void
+    {
+        foreach (['x', str_repeat('y', 101)] as $query) {
+            $this->post('/applications/example-app/access/browse', ['subject_query' => $query])->assertSessionHasErrors('subject_query');
+            $this->post('/applications/example-app/access/browse', ['workspace_query' => $query])->assertSessionHasErrors('workspace_query');
+            $this->get('/applications/example-app/access?'.http_build_query(['subject_query' => $query]))->assertSessionHasErrors('subject_query');
+        }
+
+        $this->assertCount(0, Http::recorded(fn (ClientRequest $request) => isset($request['query'])));
+    }
+
+    public function test_searching_needs_the_same_permission_as_listing(): void
+    {
+        $this->actor->update(['user_role' => 'user']);
+
+        $this->get('/applications/example-app/access?subject_query=example')->assertForbidden();
+
+        Http::assertNothingSent();
+    }
+
     private function operationIdIn(TestResponse $response): string
     {
         preg_match('/name="operation_id" value="([^"]+)"/', $response->getContent(), $match);
         $this->assertNotEmpty($match, 'The form carries no operation id.');
 
         return $match[1];
+    }
+
+    /** @return array<string, mixed> the last request of this operation the application was sent */
+    private function lastSent(string $operation): array
+    {
+        return $this->lastSentRequest($operation)->data();
+    }
+
+    private function lastSentRequest(string $operation): ClientRequest
+    {
+        return Http::recorded(fn (ClientRequest $request) => $request['operation'] === $operation)->last()[0];
+    }
+
+    /** @return array<string, mixed> */
+    private function claims(ClientRequest $request): array
+    {
+        $payload = explode('.', substr($request->header('Authorization')[0], strlen('Bearer ')))[1];
+
+        return json_decode(base64_decode(strtr($payload, '-_', '+/')), true, flags: JSON_THROW_ON_ERROR);
     }
 
     private function grant(User $user): void

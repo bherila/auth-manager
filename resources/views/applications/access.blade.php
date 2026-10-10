@@ -20,6 +20,38 @@
     @endif
     <section class="space-y-3 rounded border p-4">
         <h2 class="text-lg font-semibold">Choose an account</h2>
+        @if($version >= 3)
+            <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap items-end gap-3" role="search">
+                @csrf
+                @if($subject !== null)<input type="hidden" name="subject" value="{{ $subject }}">@endif
+                @include('applications.search-fields', ['except' => 'subject_query'])
+                <label>Search accounts
+                    <input type="search" name="subject_query" value="{{ $searches['subject_query'] ?? '' }}" required minlength="2" maxlength="100" autocomplete="off" class="rounded border bg-background p-2">
+                </label>
+                <button class="rounded border px-3 py-2">Search</button>
+                @isset($searches['subject_query'])
+                    <a class="underline" href="{{ route('applications.access', array_filter(['application' => $application->key, 'subject' => $subject, ...array_diff_key($searches, ['subject_query' => true])], fn ($value) => $value !== null)) }}">Clear search</a>
+                @endisset
+            </form>
+            <p class="text-sm">Matches names and email addresses the application holds, among the accounts it lets you see.</p>
+            @if($subjects['subjects'] === [])
+                <p>{{ isset($searches['subject_query']) ? 'No account you can see matches this search.' : 'No accounts to show.' }}</p>
+            @else
+                <table class="w-full text-left">
+                    <thead>
+                        <tr><th scope="col" class="p-2">Account</th><th scope="col" class="p-2"><span class="sr-only">Action</span></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach($subjects['subjects'] as $candidate)
+                            <tr class="border-t" @if($candidate['subject'] === $subject) aria-current="true" @endif>
+                                <td class="p-2">{{ $candidate['label'] }}</td>
+                                <td class="p-2"><a class="underline" href="{{ route('applications.access', ['application' => $application->key, 'subject' => $candidate['subject'], ...$searches]) }}">Review access</a></td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            @endif
+        @else
         <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap gap-3">
             @csrf
             <label>Account
@@ -32,14 +64,34 @@
             </label>
             <button class="rounded border px-3 py-2">Review access</button>
         </form>
+        @endif
         @if($subjects['next_cursor'])
             <form method="post" action="{{ route('applications.access.browse', $application->key) }}">
                 @csrf
+                @include('applications.search-fields')
                 <input type="hidden" name="subject_cursor" value="{{ $subjects['next_cursor'] }}">
                 <button class="underline">More accounts</button>
             </form>
         @endif
     </section>
+    @if($version >= 3 && !$accountOnly)
+        <section class="space-y-3 rounded border p-4">
+            <h2 class="text-lg font-semibold">Find a workspace</h2>
+            <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap items-end gap-3" role="search">
+                @csrf
+                @if($subject !== null)<input type="hidden" name="subject" value="{{ $subject }}">@endif
+                @include('applications.search-fields', ['except' => 'workspace_query'])
+                <label>Search workspaces
+                    <input type="search" name="workspace_query" value="{{ $searches['workspace_query'] ?? '' }}" required minlength="2" maxlength="100" autocomplete="off" class="rounded border bg-background p-2">
+                </label>
+                <button class="rounded border px-3 py-2">Search</button>
+                @isset($searches['workspace_query'])
+                    <a class="underline" href="{{ route('applications.access', array_filter(['application' => $application->key, 'subject' => $subject, ...array_diff_key($searches, ['workspace_query' => true])], fn ($value) => $value !== null)) }}">Clear search</a>
+                @endisset
+            </form>
+            <p class="text-sm">{{ isset($searches['workspace_query']) ? 'Workspace choices on this page list only workspaces matching this search.' : 'Narrow the workspace choices on this page by name.' }}</p>
+        </section>
+    @endif
     @if($provisionByEmail)
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Give access to someone new</h2>
@@ -151,6 +203,7 @@
                     @if($workspaces['next_cursor'])
                         <form method="post" action="{{ route('applications.access.browse', $application->key) }}">
                             @csrf
+                            @include('applications.search-fields')
                             <input type="hidden" name="subject" value="{{ $subject }}">
                             <input type="hidden" name="workspace_cursor" value="{{ $workspaces['next_cursor'] }}">
                             <button class="underline">More workspaces</button>
@@ -277,6 +330,7 @@
                 @if($workspaces['next_cursor'] && $state['allowed_edits']['workspaces'])
                     <form method="post" action="{{ route('applications.access.browse', $application->key) }}">
                         @csrf
+                        @include('applications.search-fields')
                         <input type="hidden" name="subject" value="{{ $subject }}">
                         <input type="hidden" name="workspace_cursor" value="{{ $workspaces['next_cursor'] }}">
                         <button class="underline">More workspaces (reloads current access)</button>
