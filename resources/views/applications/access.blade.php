@@ -2,7 +2,7 @@
 @section('title', 'Application access')
 @section('content')
 @php
-    $roleLabels = $version === 2 ? array_column($capabilities['controls']['workspace_roles'], 'label', 'id') : [];
+    $roleLabels = $version >= 2 ? array_column($capabilities['controls']['workspace_roles'], 'label', 'id') : [];
     $workspaceLabels = array_column($workspaces['workspaces'], 'label', 'id');
 @endphp
 <main class="mx-auto max-w-3xl space-y-6 px-6 py-10">
@@ -46,6 +46,7 @@
             <p>Enter the exact email address the person signs in with. If they can sign in to {{ $application->name }} and have no account there yet, the application creates it with the {{ $accountOnly ? 'administrator setting' : 'workspace and role' }} you choose.</p>
             <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
                 @csrf
+                @include('applications.operation-id')
                 <label class="block">Email <input type="email" name="email" required maxlength="255" autocomplete="off" class="rounded border bg-background p-2"></label>
                 @if($accountOnly)
                     @include('applications.provision-admin-choice')
@@ -117,9 +118,10 @@
             <p>Account reference: {{ $subject }}</p>
             @if(!$state['provisioned'])
                 <p>This account has not been provisioned in the application. A sign-in grant does not create an application account.</p>
-                @if($version === 2 && $state['allowed_edits']['provision'] && $writes && $directory !== null)
+                @if($version >= 2 && $state['allowed_edits']['provision'] && $writes && $directory !== null)
                     <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
                         @csrf
+                        @include('applications.operation-id')
                         <input type="hidden" name="subject" value="{{ $subject }}">
                         @if($accountOnly)
                             @include('applications.provision-admin-choice')
@@ -158,6 +160,7 @@
             @else
                 <form method="post" action="{{ route('applications.access.update', $application->key) }}" class="space-y-4">
                     @csrf
+                    @include('applications.operation-id')
                     <input type="hidden" name="subject" value="{{ $subject }}">
                     <input type="hidden" name="expected_revision" value="{{ $state['revision'] }}">
                     @if($state['allowed_edits']['application_admin'] && $capabilities['controls']['application_admin'])
@@ -173,7 +176,7 @@
                     @endif
                     @if($accountOnly)
                         {{-- No workspaces: the administrator setting above is the whole of this account's access here. --}}
-                    @elseif($version === 2)
+                    @elseif($version >= 2)
                         <h3 class="font-semibold">Workspace access</h3>
                         @forelse($state['access']['workspaces'] as $index => $membership)
                             <div class="flex items-center gap-3">

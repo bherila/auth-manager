@@ -18,8 +18,9 @@ class DelegatedAccessApplicationsTest extends TestCase
         $this->assertSame([
             'example-app' => ['endpoint' => 'https://app.example.test/application-access', 'contract_version' => 2],
             'other-app2' => ['endpoint' => 'https://other.example.test:8443/access', 'contract_version' => 1],
+            'third-app' => ['endpoint' => 'https://third.example.test/access', 'contract_version' => 3],
         ], DelegatedAccessApplications::parse(
-            'example-app|https://app.example.test/application-access|2, other-app2 | https://other.example.test:8443/access | 1',
+            'example-app|https://app.example.test/application-access|2, other-app2 | https://other.example.test:8443/access | 1,third-app|https://third.example.test/access|3',
         ));
     }
 
@@ -55,7 +56,7 @@ class DelegatedAccessApplicationsTest extends TestCase
             'fragment' => 'example-app|https://app.example.test/access#top|2',
             'empty version' => "example-app|{$valid}|",
             'version zero' => "example-app|{$valid}|0",
-            'unknown version' => "example-app|{$valid}|3",
+            'unknown version' => "example-app|{$valid}|4",
             'padded version' => "example-app|{$valid}|01",
             'decimal version' => "example-app|{$valid}|2.0",
             'bad entry after a good one' => "example-app|{$valid}|2,other-app|{$valid}|9",
@@ -95,6 +96,10 @@ class DelegatedAccessApplicationsTest extends TestCase
             ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 2]],
             DelegatedAccessApplications::fromConfiguration([], 'example-app|https://app.example.test/access|2'),
         );
+        $this->assertSame(
+            ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 3]],
+            DelegatedAccessApplications::fromConfiguration(['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 3]], null),
+        );
 
         foreach ([
             'not a map' => 'example-app',
@@ -102,7 +107,7 @@ class DelegatedAccessApplicationsTest extends TestCase
             'missing endpoint' => ['example-app' => ['contract_version' => 2]],
             'invalid key' => ['Example_App' => ['endpoint' => 'https://app.example.test/access']],
             'string version' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => '2']],
-            'unknown version' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 3]],
+            'unknown version' => ['example-app' => ['endpoint' => 'https://app.example.test/access', 'contract_version' => 4]],
             'non-https endpoint' => ['example-app' => ['endpoint' => 'http://app.example.test/access']],
         ] as $label => $literal) {
             $this->assertRefused(fn () => DelegatedAccessApplications::fromConfiguration($literal, 'example-app|https://app.example.test/access|2'), $label);

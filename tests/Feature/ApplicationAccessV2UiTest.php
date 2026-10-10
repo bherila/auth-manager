@@ -125,6 +125,21 @@ class ApplicationAccessV2UiTest extends TestCase
         Http::assertSent(fn ($request) => $request['contract_version'] === 2);
     }
 
+    /** Version 2 has no operation ids: its forms carry none and its writes send none. */
+    public function test_a_version_2_write_carries_no_operation_id(): void
+    {
+        $this->browse(['subject' => 'subject-example'])->assertOk()->assertDontSee('name="operation_id"', false);
+
+        $this->confirm();
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'owner'], ['id' => 'workspace-b', 'role' => 'auditor']],
+            'operation_id' => str_repeat('a', 43),
+        ])->assertRedirect()->assertSessionHas('access_updated', true);
+
+        Http::assertSent(fn ($request) => $request['operation'] === 'update' && ! isset($request['operation_id']));
+    }
+
     public function test_an_update_names_roles_and_echoes_the_non_editable_membership(): void
     {
         $this->confirm();

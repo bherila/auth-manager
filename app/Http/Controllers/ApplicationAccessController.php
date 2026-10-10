@@ -76,7 +76,8 @@ class ApplicationAccessController extends Controller
 
     public function update(Request $request, string $application): RedirectResponse
     {
-        if (DelegatedAccessTransport::contractVersion($application) === DelegatedContract::VERSION_2) {
+        // Version 3 is version 2 plus search, removal, metadata and receipts: roles work the same.
+        if (DelegatedAccessTransport::contractVersion($application) >= DelegatedContract::VERSION_2) {
             return $this->updateWithRoles($request, $application);
         }
 
@@ -112,7 +113,7 @@ class ApplicationAccessController extends Controller
     }
 
     /**
-     * Contract version 2: memberships name one of the application's own roles.
+     * Contract version 2 and 3: memberships name one of the application's own roles.
      *
      * A membership the application reported as not editable is posted back as it was, from a hidden
      * field; the application refuses an update that changes one. An empty role removes a membership.
@@ -130,6 +131,7 @@ class ApplicationAccessController extends Controller
             'new_role' => ['nullable', 'string', 'max:64', 'required_with:new_workspace'],
         ]);
         $back = route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
+        $operationId = $this->operationId($request, $application, $back);
 
         $workspaces = [];
         foreach ($input['workspaces'] ?? [] as $workspace) {
@@ -153,6 +155,7 @@ class ApplicationAccessController extends Controller
             'subject' => $input['subject'],
             'expected_revision' => $input['expected_revision'],
             'access' => $access,
+            ...$operationId,
         ]);
         // The write was sent; an answer that does not fit what the application advertised cannot
         // confirm it, so it is reported as an unknown outcome rather than as success.
@@ -167,7 +170,7 @@ class ApplicationAccessController extends Controller
      * Give a grant holder an account in the application: with one workspace membership, or for an
      * account-only application, with the application administrator flag the actor chose.
      *
-     * Contract version 2 only. The person must hold a current grant to the application, the
+     * Contract version 2 and 3. The person must hold a current grant to the application, the
      * application must still advertise provisioning and still report this subject unprovisioned with
      * provisioning allowed, and the role must be one it advertises. The application then creates the
      * account bound to this provider's issuer and the exact subject, and decides everything else.
@@ -177,7 +180,7 @@ class ApplicationAccessController extends Controller
      */
     public function provision(Request $request, string $application): RedirectResponse
     {
-        abort_unless(DelegatedAccessTransport::contractVersion($application) === DelegatedContract::VERSION_2, 404);
+        abort_unless(DelegatedAccessTransport::contractVersion($application) >= DelegatedContract::VERSION_2, 404);
 
         // Directory holders pick a subject; every other administrator names a
         // person by exact email and gets the same answer whatever the outcome.
@@ -201,6 +204,8 @@ class ApplicationAccessController extends Controller
             ? route('applications.access', ['application' => $application])
             : route('applications.access', ['application' => $application, 'subject' => $input['subject']]);
         $quietly = fn (): RedirectResponse => redirect()->to($back)->with('access_notice', self::EMAIL_PROVISION_NOTICE);
+        // Checked before anybody is looked up: a stale form is refused alike whoever it names.
+        $operationId = $this->operationId($request, $application, $back);
 
         $registration = RegisteredApplication::query()->where('key', $application)->where('enabled', true)->firstOrFail();
 
@@ -223,7 +228,7 @@ class ApplicationAccessController extends Controller
         }
 
         try {
-            return $this->provisionPerson($request, $application, $person, $capabilities, $access, $byEmail, $back, $quietly);
+            return $this->provisionPerson($request, $application, $person, $capabilities, $access, $operationId, $byEmail, $back, $quietly);
         } catch (DelegatedAccessException $refusal) {
             // A refusal from here on is about this person: whether they exist there, what the
             // application lets this actor do to them, whether the write went through. The transport
@@ -268,9 +273,11 @@ class ApplicationAccessController extends Controller
     }
 
     /**
+     * @param  array{operation_id?: string}  $operationId
+     *
      * @throws DelegatedAccessException
      */
-    private function provisionPerson(Request $request, string $application, User $person, array $capabilities, array $access, bool $byEmail, string $back, Closure $quietly): RedirectResponse
+    private function provisionPerson(Request $request, string $application, User $person, array $capabilities, array $access, array $operationId, bool $byEmail, string $back, Closure $quietly): RedirectResponse
     {
         $subject = (string) $person->getKey();
 
@@ -284,7 +291,7 @@ class ApplicationAccessController extends Controller
                 ->with('access_failure', 'The application does not offer to create this account now. Review its current access.');
         }
 
-        $update = ['operation' => 'update', 'subject' => $subject, 'expected_revision' => null, 'access' => $access];
+        $update = ['operation' => 'update', 'subject' => $subject, 'expected_revision' => null, 'access' => $access, ...$operationId];
         $name = trim((string) $person->name);
         if ($name !== '') {
             // Contact data for the new account, bounded in bytes as the contract bounds it.
@@ -335,6 +342,30 @@ class ApplicationAccessController extends Controller
         return $capabilities;
     }
 
+    /**
+     * A version 3 write's `operation_id`, as the form that asked for it posted it back.
+     *
+     * Each write form carries one minted when it was rendered, so a resubmission of that form (a double
+     * click, a browser retry) is the same operation and the application answers it from its receipt
+     * rather than applying it again. The application keeps operations apart per actor, so one posted
+     * by someone else cannot reach another person's. Earlier contract versions have none.
+     *
+     * @return array{operation_id?: string}
+     */
+    private function operationId(Request $request, string $application, string $back): array
+    {
+        if (DelegatedAccessTransport::contractVersion($application) < DelegatedContract::VERSION_3) {
+            return [];
+        }
+        $operationId = $request->input('operation_id');
+        if (! DelegatedContract::validOperationId($operationId)) {
+            throw ValidationException::withMessages(['operation_id' => 'This form is out of date. Review current access and make the change again.'])
+                ->redirectTo($back);
+        }
+
+        return ['operation_id' => $operationId];
+    }
+
     /** The invitation link flashed, encrypted, after an email failed; null when absent or unreadable. */
     private function flashedLink(Request $request): ?string
     {
@@ -358,8 +389,9 @@ class ApplicationAccessController extends Controller
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
         // An account-only application has no workspaces to list, so it is not asked for them. Anything
         // it reports that only a workspace application could is refused rather than rendered.
-        $accountOnly = $version === DelegatedContract::VERSION_2 && $contract->accountOnly($capabilities);
-        if ($state !== null && $version === DelegatedContract::VERSION_2 && ! $contract->fitsCapabilities($capabilities, $state)) {
+        $roles = $version >= DelegatedContract::VERSION_2;
+        $accountOnly = $roles && $contract->accountOnly($capabilities);
+        if ($state !== null && $roles && ! $contract->fitsCapabilities($capabilities, $state)) {
             throw new DelegatedAccessException('invalid_response');
         }
         $subjects = $this->transport->send($request, $application,
@@ -371,7 +403,7 @@ class ApplicationAccessController extends Controller
         // The picker discloses grant holders across every workspace, so it needs the separate
         // directory permission as well as the application answering capabilities and advertising
         // provisioning. Without it, a manager names a person by exact email instead.
-        $provisioning = $version === DelegatedContract::VERSION_2 && ($capabilities['controls']['provisioning'] ?? false) === true;
+        $provisioning = $roles && ($capabilities['controls']['provisioning'] ?? false) === true;
         $actor = $request->user();
         $directory = $provisioning && $this->permissions->canBrowseDirectory($actor, $application)
             ? $this->grantHolders->search($registration, $directorySearch, $directoryPage)

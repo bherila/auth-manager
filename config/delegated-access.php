@@ -8,7 +8,7 @@ return [
     // switching writes on for one application changes no other.
     'writes_applications' => array_values(array_filter(array_map('trim', explode(',', (string) env('AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS', ''))))),
     // Invitations by email from the application-access page. Also needs writes for the
-    // application, contract version 2, and `access-invite:<application>` for the inviter.
+    // application, contract version 2 or 3, and `access-invite:<application>` for the inviter.
     'invitations' => [
         'enabled' => (bool) env('AUTH_MANAGER_INVITATIONS_ENABLED', false),
         'expires_after_days' => 7,
@@ -25,7 +25,7 @@ return [
     // App\Support\DelegatedAccessKeys.
     'keys_environment' => env('AUTH_MANAGER_DELEGATED_ACCESS_KEYS'),
     // Deployment-owned map: application key => ['endpoint' => absolute HTTPS URL,
-    // 'contract_version' => 1|2 (default 1)]. The version is agreed with the application and
+    // 'contract_version' => 1|2|3 (default 1)]. The version is agreed with the application and
     // never negotiated at runtime; see bherila/auth-laravel's delegated access contract.
     // Never derive entries from launch URLs, OAuth redirects, or browser input.
     // Normally empty: the map comes from applications_environment below. A literal map here
