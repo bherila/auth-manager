@@ -92,6 +92,18 @@ These are narrow delegated-administration permissions, not provider administrati
   explicit confirmation; like every write it needs a credential check within the last five minutes,
   and the provider re-reads the account and sends nothing unless the application still offers the
   removal. The application refuses the whole removal rather than part of it.
+- **What a removal also removes.** An application may report, per editable membership, records that
+  exist only because of it (`removal_effects`, such as a person's project assignments in that
+  workspace), and a note for the confirmation (`removal_notice`). Each membership's effects are shown
+  with that membership alone, as **Label: count**, and never added up across memberships: beside the
+  membership's role choice, and grouped by workspace in **Remove from this application**, whose text
+  then says the account stays but the listed records go. The application's note is shown as context
+  only. Choosing **Remove access** for a membership with effects needs the separate confirmation
+  under the workspace list; the provider checks it against a fresh read before sending, so effects
+  that appeared after the page was shown are confirmed first. Changing a role takes nothing with it.
+  Labels and notes are the application's plain text: escaped, and isolated so a right-to-left label
+  cannot reorder the count beside it. The application performs the deletion and its revision covers
+  what it disclosed, so a confirmation made against different records is refused as a conflict.
 - **Observations.** Where the application reports them, the account list shows **Added**,
   **First sign-in** and **Last seen** (only the columns some account on the page has), and an
   account's detail lists them. They are the application's observations and never affect access.
@@ -103,7 +115,8 @@ These are narrow delegated-administration permissions, not provider administrati
 - **Uncertain results.** If the application does not confirm a change, the provider asks it once
   what became of that operation and shows the answer: the change applied, the refusal it got, or that
   its outcome is still unknown. It never sends the change again by itself; reload current access
-  before trying another change.
+  before trying another change. A stored answer is an outcome, never a confirmation: the page shows
+  effects only from a fresh read.
 
 ## Invitations
 

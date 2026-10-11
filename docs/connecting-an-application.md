@@ -326,7 +326,9 @@ php artisan vendor:publish --tag=bherila-auth-delegated-access-migrations
 ```
 
 The application implements contract version 3 (`bherila/auth-laravel` 0.21 or later): search,
-`remove` and the optional metadata, besides roles and provisioning.
+`remove` and the optional metadata, besides roles and provisioning. An application whose removals
+take other records with them discloses them as `removal_effects` (0.24 or later), and only after
+this provider runs 0.24 or later: an older one refuses every state that carries them.
 
 The application implements the package's adapter, which decides every authorization: who
 the actor may see and change, in which workspaces, with which roles, and its own

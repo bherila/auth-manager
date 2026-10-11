@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Http;
  */
 trait FakesVersion3Application
 {
-    /** @var list<array{id: string, role: string, editable: bool}> */
+    /** @var list<array{id: string, role: string, editable: bool, removal_effects?: list<array{kind: string, label: string, count: int}>}> */
     private array $v3Memberships = [
         ['id' => 'workspace-a', 'role' => 'owner', 'editable' => true],
         ['id' => 'workspace-b', 'role' => 'sender', 'editable' => true],
@@ -29,6 +29,9 @@ trait FakesVersion3Application
     private bool $v3Provisioning = true;
 
     private bool $v3RemoveAllowed = true;
+
+    /** A read's `access.removal_notice`, when set. */
+    private ?string $v3RemovalNotice = null;
 
     /** @var array<string, string|null> state metadata for a read, as the application reports it */
     private array $v3StateMetadata = [];
@@ -158,7 +161,8 @@ trait FakesVersion3Application
         }
 
         return ['subject' => $subject, 'provisioned' => true, 'revision' => 'revision-example',
-            'access' => ['application_admin' => false, 'workspaces' => $this->v3Memberships],
+            'access' => ['application_admin' => false, 'workspaces' => $this->v3Memberships,
+                ...($this->v3RemovalNotice === null ? [] : ['removal_notice' => $this->v3RemovalNotice])],
             'allowed_edits' => ['application_admin' => false, 'workspaces' => $this->v3Roles !== [], 'provision' => false, 'remove' => $this->v3RemoveAllowed],
             ...$this->v3StateMetadata];
     }

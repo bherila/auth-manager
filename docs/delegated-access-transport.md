@@ -54,6 +54,13 @@ from a response; an answer in another version is `invalid_response`.
 - **Removal.** `remove` takes `subject`, `expected_revision` and `operation_id`. It is a write, with
   every check an update has. The answer must leave the account provisioned with nothing in the
   actor's projection.
+- **Removal effects** (`bherila/auth-laravel` 0.24). A provisioned state's editable memberships may
+  carry `removal_effects` (up to 8 `{kind, label, count}` each, at most 100 in a state) and its
+  `access` a `removal_notice`. The package validates both; an older provider refuses a state carrying
+  either as `invalid_response`, so an application emits them only once every provider it talks to
+  shows them. They are never sent back in an `update`. See
+  [the access screen](application-access-ui.md#search-removal-and-observations) for how they are
+  shown.
 - **Metadata.** States and `subjects` entries may carry `provisioned_at`, `first_sign_in_at` and
   `last_seen_at`. Shown, never used to decide anything.
 - **Operation ids.** Every `update` and `remove` carries an `operation_id`, chosen by the caller once
