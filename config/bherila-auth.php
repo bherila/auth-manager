@@ -128,6 +128,8 @@ return [
             'token_lifetimes' => ['P30D', 'P90D', 'P365D'],
             'token_name_prefix' => 'api-token: ',
             'personal_client_name' => 'Personal access tokens',
+            'personal_token_connection_scopes' => ['mcp:use'],
+            'personal_token_connection_max_lifetime' => 'PT4H',
             // Null uses the api guard's provider.
             'provider' => null,
             // Null: the signed-in user owns credentials. Set a model class (over the
