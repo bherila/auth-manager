@@ -248,28 +248,47 @@
                         {{-- No workspaces: the administrator setting above is the whole of this account's access here. --}}
                     @else
                         <h3 class="font-semibold">Workspace access</h3>
+                        @php($droppableEffects = false)
                         @forelse($state['access']['workspaces'] as $index => $membership)
-                            <div class="flex items-center gap-3">
-                                <input type="hidden" name="workspaces[{{ $index }}][id]" value="{{ $membership['id'] }}">
-                                <label>{{ $workspaceLabels[$membership['id']] ?? $membership['id'] }}
-                                    {{-- A current role the application no longer advertises cannot be shown in a select without
-                                         the browser choosing another one, so that membership is read-only here. --}}
-                                    @if($state['allowed_edits']['workspaces'] && $membership['editable'] && array_key_exists($membership['role'], $roleLabels))
-                                        <select name="workspaces[{{ $index }}][role]" class="rounded border bg-background p-2">
-                                            @foreach($capabilities['controls']['workspace_roles'] as $role)
-                                                <option value="{{ $role['id'] }}" @selected($membership['role'] === $role['id'])>{{ $role['label'] }}</option>
-                                            @endforeach
-                                            <option value="">Remove access</option>
-                                        </select>
-                                    @else
-                                        <span>{{ $roleLabels[$membership['role']] ?? $membership['role'] }} (not editable here)</span>
-                                        <input type="hidden" name="workspaces[{{ $index }}][role]" value="{{ $membership['role'] }}">
-                                    @endif
-                                </label>
+                            {{-- A current role the application no longer advertises cannot be shown in a select without
+                                 the browser choosing another one, so that membership is read-only here. --}}
+                            @php($droppable = $state['allowed_edits']['workspaces'] && $membership['editable'] && array_key_exists($membership['role'], $roleLabels))
+                            <div class="space-y-1">
+                                <div class="flex items-center gap-3">
+                                    <input type="hidden" name="workspaces[{{ $index }}][id]" value="{{ $membership['id'] }}">
+                                    <label>{{ $workspaceLabels[$membership['id']] ?? $membership['id'] }}
+                                        @if($droppable)
+                                            <select name="workspaces[{{ $index }}][role]" class="rounded border bg-background p-2" @isset($membership['removal_effects']) aria-describedby="removal-effects-{{ $index }}" @endisset>
+                                                @foreach($capabilities['controls']['workspace_roles'] as $role)
+                                                    <option value="{{ $role['id'] }}" @selected($membership['role'] === $role['id'])>{{ $role['label'] }}</option>
+                                                @endforeach
+                                                <option value="">Remove access</option>
+                                            </select>
+                                        @else
+                                            <span>{{ $roleLabels[$membership['role']] ?? $membership['role'] }} (not editable here)</span>
+                                            <input type="hidden" name="workspaces[{{ $index }}][role]" value="{{ $membership['role'] }}">
+                                        @endif
+                                    </label>
+                                </div>
+                                {{-- Shown with this membership alone: what removing it also removes. A role change takes nothing. --}}
+                                @if($droppable && isset($membership['removal_effects']))
+                                    @php($droppableEffects = true)
+                                    <div class="pl-4 text-sm">
+                                        <p>Removing this membership also removes:</p>
+                                        @include('applications.removal-effects', ['effects' => $membership['removal_effects'], 'id' => 'removal-effects-'.$index])
+                                    </div>
+                                @endif
                             </div>
                         @empty
                             <p>No workspace memberships.</p>
                         @endforelse
+                        @if($droppableEffects)
+                            @include('applications.removal-notice')
+                            <label class="flex items-start gap-2">
+                                <input type="checkbox" name="confirm_effects" value="1" class="mt-1">
+                                <span>If I remove a membership above, I understand {{ $application->name }} also removes the records listed with it.</span>
+                            </label>
+                        @endif
                         @if($state['allowed_edits']['workspaces'] && count($state['access']['workspaces']) < 100)
                             <label class="block">Add workspace
                                 <select name="new_workspace" class="rounded border bg-background p-2">
