@@ -10,7 +10,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.4",
-        "bherila/auth-laravel": "^0.22",
+        "bherila/auth-laravel": "^0.24",
         "laravel/framework": "^13.17",
         "laravel/passport": "^13.4",
         "laravel/tinker": "^3.0",
@@ -24,7 +24,7 @@
         "laravel/pint": "^1.27",
         "mockery/mockery": "^1.6",
         "nunomaduro/collision": "^8.6",
-        "phpunit/phpunit": "^12.5.12"
+        "phpunit/phpunit": "^13.4"
     },
     "autoload": {
         "psr-4": {
