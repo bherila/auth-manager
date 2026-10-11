@@ -1,2 +1,5 @@
 # Keep per-worktree node_modules as links into pnpm's shared virtual store.
 enableGlobalVirtualStore: true
+
+allowBuilds:
+  bwh-auth: true
