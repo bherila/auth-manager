@@ -137,6 +137,9 @@ return [
             'owner_model' => null,
             // Scopes never offered to a credential, beyond the MCP-connection scopes.
             'excluded_scopes' => [],
+            // Package defaults: personal API tokens carry no MCP-connection scope.
+            'personal_token_connection_scopes' => [],
+            'personal_token_connection_max_lifetime' => 'P30D',
         ],
         'authorization_state' => [
             'cache_prefix' => 'oauth-resource:',

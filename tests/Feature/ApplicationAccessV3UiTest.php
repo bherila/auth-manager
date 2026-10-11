@@ -441,6 +441,98 @@ class ApplicationAccessV3UiTest extends TestCase
         $this->get('/applications/example-app/access')->assertOk()->assertDontSee('Roles in Example Application');
     }
 
+    public function test_each_membership_shows_its_own_removal_effects_beside_their_counts(): void
+    {
+        $this->v3Memberships = [
+            ['id' => 'workspace-a', 'role' => 'owner', 'editable' => true, 'removal_effects' => [
+                ['kind' => 'project_assignments', 'label' => 'Project assignments', 'count' => 2],
+                ['kind' => 'saved_views', 'label' => '<i>Saved views</i>', 'count' => 1],
+            ]],
+            ['id' => 'workspace-b', 'role' => 'sender', 'editable' => true, 'removal_effects' => [
+                ['kind' => 'project_assignments', 'label' => 'Project assignments', 'count' => 3],
+            ]],
+            ['id' => 'workspace-c', 'role' => 'auditor', 'editable' => true],
+        ];
+        $this->v3RemovalNotice = 'Client portal access is unchanged.';
+
+        $page = $this->browse(['subject' => 'subject-example'])->assertOk()
+            // Escaped and direction-isolated, as "Label: count"; never summed across memberships.
+            ->assertSee('<bdi dir="auto">Project assignments</bdi>: 2', false)
+            ->assertSee('<bdi dir="auto">Project assignments</bdi>: 3', false)
+            ->assertSee('<bdi dir="auto">&lt;i&gt;Saved views&lt;/i&gt;</bdi>: 1', false)
+            ->assertDontSee('Project assignments</bdi>: 5', false)
+            ->assertSee('Example Application notes: <bdi dir="auto">Client portal access is unchanged.</bdi>', false)
+            ->assertSee('also removes these records')
+            ->assertSee('Apart from the records listed above, nothing is deleted')
+            ->assertDontSee('Nothing is deleted, and you can give access again later.')
+            ->assertSee('name="confirm_effects"', false);
+        $content = $page->getContent();
+        // Once beside each droppable membership's select, once in the removal confirmation; workspace C has none.
+        $this->assertSame(2, substr_count($content, 'Removing this membership also removes:'));
+        $this->assertSame(2, substr_count($content, '<bdi dir="auto">Project assignments</bdi>: 2'));
+        $this->assertStringContainsString('aria-describedby="removal-effects-0"', $content);
+        $this->assertStringNotContainsString('removal-effects-2', $content);
+    }
+
+    public function test_a_membership_without_effects_keeps_the_plain_confirmations(): void
+    {
+        $this->browse(['subject' => 'subject-example'])->assertOk()
+            ->assertSee('Nothing is deleted, and you can give access again later.')
+            ->assertDontSee('Removing this membership also removes:')
+            ->assertDontSee('name="confirm_effects"', false)
+            ->assertDontSee('notes:');
+    }
+
+    public function test_dropping_a_membership_with_removal_effects_needs_the_explicit_confirmation(): void
+    {
+        $this->confirm();
+        // The form was shown before the application disclosed anything: the fresh read decides.
+        $form = $this->get('/applications/example-app/access?subject=subject-example')->assertDontSee('name="confirm_effects"', false);
+        $this->v3Memberships[0]['removal_effects'] = [['kind' => 'project_assignments', 'label' => 'Project assignments', 'count' => 2]];
+        $update = fn (array $workspaces, array $extra = []): TestResponse => $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => $workspaces, 'operation_id' => DelegatedContract::operationId(), ...$extra,
+        ]);
+        $back = '/applications/example-app/access?subject=subject-example';
+
+        $update([['id' => 'workspace-a', 'role' => ''], ['id' => 'workspace-b', 'role' => 'sender']])
+            ->assertRedirect($back)->assertSessionHasErrors('confirm_effects');
+        $update([['id' => 'workspace-b', 'role' => 'sender']], ['confirm_effects' => '0'])
+            ->assertRedirect($back)->assertSessionHasErrors('confirm_effects');
+        $this->assertNotContains('update', $this->v3Sent);
+
+        // A role change takes nothing with it, nor does dropping a membership without effects.
+        $update([['id' => 'workspace-a', 'role' => 'admin'], ['id' => 'workspace-b', 'role' => '']])
+            ->assertRedirect($back)->assertSessionHasNoErrors()->assertSessionHas('access_updated', true);
+        $update([['id' => 'workspace-a', 'role' => ''], ['id' => 'workspace-b', 'role' => 'sender']], ['confirm_effects' => '1'])
+            ->assertRedirect($back)->assertSessionHasNoErrors()->assertSessionHas('access_updated', true);
+        $this->assertSame([['id' => 'workspace-b', 'role' => 'sender']], $this->lastSent('update')['access']['workspaces']);
+        $this->assertSame(2, count(array_keys($this->v3Sent, 'update')));
+        $this->assertNotContains('confirm_effects', array_keys($this->lastSent('update')));
+    }
+
+    public function test_a_receipt_shows_an_outcome_and_never_fills_the_next_confirmation(): void
+    {
+        $this->confirm();
+        $this->v3Memberships[0]['removal_effects'] = [['kind' => 'project_assignments', 'label' => 'Project assignments', 'count' => 2]];
+        $this->v3WriteFailure = 'server_error';
+        $stale = ['operation' => 'update', ...$this->v3UpdatedState('subject-example', [['id' => 'workspace-a', 'role' => 'owner']])];
+        $stale['access']['workspaces'][0]['removal_effects'] = [['kind' => 'project_assignments', 'label' => 'Stale assignments', 'count' => 9]];
+        $this->v3Receipt = ['status' => 200, 'response' => $stale];
+        $back = '/applications/example-app/access?subject=subject-example';
+
+        $this->post('/applications/example-app/access/update', [
+            'subject' => 'subject-example', 'expected_revision' => 'revision-example', 'application_admin' => '0',
+            'workspaces' => [['id' => 'workspace-a', 'role' => 'owner']], 'operation_id' => DelegatedContract::operationId(),
+        ])->assertRedirect($back)->assertSessionHas('access_updated', true);
+
+        $receipt = array_search('receipt', $this->v3Sent, true);
+        $this->get($back)->assertOk()->assertDontSee('Stale assignments')
+            ->assertSee('<bdi dir="auto">Project assignments</bdi>: 2', false);
+        // What the page shows came from a read after the receipt.
+        $this->assertContains('read', array_slice($this->v3Sent, $receipt + 1));
+    }
+
     /** @return array<string, string> */
     private function removal(?string $operationId = null): array
     {

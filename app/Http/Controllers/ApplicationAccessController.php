@@ -150,7 +150,8 @@ class ApplicationAccessController extends Controller
      * Memberships name one of the application's own roles.
      *
      * A membership the application reported as not editable is posted back as it was, from a hidden
-     * field; the application refuses an update that changes one. An empty role removes a membership.
+     * field; the application refuses an update that changes one. An empty role removes a membership,
+     * and dropping one the application reports `removal_effects` for needs `confirm_effects`.
      */
     public function update(Request $request, string $application): RedirectResponse
     {
@@ -163,6 +164,7 @@ class ApplicationAccessController extends Controller
             'workspaces.*.role' => ['nullable', 'string', 'max:64'],
             'new_workspace' => ['nullable', 'string', 'max:191'],
             'new_role' => ['nullable', 'string', 'max:64', 'required_with:new_workspace'],
+            'confirm_effects' => ['nullable', 'boolean'],
         ]);
         $back = route('applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
         $operationId = $this->operationId($request, $back);
@@ -182,7 +184,8 @@ class ApplicationAccessController extends Controller
         }
 
         $access = ['application_admin' => (bool) $input['application_admin'], 'workspaces' => $workspaces];
-        $capabilities = $this->assertRolesAdvertised($request, $application, $input['subject'], $access, $back);
+        [$capabilities, $current] = $this->assertRolesAdvertised($request, $application, $input['subject'], $access, $back);
+        $this->assertDroppedEffectsConfirmed($current, $access, (bool) ($input['confirm_effects'] ?? false), $back);
 
         // An answer that does not fit what the application advertised cannot confirm the write: the
         // transport reports it as an unknown outcome, and audits it as one, rather than as success.
@@ -340,7 +343,7 @@ class ApplicationAccessController extends Controller
      * application has since retired, posted back unchanged from a hidden field, and that must not
      * block saving anything else. The application still refuses an update that changes one.
      *
-     * @return array<string, mixed> the capabilities it checked against, for checking the update's answer
+     * @return array{0: array<string, mixed>, 1: array<string, mixed>} the capabilities it checked against (for the update's answer) and the fresh read
      */
     private function assertRolesAdvertised(Request $request, string $application, string $subject, array $access, string $back): array
     {
@@ -366,7 +369,26 @@ class ApplicationAccessController extends Controller
             throw ValidationException::withMessages(['workspaces' => 'Choose roles the application offers.'])->redirectTo($back);
         }
 
-        return $capabilities;
+        return [$capabilities, $current];
+    }
+
+    /**
+     * Dropping a membership the application says takes other records with it (`removal_effects`) needs
+     * the person's explicit confirmation, as a removal does.
+     *
+     * Judged against the fresh read, not the form: a membership that started disclosing effects after
+     * the form was shown is refused here and shown again with them. One that stopped disclosing them
+     * changed the revision, so the application refuses the stale write itself.
+     */
+    private function assertDroppedEffectsConfirmed(array $current, array $access, bool $confirmed, string $back): void
+    {
+        $kept = array_column($access['workspaces'], 'id');
+        foreach ($current['access']['workspaces'] ?? [] as $membership) {
+            if (isset($membership['removal_effects']) && ! in_array($membership['id'], $kept, true) && ! $confirmed) {
+                throw ValidationException::withMessages(['confirm_effects' => 'Confirm that you understand what removing a workspace membership also removes.'])
+                    ->redirectTo($back);
+            }
+        }
     }
 
     /**
