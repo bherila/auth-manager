@@ -62,6 +62,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('web', EnsureCredentialVersion::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // One-time codes are credentials: a refused form must not keep one in the session.
+        $exceptions->dontFlash(['code']);
         $exceptions->render(function (DelegatedAccessException $exception, Request $request) {
             if ($request->is('applications/*')) {
                 return ApplicationAccessResponse::failure($exception, $request);

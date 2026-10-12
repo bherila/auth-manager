@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\InvitationAcceptanceCode;
 use BWH\Auth\OAuth\DelegatedAccess\DatabaseNonceStore;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -21,3 +22,7 @@ Schedule::call(static function (): void {
         (new DatabaseNonceStore(DB::connection(config('application-invitations.nonce_connection'))))->pruneExpired();
     }
 })->name('application-invitations:prune-nonces')->hourly()->withoutOverlapping();
+
+// Invitation acceptance codes live minutes; expired ones, used or not, are removed.
+Schedule::call(static fn () => InvitationAcceptanceCode::pruneExpired())
+    ->name('application-invitations:prune-codes')->hourly()->withoutOverlapping();

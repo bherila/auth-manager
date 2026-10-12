@@ -73,8 +73,9 @@ delegated access on both sides, verification, and rollback.
 
 An application can also ask the provider to invite someone new to it, with no
 roles: [`docs/application-invitations.md`](docs/application-invitations.md) is the
-contract for those admission invitations. They are off for every application
-until an operator enables one.
+contract for those admission invitations. Creating an account from one needs a
+code emailed to the invited address. They are off for every application until an
+operator enables one.
 
 ## Deployment
 

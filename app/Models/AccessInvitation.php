@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * An invitation to one application, for one email address, with the access to apply on acceptance.
@@ -50,6 +51,8 @@ class AccessInvitation extends Model
             'send_count' => 'integer',
             'inviter_credential_version' => 'integer',
             'link_handed_over' => 'boolean',
+            'verification_attempts' => 'integer',
+            'verification_send_count' => 'integer',
         ];
     }
 
@@ -71,6 +74,19 @@ class AccessInvitation extends Model
     public function requestedByApplication(): bool
     {
         return $this->requesting_client_id !== null;
+    }
+
+    /** A code for the invited address has been sent and can still be entered. */
+    public function verificationCodeLive(): bool
+    {
+        return $this->acceptanceCodes()->whereNull('consumed_at')->where('expires_at', '>', now())
+            ->where('address_hash', InvitationAcceptanceCode::addressHash($this->email_normalized))->exists();
+    }
+
+    /** @return HasMany<InvitationAcceptanceCode, $this> */
+    public function acceptanceCodes(): HasMany
+    {
+        return $this->hasMany(InvitationAcceptanceCode::class);
     }
 
     public static function normalizeEmail(string $email): string

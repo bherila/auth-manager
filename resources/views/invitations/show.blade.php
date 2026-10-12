@@ -36,9 +36,23 @@
             <p role="alert">The account for this address can't sign in, so it can't accept this invitation. Contact the person who invited you.</p>
             @break
         @default
+            @if($needsCode && ! $codeLive)
+                <form method="post" action="{{ route('invitations.code', $token) }}" class="space-y-3">
+                    @csrf
+                    <p>Create your account to accept. First, confirm this email address is yours: we'll email a 6-digit code to <strong>{{ $invitation->email }}</strong>.</p>
+                    <button class="rounded border px-4 py-2">Email me a code</button>
+                </form>
+                @break
+            @endif
+            @if($needsCode && session('invitation_code_sent'))
+                <p role="status" class="rounded border p-3">We emailed a code to {{ $invitation->email }}. It expires in {{ $codeMinutes }} minutes.</p>
+            @endif
             <form method="post" action="{{ route('invitations.accept', $token) }}" class="space-y-4">
                 @csrf
                 <p>Create your account to accept. You'll sign in with this email address.</p>
+                @if($needsCode)
+                    <label class="block">Code from the email <input type="text" name="code" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" class="rounded border bg-background p-2"></label>
+                @endif
                 <label class="block">Email <input type="email" value="{{ $invitation->email }}" readonly class="rounded border bg-background p-2"></label>
                 <label class="block">Name <input type="text" name="name" required maxlength="255" autocomplete="name" value="{{ old('name') }}" class="rounded border bg-background p-2"></label>
                 <label class="block">Password <input type="password" name="password" required minlength="12" autocomplete="new-password" class="rounded border bg-background p-2"></label>
@@ -46,6 +60,12 @@
                 <p class="text-sm">At least 12 characters.</p>
                 <button class="rounded border px-4 py-2">Create account and accept</button>
             </form>
+            @if($needsCode)
+                <form method="post" action="{{ route('invitations.code', $token) }}">
+                    @csrf
+                    <button class="rounded border px-4 py-2">Send a new code</button>
+                </form>
+            @endif
     @endswitch
 </main>
 @endsection

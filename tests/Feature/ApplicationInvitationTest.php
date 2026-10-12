@@ -4,19 +4,25 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\EnsureCredentialVersion;
 use App\Mail\AccessInvitationMail;
+use App\Mail\InvitationCodeMail;
 use App\Models\AccessInvitation;
+use App\Models\InvitationAcceptanceCode;
 use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\OAuth\ApplicationInvitationScopeRepository;
 use App\Services\Invitations\AccessInvitationService;
 use App\Services\Invitations\ApplicationActorAssertionVerifier;
+use App\Services\Invitations\InvitationAddressVerification;
 use App\Services\Invitations\InvitationAudit;
+use App\Services\Invitations\InvitationUnavailable;
 use App\Support\ApplicationInvitationKeys;
 use App\Support\ApplicationInvitations;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\DatabaseNonceStore;
 use DateTimeImmutable;
+use Illuminate\Cache\RateLimiter as CacheRateLimiter;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,9 +30,11 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Once;
 use Illuminate\Support\Str;
+use Illuminate\Support\Testing\Fakes\MailFake;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\Bridge\Client as BridgeClient;
 use Laravel\Passport\Bridge\Scope;
@@ -36,6 +44,7 @@ use Lcobucci\JWT\Encoding\JoseEncoder;
 use Lcobucci\JWT\Signer\Key\InMemory;
 use Lcobucci\JWT\Signer\Rsa\Sha256;
 use Lcobucci\JWT\Token\Builder;
+use Mockery;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\Fixtures\UsesDurableNonces;
 use Tests\TestCase;
@@ -422,7 +431,8 @@ class ApplicationInvitationTest extends TestCase
         $this->acceptAsNewPerson($created['link'])->assertRedirect('/invitations/accepted');
 
         $person = User::query()->where('email', 'person@example.test')->sole();
-        $this->assertNull($person->email_verified_at);
+        // Created only with the code emailed to the address, so the address is proven.
+        $this->assertNotNull($person->email_verified_at);
         $this->assertSame([$this->clients['example-app']->id], DB::table('oauth_client_grants')->where('subject', $person->id)->pluck('oauth_client_id')->all());
         $this->assertSame('user', $person->user_role);
         // No delegated access call: nothing to apply (stray requests would fail the test).
@@ -450,6 +460,384 @@ class ApplicationInvitationTest extends TestCase
         $this->post($this->path($created['link']).'/accept')->assertRedirect('/invitations/accepted');
 
         $this->assertSame([$this->clients['example-app']->id], DB::table('oauth_client_grants')->where('subject', $person->id)->pluck('oauth_client_id')->all());
+        // Immediate, as before: no code asked for or sent.
+        Mail::assertNotSent(InvitationCodeMail::class);
+    }
+
+    public function test_creating_an_account_from_an_applications_link_needs_the_code_emailed_to_the_address(): void
+    {
+        $created = $this->create('Person@example.test')->json('invitation');
+        $link = $this->path($created['link']);
+
+        // Before any code: no way to create the account, with or without a guess.
+        $this->get($link)->assertOk()->assertSee('Email me a code')->assertDontSee('Create account and accept');
+        $this->post($link.'/accept', $this->newPerson())->assertRedirect($link)->assertSessionHasErrors('code');
+        $this->post($link.'/accept', $this->newPerson('000000'))->assertRedirect($link)->assertSessionHasErrors('code');
+        $this->assertSame(0, User::query()->where('email', 'Person@example.test')->count());
+
+        $this->post($link.'/code')->assertRedirect($link)->assertSessionHas('invitation_code_sent');
+        Mail::assertSent(InvitationCodeMail::class, 1);
+        $mail = Mail::sent(InvitationCodeMail::class)->sole();
+        $this->assertTrue($mail->hasTo('Person@example.test'));
+        $this->assertSame('Example Application', $mail->applicationName);
+        $this->assertMatchesRegularExpression('/^\d{6}$/', $mail->code);
+        $body = $mail->render();
+        $this->assertStringContainsString($mail->code, $body);
+        $this->assertStringNotContainsString('/invitations/', $body);
+        $this->get($link)->assertOk()->assertSee('Create account and accept')->assertDontSee($mail->code);
+
+        $invitation = AccessInvitation::query()->find($created['id']);
+        $stored = InvitationAcceptanceCode::query()->where('access_invitation_id', $invitation->id)->sole();
+        $this->assertNotSame($mail->code, $stored->code_hash);
+        $this->assertStringNotContainsString($mail->code, $stored->code_hash);
+        $this->assertSame(hash('sha256', 'person@example.test'), $stored->address_hash);
+        $sent = AuthAuditLog::query()->where('event', InvitationAudit::CODE_SENT)->sole();
+        $this->assertTrue($sent->succeeded);
+        $this->assertNull($sent->acting_user_id);
+        $this->assertSame('application', $sent->metadata['via']);
+        $this->assertSame($this->clients['example-app']->id, $sent->metadata['oauth_client_id']);
+        $this->assertStringNotContainsString('example.test', json_encode($sent->metadata));
+        $this->assertStringNotContainsString($mail->code, json_encode($sent->metadata));
+
+        $this->post($link.'/accept', $this->newPerson($mail->code))->assertRedirect('/invitations/accepted');
+        $person = User::query()->where('email', 'Person@example.test')->sole();
+        $this->assertNotNull($person->email_verified_at);
+        $this->assertAuthenticatedAs($person);
+        $this->assertSame([$this->clients['example-app']->id], DB::table('oauth_client_grants')->where('subject', $person->id)->pluck('oauth_client_id')->all());
+        $this->assertTrue(AuthAuditLog::query()->where('event', InvitationAudit::ACCEPTED)->sole()->metadata['address_verified']);
+        $this->assertFalse(AccessInvitation::query()->find($created['id'])->verificationCodeLive());
+
+        // Spent: the same link and code create nothing more.
+        $this->post('/logout');
+        $this->post($link.'/accept', $this->newPerson($mail->code))->assertNotFound();
+        $this->assertSame(1, User::query()->where('email', 'Person@example.test')->count());
+    }
+
+    public function test_wrong_expired_and_exhausted_codes_are_rejected_with_bounded_attempts(): void
+    {
+        $created = $this->create('person@example.test')->json('invitation');
+        $link = $this->path($created['link']);
+        $code = $this->requestCode($link);
+        $wrong = $code === '123456' ? '654321' : '123456';
+
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            $this->post($link.'/accept', $this->newPerson($wrong))->assertRedirect($link)->assertSessionHasErrors('code');
+        }
+        // The fifth wrong code spent this one: even the right code no longer works.
+        $this->post($link.'/accept', $this->newPerson($code))->assertRedirect($link)->assertSessionHasErrors('code');
+        $this->get($link)->assertOk()->assertSee('Email me a code');
+        $this->assertSame(0, User::query()->where('email', 'person@example.test')->count());
+        $rejected = AuthAuditLog::query()->where('event', InvitationAudit::CODE_REJECTED)->orderBy('id')->get();
+        $this->assertSame(['incorrect', 'incorrect', 'incorrect', 'incorrect', 'exhausted', 'missing'], $rejected->pluck('metadata.reason')->all());
+        $this->assertFalse($rejected->first()->succeeded);
+
+        // A code expires.
+        $expiring = $this->requestCode($link);
+        $this->travel(16)->minutes();
+        $this->post($link.'/accept', $this->newPerson($expiring))->assertRedirect($link)->assertSessionHasErrors('code');
+        $this->assertSame('expired', AuthAuditLog::query()->where('event', InvitationAudit::CODE_REJECTED)->latest('id')->first()->metadata['reason']);
+        $this->assertSame(0, User::query()->where('email', 'person@example.test')->count());
+
+        // A new code still works after both.
+        $this->post($link.'/accept', $this->newPerson($this->requestCode($link)))->assertRedirect('/invitations/accepted');
+        $this->assertNotNull(User::query()->where('email', 'person@example.test')->sole()->email_verified_at);
+    }
+
+    public function test_a_refused_form_never_keeps_the_code_in_the_session(): void
+    {
+        $link = $this->path($this->create('person@example.test')->json('invitation.link'));
+        $code = $this->requestCode($link);
+
+        // The name and password fail validation before the code is looked at; the code is still live.
+        $this->post($link.'/accept', ['name' => 'Example Person', 'password' => 'a-new-password-example',
+            'password_confirmation' => 'something-else-entirely', 'code' => $code])->assertSessionHasErrors('password');
+        $this->assertSame('Example Person', session()->getOldInput('name'));
+        $this->assertArrayNotHasKey('code', session()->getOldInput());
+        $this->assertStringNotContainsString($code, (string) json_encode(session()->all()));
+    }
+
+    public function test_a_code_is_bound_to_its_invitation_and_its_current_link(): void
+    {
+        $mine = $this->create('person@example.test')->json('invitation');
+        $other = $this->create('person@example.test', application: 'other-app')->json('invitation');
+        $mineCode = $this->requestCode($this->path($mine['link']));
+        $otherCode = $this->requestCode($this->path($other['link']));
+        if ($otherCode === $mineCode) {
+            // One chance in a million; a second send gives a different code.
+            $otherCode = $this->requestCode($this->path($other['link']));
+        }
+        $this->assertNotNull($mineCode);
+        $this->assertNotSame($mineCode, $otherCode);
+
+        // Another invitation's code, for the same address, does not work here.
+        $this->post($this->path($mine['link']).'/accept', $this->newPerson($otherCode))->assertSessionHasErrors('code');
+        $this->post($this->path($other['link']).'/accept', $this->newPerson($mineCode))->assertSessionHasErrors('code');
+
+        // A resend replaces the link and drops its code.
+        $resent = $this->action($mine['id'], 'resend')->assertOk()->json('invitation');
+        $this->assertSame(0, InvitationAcceptanceCode::query()->where('access_invitation_id', $mine['id'])->count());
+        $this->post($this->path($resent['link']).'/accept', $this->newPerson($mineCode))->assertSessionHasErrors('code');
+        $this->assertSame(0, User::query()->where('email', 'person@example.test')->count());
+    }
+
+    public function test_code_sends_are_bounded_and_fail_closed_without_mail(): void
+    {
+        config(['application-invitations.verification.max_sends' => 2, 'application-invitations.verification.per_address_per_hour' => 3]);
+        $first = $this->path($this->create('person@example.test')->json('invitation.link'));
+        $this->requestCode($first);
+        $this->requestCode($first);
+        $this->post($first.'/code')->assertRedirect($first)->assertSessionHas('invitation_error');
+        Mail::assertSent(InvitationCodeMail::class, 2);
+
+        // Per address, across invitations.
+        $second = $this->path($this->create('person@example.test', application: 'other-app')->json('invitation.link'));
+        $this->requestCode($second);
+        $this->post($second.'/code')->assertSessionHas('invitation_error');
+        Mail::assertSent(InvitationCodeMail::class, 3);
+        $refusals = AuthAuditLog::query()->where('event', InvitationAudit::CODE_SENT)->where('succeeded', false)->orderBy('id')->get()->pluck('metadata.reason')->all();
+        $this->assertSame(['send_limit', 'rate_limited'], $refusals);
+
+        // No delivering mailer: no code, so no account.
+        config(['application-invitations.verification.max_sends' => 5, 'application-invitations.verification.per_address_per_hour' => 50]);
+        $third = $this->create('third@example.test')->json('invitation');
+        config(['mail.default' => 'log']);
+        $this->post($this->path($third['link']).'/code')->assertSessionHas('invitation_error');
+        $this->assertSame(0, InvitationAcceptanceCode::query()->where('access_invitation_id', $third['id'])->count());
+
+        // A transport failure leaves no usable code either.
+        Mail::swap(Mail::getFacadeRoot()->manager);
+        config(['mail.default' => 'brevo', 'services.brevo.dsn' => null]);
+        $this->post($this->path($third['link']).'/code')->assertSessionHas('invitation_error');
+        $this->assertSame(0, InvitationAcceptanceCode::query()->where('access_invitation_id', $third['id'])->count());
+        $this->assertSame(['mail_unavailable', 'delivery_failed'], AuthAuditLog::query()->where('event', InvitationAudit::CODE_SENT)
+            ->where('succeeded', false)->orderBy('id')->get()->pluck('metadata.reason')->slice(2)->values()->all());
+        $this->assertSame(0, User::query()->where('email', 'third@example.test')->count());
+    }
+
+    public function test_the_per_address_code_limit_holds_when_concurrent_requests_all_see_it_unspent(): void
+    {
+        config(['application-invitations.verification.per_address_per_hour' => 1]);
+        $links = array_map(fn (string $application): string => $this->path($this->create('person@example.test', application: $application)->json('invitation.link')),
+            ['example-app', 'other-app']);
+        // Every request checks before any has counted, as concurrent ones would: only the count each
+        // request itself takes may decide.
+        $limiter = Mockery::mock(app(CacheRateLimiter::class))->makePartial();
+        $limiter->shouldReceive('tooManyAttempts')->andReturnFalse();
+        $this->app->instance(CacheRateLimiter::class, $limiter);
+        RateLimiter::swap($limiter);
+
+        foreach ($links as $link) {
+            $this->post($link.'/code')->assertRedirect($link);
+        }
+        Mail::assertSent(InvitationCodeMail::class, 1);
+    }
+
+    public function test_a_code_email_is_never_sent_inside_a_database_transaction(): void
+    {
+        // The test itself runs inside RefreshDatabase's transaction: anything deeper is the code's own.
+        $baseline = DB::transactionLevel();
+        $recorder = new class(Mail::getFacadeRoot()->manager) extends MailFake
+        {
+            /** @var list<int> */
+            public array $levels = [];
+
+            public function send($view, array $data = [], $callback = null)
+            {
+                $this->levels[] = DB::transactionLevel();
+
+                return parent::send($view, $data, $callback);
+            }
+        };
+        Mail::swap($recorder);
+
+        $link = $this->path($this->create('person@example.test')->json('invitation.link'));
+        $this->post($link.'/code')->assertSessionHas('invitation_code_sent');
+        $this->post($link.'/code')->assertSessionHas('invitation_code_sent');
+
+        $this->assertCount(3, $recorder->levels);
+        $this->assertSame([$baseline, $baseline, $baseline], $recorder->levels);
+    }
+
+    public function test_a_double_click_gives_two_codes_and_either_works_once(): void
+    {
+        foreach (['first' => 'example-app', 'second' => 'other-app'] as $which => $application) {
+            $email = "{$which}@example.test";
+            $link = $this->path($this->create($email, application: $application)->json('invitation.link'));
+            $codes = ['first' => $this->requestCode($link), 'second' => $this->requestCode($link)];
+            $this->assertNotNull($codes['first']);
+            $this->assertNotNull($codes['second']);
+
+            $this->post($link.'/accept', $this->newPerson($codes[$which]))->assertRedirect('/invitations/accepted');
+            $this->assertNotNull(User::query()->where('email', $email)->sole()->email_verified_at);
+            $this->post('/logout');
+            $this->post($link.'/accept', $this->newPerson($codes[$which]))->assertNotFound();
+        }
+    }
+
+    public function test_a_failed_send_does_not_use_the_address_budget(): void
+    {
+        config(['application-invitations.verification.per_address_per_hour' => 1]);
+        $link = $this->path($this->create('person@example.test')->json('invitation.link'));
+
+        $fake = Mail::getFacadeRoot();
+        Mail::swap($fake->manager);
+        config(['mail.default' => 'brevo', 'services.brevo.dsn' => null]);
+        $this->post($link.'/code')->assertSessionHas('invitation_error');
+        Mail::swap($fake);
+        config(['mail.default' => 'smtp']);
+
+        // Nothing reached the address, so its one code an hour is still there.
+        $code = $this->requestCode($link);
+        $this->assertNotNull($code);
+        $this->post($link.'/accept', $this->newPerson($code))->assertRedirect('/invitations/accepted');
+    }
+
+    public function test_a_failed_send_refunds_only_its_own_link(): void
+    {
+        config(['application-invitations.verification.max_sends' => 1]);
+        $created = $this->create('person@example.test')->json('invitation');
+        $old = basename($this->path($created['link']));
+        $new = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+
+        // While the old link's code is being sent, the application resends (a new link) and the new
+        // link's one code goes out; then the old link's email fails.
+        $mailer = new class(Mail::getFacadeRoot()->manager) extends MailFake
+        {
+            public ?\Closure $during = null;
+
+            public function send($view, array $data = [], $callback = null)
+            {
+                if ($this->during !== null) {
+                    $during = $this->during;
+                    $this->during = null;
+                    $during();
+                    throw new \RuntimeException('Synthetic transport failure.');
+                }
+
+                return parent::send($view, $data, $callback);
+            }
+        };
+        $mailer->during = function () use ($created, $new): void {
+            AccessInvitation::query()->whereKey($created['id'])->update(['token_hash' => AccessInvitation::hashToken($new),
+                'verification_send_count' => 0, 'verification_attempts' => 0]);
+            InvitationAcceptanceCode::query()->where('access_invitation_id', $created['id'])->delete();
+            $this->assertSame(InvitationAddressVerification::SENT, app(InvitationAddressVerification::class)
+                ->send(Request::create('/'), AccessInvitation::query()->find($created['id']), AccessInvitation::hashToken($new), 'Example Application'));
+        };
+        Mail::swap($mailer);
+
+        $this->post("/invitations/{$old}/code")->assertSessionHas('invitation_error');
+        Mail::assertSent(InvitationCodeMail::class, 1);
+
+        // The old link's failure gave back the old link's count, not the new link's.
+        $this->assertSame(1, AccessInvitation::query()->find($created['id'])->verification_send_count);
+        $this->post("/invitations/{$new}/code")->assertSessionHas('invitation_error');
+        Mail::assertSent(InvitationCodeMail::class, 1);
+    }
+
+    public function test_one_code_verified_twice_at_once_admits_once(): void
+    {
+        $created = $this->create('person@example.test')->json('invitation');
+        $link = $this->path($created['link']);
+        $code = $this->requestCode($link);
+        $token = basename($link);
+        // Both requests loaded the pending invitation before either committed.
+        $first = AccessInvitation::query()->find($created['id']);
+        $second = AccessInvitation::query()->find($created['id']);
+        $service = app(AccessInvitationService::class);
+        $account = ['name' => 'Example Person', 'password' => 'a-new-password-example', 'code' => $code];
+
+        [$person, $made] = $service->accept(Request::create('/'), $first, AccessInvitation::hashToken($token), null, $account);
+        $this->assertTrue($made);
+        try {
+            $service->accept(Request::create('/'), $second, AccessInvitation::hashToken($token), null, $account);
+            $this->fail('The same code admitted twice.');
+        } catch (InvitationUnavailable) {
+        }
+        // And the code itself is spent, whoever holds a stale view of the invitation.
+        $this->assertNotSame(InvitationAddressVerification::VERIFIED, app(InvitationAddressVerification::class)->consume(Request::create('/'), $second, $code));
+        $this->assertSame(1, User::query()->where('email', 'person@example.test')->count());
+        $this->assertSame([$person->id], DB::table('oauth_client_grants')->where('oauth_client_id', $this->clients['example-app']->id)
+            ->where('subject', '!=', $this->actor->id)->pluck('subject')->all());
+    }
+
+    public function test_the_last_delivered_code_stays_usable_when_a_later_send_fails(): void
+    {
+        $link = $this->path($this->create('person@example.test')->json('invitation.link'));
+        $delivered = $this->requestCode($link);
+
+        $fake = Mail::getFacadeRoot();
+        Mail::swap($fake->manager);
+        config(['mail.default' => 'brevo', 'services.brevo.dsn' => null]);
+        $this->post($link.'/code')->assertSessionHas('invitation_error');
+        Mail::swap($fake);
+        config(['mail.default' => 'smtp']);
+
+        // The failed send changed nothing: the code in the person's inbox still creates the account.
+        $this->post($link.'/accept', $this->newPerson($delivered))->assertRedirect('/invitations/accepted');
+        $this->assertNotNull(User::query()->where('email', 'person@example.test')->sole()->email_verified_at);
+    }
+
+    public function test_expired_codes_are_pruned_hourly(): void
+    {
+        $link = $this->path($this->create('person@example.test')->json('invitation.link'));
+        $this->requestCode($link);
+        $this->travel(16)->minutes();
+        $live = $this->requestCode($link);
+
+        $this->assertSame(1, InvitationAcceptanceCode::pruneExpired());
+        $this->assertSame(1, InvitationAcceptanceCode::query()->count());
+        $this->post($link.'/accept', $this->newPerson($live))->assertRedirect('/invitations/accepted');
+
+        $event = collect(app(Schedule::class)->events())
+            ->first(static fn ($event): bool => $event->description === 'application-invitations:prune-codes');
+        $this->assertNotNull($event);
+        $this->assertSame('0 * * * *', $event->expression);
+        $this->assertTrue($event->withoutOverlapping);
+    }
+
+    public function test_the_application_holding_the_link_alone_cannot_create_the_account(): void
+    {
+        // Everything the application can do: create, resend, open the link, ask for codes and guess.
+        $created = $this->create('person@example.test')->json('invitation');
+        $resent = $this->action($created['id'], 'resend')->assertOk();
+        $link = $this->path($resent->json('invitation.link'));
+        $asked = $this->post($link.'/code');
+        $code = Mail::sent(InvitationCodeMail::class)->sole()->code;
+        foreach ([$resent, $asked, $this->get($link)] as $response) {
+            $this->assertStringNotContainsString($code, (string) $response->getContent());
+        }
+        $this->assertStringNotContainsString($code, (string) json_encode(session()->all()));
+        Mail::assertSent(InvitationCodeMail::class, fn (InvitationCodeMail $mail): bool => $mail->hasTo('person@example.test') && count($mail->to) === 1);
+
+        foreach (['000000', '111111', '222222', '333333', '444444', '555555'] as $guess) {
+            if ($guess !== $code) {
+                $this->post($link.'/accept', $this->newPerson($guess));
+            }
+        }
+        $this->assertSame(0, User::query()->where('email', 'person@example.test')->count());
+        $this->assertSame(AccessInvitation::STATUS_PENDING, AccessInvitation::query()->find($created['id'])->status());
+    }
+
+    public function test_an_existing_account_and_the_providers_own_invitations_need_no_code(): void
+    {
+        // An existing account: no code is offered or sent, signed in or not.
+        User::factory()->create(['email' => 'existing@example.test']);
+        $existing = $this->path($this->create('existing@example.test')->json('invitation.link'));
+        $this->get($existing)->assertOk()->assertDontSee('Email me a code');
+        $this->post($existing.'/code')->assertRedirect($existing);
+
+        // The provider's own invitations keep creating accounts as before.
+        config(['delegated-access.invitations.enabled' => true]);
+        $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $fromPages = $this->pagesInvitation('person@example.test', $token);
+        $fromPages->forceFill(['link_handed_over' => false, 'access' => ['application_admin' => false, 'workspaces' => []]])->save();
+        $this->get("/invitations/{$token}")->assertOk()->assertSee('Create account and accept')->assertDontSee('Email me a code');
+        $this->post("/invitations/{$token}/code")->assertRedirect("/invitations/{$token}");
+        Mail::assertNotSent(InvitationCodeMail::class);
+        $this->post("/invitations/{$token}/accept", $this->newPerson())->assertRedirect('/invitations/accepted');
+        $this->assertNotNull(User::query()->where('email', 'person@example.test')->sole()->email_verified_at);
+        $this->assertSame(0, AuthAuditLog::query()->whereIn('event', [InvitationAudit::CODE_SENT, InvitationAudit::CODE_REJECTED])->count());
     }
 
     public function test_a_link_stops_admitting_when_the_application_is_switched_off_or_loses_its_client(): void
@@ -606,21 +994,41 @@ class ApplicationInvitationTest extends TestCase
         return (string) $response->json('access_token');
     }
 
-    private function pagesInvitation(string $email): AccessInvitation
+    private function pagesInvitation(string $email, ?string $token = null): AccessInvitation
     {
         $normalized = AccessInvitation::normalizeEmail($email);
 
         return AccessInvitation::query()->create([
             'application' => 'example-app', 'email' => $email, 'email_normalized' => $normalized,
-            'token_hash' => AccessInvitation::hashToken(Str::random(43)), 'pending_key' => AccessInvitation::pendingKey('example-app', $normalized),
+            'token_hash' => AccessInvitation::hashToken($token ?? Str::random(43)), 'pending_key' => AccessInvitation::pendingKey('example-app', $normalized),
             'inviter_id' => $this->actor->id, 'inviter_credential_version' => (int) $this->actor->credential_version,
             'access' => ['application_admin' => true, 'workspaces' => []], 'expires_at' => now()->addDays(7),
         ]);
     }
 
+    /** Accept as someone new, with the code emailed to the address (or a wrong one if none could be sent). */
     private function acceptAsNewPerson(string $link): TestResponse
     {
-        return $this->post($this->path($link).'/accept', ['name' => 'Example Person', 'password' => 'a-new-password-example', 'password_confirmation' => 'a-new-password-example']);
+        $path = $this->path($link);
+
+        return $this->post($path.'/accept', $this->newPerson($this->requestCode($path) ?? '000000'));
+    }
+
+    /** @return array<string, string> */
+    private function newPerson(?string $code = null): array
+    {
+        return ['name' => 'Example Person', 'password' => 'a-new-password-example', 'password_confirmation' => 'a-new-password-example',
+            ...($code === null ? [] : ['code' => $code])];
+    }
+
+    /** Ask for a code on this link's page; the code emailed, or null when none was sent. */
+    private function requestCode(string $path): ?string
+    {
+        $before = Mail::sent(InvitationCodeMail::class)->count();
+        $this->post($path.'/code');
+        $sent = Mail::sent(InvitationCodeMail::class);
+
+        return $sent->count() > $before ? $sent->last()->code : null;
     }
 
     private function path(string $link): string

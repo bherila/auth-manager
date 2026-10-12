@@ -30,6 +30,12 @@ final class InvitationAudit
 
     public const ACCEPTED = 'access_invitation_accepted';
 
+    /** A one-time code for the invited address was emailed, or refused (`reason`), before an account is created. */
+    public const CODE_SENT = 'access_invitation_code_sent';
+
+    /** A code entered to create an account was not accepted (`reason`). */
+    public const CODE_REJECTED = 'access_invitation_code_rejected';
+
     public const ROLES_APPLIED = 'access_invitation_roles_applied';
 
     public const ROLES_NOT_APPLIED = 'access_invitation_roles_not_applied';

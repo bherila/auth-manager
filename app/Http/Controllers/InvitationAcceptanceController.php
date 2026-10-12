@@ -7,6 +7,8 @@ use App\Models\AccessInvitation;
 use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Services\Invitations\AccessInvitationService;
+use App\Services\Invitations\InvitationAddressVerification;
+use App\Services\Invitations\InvitationCodeRejected;
 use App\Services\Invitations\InvitationRoles;
 use App\Services\Invitations\InvitationUnavailable;
 use App\Support\ApplicationInvitations;
@@ -26,6 +28,10 @@ use SensitiveParameter;
  * and accepts; someone signed in as anyone else is refused and offered a sign-out. Otherwise they
  * create the account, with the address fixed to the invited one. A disabled or deleted account
  * cannot accept. Every unusable link (unknown, used, revoked or expired) gets one answer.
+ *
+ * An application's own invitation creates an account only with a code first emailed to the invited
+ * address ({@see InvitationAddressVerification}): its link was returned to the application, so
+ * opening it proves nothing. Accepting for an existing account is unchanged.
  */
 class InvitationAcceptanceController extends Controller
 {
@@ -34,6 +40,7 @@ class InvitationAcceptanceController extends Controller
         private readonly InvitationRoles $roles,
         private readonly DelegatedAccessPermissions $permissions,
         private readonly ApplicationInvitations $applicationInvitations,
+        private readonly InvitationAddressVerification $verification,
     ) {}
 
     public function show(Request $request, #[SensitiveParameter] string $token): View|Response
@@ -47,7 +54,36 @@ class InvitationAcceptanceController extends Controller
             'token' => $token, 'invitation' => $invitation,
             'applicationName' => $this->applicationName($invitation),
             'state' => $this->state($request, $invitation, $this->account($invitation)),
+            'needsCode' => $invitation->requestedByApplication(),
+            'codeLive' => $invitation->verificationCodeLive(),
+            'codeMinutes' => $this->verification->expiresMinutes(),
         ]);
+    }
+
+    /**
+     * Email a code to the invited address, before creating an account from an application's own
+     * invitation. Anything else (an existing account, someone signed in, the provider's own
+     * invitations) goes back to the page, as accepting does.
+     */
+    public function sendCode(Request $request, #[SensitiveParameter] string $token): RedirectResponse|Response
+    {
+        $invitation = $this->pending($token);
+        if ($invitation === null) {
+            return $this->unavailable();
+        }
+        $back = redirect()->route('invitations.show', ['token' => $token]);
+        if (! $invitation->requestedByApplication() || $this->state($request, $invitation, $this->account($invitation)) !== 'create') {
+            return $back;
+        }
+
+        $outcome = $this->verification->send($request, $invitation, AccessInvitation::hashToken($token), $this->applicationName($invitation));
+
+        return match ($outcome) {
+            InvitationAddressVerification::SENT => $back->with('invitation_code_sent', true),
+            'mail_unavailable', 'delivery_failed' => $back->with('invitation_error', 'The code could not be sent, so the account cannot be created right now. Try again later, or contact the person who invited you.'),
+            'rate_limited', 'send_limit' => $back->with('invitation_error', 'Too many codes have been sent for this invitation. Try again later, or ask the person who invited you to send it again.'),
+            default => $back->with('invitation_error', 'The invitation could not be accepted as it was. Review it and try again.'),
+        };
     }
 
     public function accept(Request $request, #[SensitiveParameter] string $token): RedirectResponse|Response
@@ -68,11 +104,20 @@ class InvitationAcceptanceController extends Controller
                     $fail('The password must use at most 72 UTF-8 bytes.');
                 }
             }, 'confirmed'],
+            // Any string: a malformed code is a wrong one, and counts as an attempt.
+            ...($invitation->requestedByApplication() ? ['code' => ['required', 'string', 'max:32']] : []),
         ]) : null;
 
         try {
             [$person, $created] = $this->invitations->accept($request, $invitation, AccessInvitation::hashToken($token), $state === 'accept' ? $request->user() : null,
-                $newAccount === null ? null : ['name' => $newAccount['name'], 'password' => $newAccount['password']]);
+                $newAccount === null ? null : ['name' => $newAccount['name'], 'password' => $newAccount['password'], 'code' => $newAccount['code'] ?? null]);
+        } catch (InvitationCodeRejected $rejected) {
+            return redirect()->route('invitations.show', ['token' => $token])->withInput($request->only('name'))->withErrors(['code' => match ($rejected->reason) {
+                'incorrect' => 'That code is not right. Check the most recent email and try again.',
+                'expired' => 'That code has expired. Send a new one.',
+                'exhausted' => 'Too many incorrect codes. Send a new one.',
+                default => 'Send a code to your email address first, then enter it here.',
+            }]);
         } catch (InvitationUnavailable) {
             return redirect()->route('invitations.show', ['token' => $token])
                 ->with('invitation_error', 'The invitation could not be accepted as it was. Review it and try again.');
