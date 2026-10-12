@@ -71,6 +71,11 @@ operator runbook for connecting an application: choosing a shared or dedicated
 instance, registering its OAuth client, granting users, the application registry,
 delegated access on both sides, verification, and rollback.
 
+An application can also ask the provider to invite someone new to it, with no
+roles: [`docs/application-invitations.md`](docs/application-invitations.md) is the
+contract for those admission invitations. They are off for every application
+until an operator enables one.
+
 ## Deployment
 
 Merges to `main` that pass CI deploy automatically through the pinned shared cPanel action.

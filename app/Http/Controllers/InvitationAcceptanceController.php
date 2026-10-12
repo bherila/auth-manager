@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Invitations\AccessInvitationService;
 use App\Services\Invitations\InvitationRoles;
 use App\Services\Invitations\InvitationUnavailable;
+use App\Support\ApplicationInvitations;
 use App\Support\DelegatedAccessPermissions;
 use Closure;
 use Illuminate\Contracts\View\View;
@@ -32,6 +33,7 @@ class InvitationAcceptanceController extends Controller
         private readonly AccessInvitationService $invitations,
         private readonly InvitationRoles $roles,
         private readonly DelegatedAccessPermissions $permissions,
+        private readonly ApplicationInvitations $applicationInvitations,
     ) {}
 
     public function show(Request $request, #[SensitiveParameter] string $token): View|Response
@@ -80,8 +82,9 @@ class InvitationAcceptanceController extends Controller
             $request->session()->regenerate();
         }
 
-        // After the acceptance has committed: the person is admitted whatever happens here.
-        $roles = $this->roles->apply($invitation->fresh(), $person);
+        // After the acceptance has committed: the person is admitted whatever happens here. An
+        // application's own invitation carries no roles; the application sets up its access.
+        $roles = $invitation->requestedByApplication() ? AccessInvitation::ROLES_APPLIED : $this->roles->apply($invitation->fresh(), $person);
         $registration = RegisteredApplication::query()->where('key', $invitation->application)->first();
 
         return redirect()->route('invitations.accepted')->with('invitation_result', [
@@ -118,11 +121,22 @@ class InvitationAcceptanceController extends Controller
         return redirect()->route('invitations.show', ['token' => $token]);
     }
 
+    /**
+     * The pending invitation, while its own path is switched on: the provider's invitations for one
+     * sent from its pages; for one an application requested, that application still listed and its
+     * requesting client still one of its sign-in clients. One answer otherwise.
+     */
     private function pending(#[SensitiveParameter] string $token): ?AccessInvitation
     {
-        abort_unless($this->permissions->invitationsEnabled(), 404);
+        abort_unless($this->permissions->invitationsEnabled() || $this->applicationInvitations->anyEnabled(), 404);
+        $invitation = $this->invitations->findPending($token);
+        if (! $invitation instanceof AccessInvitation) {
+            return null;
+        }
 
-        return $this->invitations->findPending($token);
+        return ($invitation->requestedByApplication()
+            ? $this->applicationInvitations->admittingClient($invitation) !== null
+            : $this->permissions->invitationsEnabled()) ? $invitation : null;
     }
 
     /** The invited address's account, null for none, or false when several match it. */

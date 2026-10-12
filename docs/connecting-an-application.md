@@ -339,6 +339,12 @@ The application's edge (firewall, CDN, bot protection) must let the provider's
 server-to-server `POST` reach the endpoint without a browser challenge or redirect. The
 provider never follows redirects.
 
+## Optional: admission invitations the application requests
+
+An application that manages its own sharing can ask the provider to invite someone new to its
+client, with no roles. It is off by default for every application; the contract and the enabling
+steps are in [application-requested admission invitations](application-invitations.md).
+
 ## 7. Verify
 
 1. On the provider, confirm the resolved map lists each intended application key, endpoint
