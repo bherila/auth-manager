@@ -72,13 +72,21 @@ class ManageApplicationInvitations extends Command
         $this->table(['Application', 'Registration enabled', 'Listed in AUTH_MANAGER_APPLICATION_INVITATIONS', 'Public key ids'], [[
             $application->key, $application->enabled ? 'yes' : 'no', $invitations->listedFor($application->key) ? 'yes' : 'no', $keyState,
         ]]);
-        $this->table(['OAuth client', 'Confidential sign-in client', 'Client credentials', 'Can request invitations'],
-            $application->clients()->get()->map(fn (PassportClient $client): array => [
-                "{$client->name} ({$client->getKey()})",
-                $client->confidential() && $eligible->eligible($client) ? 'yes' : 'no',
-                in_array('client_credentials', (array) $client->grant_types, true) ? 'yes' : 'no',
-                $invitations->applicationFor($client) !== null && $keyIds !== [] && in_array('client_credentials', (array) $client->grant_types, true) ? 'yes' : 'no',
-            ])->all());
+        $this->table(['OAuth client', 'Confidential sign-in client', 'Client credentials', 'Scope ceiling allows '.ApplicationInvitations::SCOPE, 'Can request invitations'],
+            $application->clients()->get()->map(function (PassportClient $client) use ($invitations, $eligible, $keyIds): array {
+                $clientCredentials = in_array('client_credentials', (array) $client->grant_types, true);
+                // A client without a stored ceiling may be issued any scope; one with a ceiling
+                // must list the invitation scope, or Passport drops it from the token.
+                $scopeAllowed = $client->hasScope(ApplicationInvitations::SCOPE);
+
+                return [
+                    "{$client->name} ({$client->getKey()})",
+                    $client->confidential() && $eligible->eligible($client) ? 'yes' : 'no',
+                    $clientCredentials ? 'yes' : 'no',
+                    $scopeAllowed ? 'yes' : 'no',
+                    $invitations->applicationFor($client) !== null && $keyIds !== [] && $clientCredentials && $scopeAllowed ? 'yes' : 'no',
+                ];
+            })->all());
 
         return self::SUCCESS;
     }

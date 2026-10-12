@@ -511,6 +511,17 @@ class ApplicationInvitationTest extends TestCase
         $this->assertSame(['authorization_code'], $public->fresh()->grant_types);
         $this->assertSame(1, AuthAuditLog::query()->where('event', 'application_invitation_client_credentials_allowed')->count());
 
+        $client = $this->clients['example-app'];
+        $row = fn (string $scopeCeiling, string $ready): array => ["{$client->name} ({$client->id})", 'yes', 'yes', $scopeCeiling, $ready];
+        $headers = ['OAuth client', 'Confidential sign-in client', 'Client credentials', 'Scope ceiling allows '.ApplicationInvitations::SCOPE, 'Can request invitations'];
+        $publicRow = ["Example Public Client ({$public->id})", 'no', 'no', 'yes', 'no'];
+        $this->artisan('auth-manager:application-invitations', ['key' => 'example-app'])->expectsTable($headers, [$row('yes', 'yes'), $publicRow])->assertSuccessful();
+        // A stored scope ceiling without the invitation scope: Passport would drop it from the token.
+        $client->forceFill(['scopes' => ['identity:read']])->save();
+        $this->artisan('auth-manager:application-invitations', ['key' => 'example-app'])->expectsTable($headers, [$row('no', 'no'), $publicRow])->assertSuccessful();
+        $client->forceFill(['scopes' => ['identity:read', ApplicationInvitations::SCOPE]])->save();
+        $this->artisan('auth-manager:application-invitations', ['key' => 'example-app'])->expectsTable($headers, [$row('yes', 'yes'), $publicRow])->assertSuccessful();
+
         $this->artisan('auth-manager:application-invitations', ['key' => 'example-app', '--remove-client-credentials' => true])->assertSuccessful();
         $this->assertSame(['authorization_code', 'refresh_token'], $this->clients['example-app']->fresh()->grant_types);
         $this->artisan('auth-manager:application-invitations', ['key' => 'missing-app'])->assertFailed();
