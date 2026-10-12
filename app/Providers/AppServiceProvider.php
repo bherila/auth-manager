@@ -5,10 +5,13 @@ namespace App\Providers;
 use App\Http\Middleware\EnsureCredentialVersion;
 use App\Models\PassportClient;
 use App\Models\User;
+use App\OAuth\ApplicationInvitationScopeRepository;
 use App\OAuth\GrantAwareAccessTokenRepository;
 use App\OAuth\GrantAwareAuthCodeRepository;
 use App\OAuth\GrantAwareRefreshTokenRepository;
 use App\Services\OAuthCredentialGenerationContext;
+use App\Support\ApplicationInvitationKeys;
+use App\Support\ApplicationInvitations;
 use App\Support\DelegatedAccessApplications;
 use App\Support\DelegatedAccessKeys;
 use Illuminate\Auth\Events\Login;
@@ -20,6 +23,7 @@ use Illuminate\Support\ServiceProvider;
 use Laravel\Passport\Bridge\AccessTokenRepository;
 use Laravel\Passport\Bridge\AuthCodeRepository;
 use Laravel\Passport\Bridge\RefreshTokenRepository;
+use Laravel\Passport\Bridge\ScopeRepository;
 use Laravel\Passport\Passport;
 use RuntimeException;
 use Symfony\Component\Mailer\Bridge\Brevo\Transport\BrevoTransportFactory;
@@ -41,10 +45,12 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(AuthCodeRepository::class, GrantAwareAuthCodeRepository::class);
         $this->app->bind(AccessTokenRepository::class, GrantAwareAccessTokenRepository::class);
         $this->app->bind(RefreshTokenRepository::class, GrantAwareRefreshTokenRepository::class);
+        $this->app->bind(ScopeRepository::class, ApplicationInvitationScopeRepository::class);
         $this->app->scoped(OAuthCredentialGenerationContext::class);
         // Resolved and, when malformed, reported once per request.
         $this->app->scoped(DelegatedAccessApplications::class);
         $this->app->scoped(DelegatedAccessKeys::class);
+        $this->app->scoped(ApplicationInvitationKeys::class);
     }
 
     /**
@@ -102,7 +108,13 @@ class AppServiceProvider extends ServiceProvider
         Passport::authorizationView(config('auth-manager.oauth_server')
             ? 'bherila-auth::oauth.authorize'
             : 'oauth.authorize');
-        Passport::tokensCan((array) config('auth-manager.scopes', []));
+        // The admission invitation scope is Passport's only: it is not in the profile's catalog, so
+        // it is never advertised, offered to a person or registered by a dynamic client, and
+        // ApplicationInvitationScopeRepository keeps it to client credentials tokens.
+        Passport::tokensCan([
+            ...(array) config('auth-manager.scopes', []),
+            ApplicationInvitations::SCOPE => 'Request admission invitations to this application',
+        ]);
         Passport::tokensExpireIn(now()->addMinutes(5));
         Passport::refreshTokensExpireIn(now()->addDay());
     }

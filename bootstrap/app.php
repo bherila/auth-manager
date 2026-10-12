@@ -41,6 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
         then: function (): void {
             Route::group([], base_path('routes/oauth.php'));
             Route::group([], base_path('routes/reconciliation.php'));
+            Route::group([], base_path('routes/application-invitations.php'));
         },
     )
     ->withMiddleware(function (Middleware $middleware) use ($resolveTrustedProxies): void {
