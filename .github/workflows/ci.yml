@@ -60,6 +60,9 @@ jobs:
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: web1
+    concurrency:
+      group: auth-manager-production-web1
+      cancel-in-progress: false
     permissions:
       contents: read
     env:
@@ -96,7 +99,7 @@ jobs:
           path: public/build/
 
       - name: Deploy with the shared cPanel action
-        uses: bherila/shared-cpanel-deployment@6803f4584c5600441caab2da074eee155217eddf # v1.1.4
+        uses: bherila/shared-cpanel-deployment@76e914604ae1e7d07d045f5412371b6634178e47 # v2.3.2
         with:
           ssh-host: ${{ secrets.SSH_HOST }}
           ssh-username: ${{ secrets.SSH_USERNAME }}
@@ -110,7 +113,22 @@ jobs:
             .db-credentials
             /public/branding/
           run-migrations: true
-          migration-order: before-upload
+          # Atomic releases migrate the candidate, validate it, then select it. Storage (with the
+          # Passport key pair) is shared by every release; .env, database credentials and branding are
+          # installed into each candidate from private files under the account home.
+          deployment-mode: atomic
+          atomic-layout: stable-directory
+          persistent-paths: storage
+          retain-releases: '3'
+          # An identity provider stays in maintenance after a risky failure until the owner decides.
+          failure-policy: maintenance
+          # Exact revision currently live in this environment; required for the first conversion only.
+          initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}
+          recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}
+          artisan-memory-limit: 1G
+          operational-audit: 'true'
+          runtime-audit: 'true'
+          pre-migrate-script: scripts/deploy/pre-migrate.sh
           passport-key-directory: storage/app/private/oauth
           branding-source: ${{ vars.BRANDING_SOURCE }}
 
@@ -120,6 +138,9 @@ jobs:
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: resource-web1
+    concurrency:
+      group: auth-manager-production-resource-web1
+      cancel-in-progress: false
     permissions:
       contents: read
     env:
@@ -156,7 +177,7 @@ jobs:
           path: public/build/
 
       - name: Deploy with the shared cPanel action
-        uses: bherila/shared-cpanel-deployment@6803f4584c5600441caab2da074eee155217eddf # v1.1.4
+        uses: bherila/shared-cpanel-deployment@76e914604ae1e7d07d045f5412371b6634178e47 # v2.3.2
         with:
           ssh-host: ${{ secrets.SSH_HOST }}
           ssh-username: ${{ secrets.SSH_USERNAME }}
@@ -170,6 +191,21 @@ jobs:
             .db-credentials
             /public/branding/
           run-migrations: true
-          migration-order: before-upload
+          # Atomic releases migrate the candidate, validate it, then select it. Storage (with the
+          # Passport key pair) is shared by every release; .env, database credentials and branding are
+          # installed into each candidate from private files under the account home.
+          deployment-mode: atomic
+          atomic-layout: stable-directory
+          persistent-paths: storage
+          retain-releases: '3'
+          # An identity provider stays in maintenance after a risky failure until the owner decides.
+          failure-policy: maintenance
+          # Exact revision currently live in this environment; required for the first conversion only.
+          initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}
+          recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}
+          artisan-memory-limit: 1G
+          operational-audit: 'true'
+          runtime-audit: 'true'
+          pre-migrate-script: scripts/deploy/pre-migrate.sh
           passport-key-directory: storage/app/private/oauth
           branding-source: ${{ vars.BRANDING_SOURCE }}
