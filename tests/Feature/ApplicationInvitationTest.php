@@ -279,7 +279,7 @@ class ApplicationInvitationTest extends TestCase
         $this->assertSame(0, AccessInvitation::query()->count());
     }
 
-    public function test_the_nonce_table_is_created_on_the_configured_connection(): void
+    public function test_the_nonce_table_is_created_on_the_configured_connection_and_kept_on_rollback(): void
     {
         $path = tempnam(sys_get_temp_dir(), 'synthetic-nonce-migration-');
         config(['database.connections.nonce_migration_test' => ['driver' => 'sqlite', 'database' => $path, 'prefix' => ''],
@@ -290,6 +290,11 @@ class ApplicationInvitationTest extends TestCase
             $migration->up();
             $this->assertTrue(Schema::connection('nonce_migration_test')->hasTable(DatabaseNonceStore::TABLE));
             $this->assertTrue((new DatabaseNonceStore(DB::connection('nonce_migration_test')))->consume(str_repeat('a', 64), 60));
+
+            // Rolling back never drops replay history, here or on a table that predates the migration.
+            $migration->down();
+            $this->assertTrue(Schema::connection('nonce_migration_test')->hasTable(DatabaseNonceStore::TABLE));
+            $this->assertFalse((new DatabaseNonceStore(DB::connection('nonce_migration_test')))->consume(str_repeat('a', 64), 60));
         } finally {
             DB::purge('nonce_migration_test');
             @unlink($path);

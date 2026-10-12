@@ -29,6 +29,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::connection(config('application-invitations.nonce_connection'))->dropIfExists(DatabaseNonceStore::TABLE);
+        // Never dropped: replay history is persistent state, and the table may predate this
+        // migration or be shared with another adapter. Remove it by hand once nothing uses it.
     }
 };
