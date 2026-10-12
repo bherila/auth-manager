@@ -17,16 +17,46 @@ class DeploymentWorkflowTest extends TestCase
         $this->workflow = $workflow;
     }
 
-    public function test_both_deployments_pin_the_shared_action_and_migrate_before_upload(): void
+    public function test_both_deployments_pin_the_v2_action_and_use_atomic_releases(): void
     {
         $this->assertSame(2, preg_match_all(
-            '/uses: bherila\/shared-cpanel-deployment@[a-f0-9]{40} # v1\.1\.4/',
+            '/uses: bherila\/shared-cpanel-deployment@76e914604ae1e7d07d045f5412371b6634178e47 # v2\.3\.2/',
             $this->workflow,
         ));
-        $this->assertSame(2, substr_count($this->workflow, 'migration-order: before-upload'));
+        $this->assertSame(2, preg_match_all('/uses: bherila\/shared-cpanel-deployment@[a-f0-9]{40}\b/', $this->workflow));
+        $this->assertStringNotContainsString('migration-order', $this->workflow);
+        $this->assertSame(3, substr_count($this->workflow, 'cancel-in-progress: false'));
         $this->assertSame(2, substr_count($this->workflow, 'run-migrations: true'));
         $this->assertStringNotContainsString('artisan migrate --force', $this->workflow);
         $this->assertStringNotContainsString(':~/auth-manager/database/migrations/', $this->workflow);
+
+        foreach ([
+            'deployment-mode: atomic',
+            'atomic-layout: stable-directory',
+            'persistent-paths: storage',
+            'failure-policy: maintenance',
+            'initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}',
+            'recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}',
+            "operational-audit: 'true'",
+            "runtime-audit: 'true'",
+            'pre-migrate-script: scripts/deploy/pre-migrate.sh',
+        ] as $setting) {
+            $this->assertSame(2, substr_count($this->workflow, $setting), $setting);
+        }
+    }
+
+    public function test_pre_migrate_hook_installs_release_local_credentials_and_checks_the_signing_pair(): void
+    {
+        $hook = file_get_contents(__DIR__.'/../../scripts/deploy/pre-migrate.sh');
+        $this->assertIsString($hook);
+
+        $this->assertStringContainsString('test "$stable_dir" = auth-manager', $hook);
+        $this->assertStringContainsString('install -m 600 "$source_file" .db-credentials', $hook);
+        $this->assertStringContainsString('test -s storage/app/private/oauth/oauth-private.key', $hook);
+        $this->assertStringContainsString('test -s storage/app/private/oauth/oauth-public.key', $hook);
+        foreach (['cat ', 'passport:keys', 'artisan ', 'rm '] as $forbidden) {
+            $this->assertStringNotContainsString($forbidden, $hook);
+        }
     }
 
     public function test_each_deployment_asserts_its_server_owned_profile_and_route(): void
