@@ -34,7 +34,8 @@ use Throwable;
  *
  * An application may also request one for itself ({@see RequestingClient}): it carries no roles,
  * admits only to the requesting client, is managed only through that client, and its link is
- * returned to the application every time, so opening it never proves the address.
+ * returned to the application every time, so opening it never proves the address: creating an
+ * account from it needs a code emailed to the address ({@see InvitationAddressVerification}).
  */
 final class AccessInvitationService
 {
@@ -44,6 +45,7 @@ final class AccessInvitationService
     public function __construct(
         private readonly OAuthClientGrantService $grants,
         private readonly InvitationAudit $audit,
+        private readonly InvitationAddressVerification $verification,
         private readonly StaticApplicationClients $clients = new StaticApplicationClients,
         private readonly ApplicationInvitations $applicationInvitations = new ApplicationInvitations,
     ) {}
@@ -117,6 +119,9 @@ final class AccessInvitationService
                 'pending_key' => AccessInvitation::pendingKey($locked->application, $locked->email_normalized, $locked->requesting_client_id),
                 // A new token: unproven until its email is sent.
                 'link_handed_over' => true,
+                // A code was bound to the old link; this one starts with none.
+                'verification_code_hash' => null, 'verification_expires_at' => null,
+                'verification_attempts' => 0, 'verification_send_count' => 0,
             ])->save();
             $this->audit->record(InvitationAudit::RESENT, $locked, $request, $actor, metadata: [
                 'previous_inviter_id' => $previousInviter, ...$this->viaMetadata($via, $actor),
@@ -293,15 +298,20 @@ final class AccessInvitationService
      * one with that address when none exists. Anything else, or an invitation that stopped being
      * pending, throws without changing anything.
      *
+     * An application's own invitation creates an account only with the code emailed to the invited
+     * address ({@see InvitationAddressVerification}), checked and spent under the same lock; a wrong
+     * one throws {@see InvitationCodeRejected} after its attempt is committed, creating nothing.
+     *
      * @param  string  $tokenHash  the hash of the token the request presented
-     * @param  array{name: string, password: string}|null  $newAccount
+     * @param  array{name: string, password: string, code?: string|null}|null  $newAccount
      * @return array{0: User, 1: bool} the person, and whether their account was created now
      *
-     * @throws InvitationUnavailable
+     * @throws InvitationUnavailable|InvitationCodeRejected
      */
     public function accept(Request $request, AccessInvitation $invitation, string $tokenHash, ?User $signedIn, #[SensitiveParameter] ?array $newAccount): array
     {
-        return DB::transaction(function () use ($request, $invitation, $tokenHash, $signedIn, $newAccount): array {
+        $rejected = null;
+        $accepted = DB::transaction(function () use ($request, $invitation, $tokenHash, $signedIn, $newAccount, &$rejected): ?array {
             $locked = AccessInvitation::query()->lockForUpdate()->find($invitation->getKey());
             // The presented token must still be the current one: a resend that committed after the link
             // was opened replaced it, and the old link must not accept.
@@ -318,9 +328,21 @@ final class AccessInvitationService
             }
 
             $account = $this->accountFor($locked, true);
+            $verified = false;
             if ($newAccount !== null) {
                 if ($account !== null || $signedIn !== null) {
                     throw new InvitationUnavailable('account_exists');
+                }
+                // The link went to the application too: only the code sent to the address proves it.
+                if ($locked->requestedByApplication()) {
+                    $outcome = $this->verification->consume($request, $locked, $newAccount['code'] ?? null);
+                    if ($outcome !== InvitationAddressVerification::VERIFIED) {
+                        // Return rather than throw, so the spent attempt commits.
+                        $rejected = $outcome;
+
+                        return null;
+                    }
+                    $verified = true;
                 }
                 try {
                     $person = User::query()->create([
@@ -331,8 +353,9 @@ final class AccessInvitationService
                     // The address was taken by an account created at the same moment.
                     throw new InvitationUnavailable('account_exists');
                 }
-                // Opening the emailed link is proof of the address; a link handed to the inviter is not.
-                if (! $locked->link_handed_over) {
+                // Opening the emailed link is proof of the address; a link handed to the inviter is not,
+                // but the code emailed to the address is.
+                if (! $locked->link_handed_over || $verified) {
                     $person->forceFill(['email_verified_at' => now()])->save();
                 }
                 $created = true;
@@ -357,11 +380,17 @@ final class AccessInvitationService
                 ...($locked->requesting_client_id === null ? [] : [
                     'via' => 'application', 'oauth_client_id' => $locked->requesting_client_id,
                     'actor_subject' => $locked->inviter_id === null ? null : (string) $locked->inviter_id, 'link_returned' => true,
+                    'address_verified' => $created ? $verified : null,
                 ]),
             ]);
 
             return [$person, $created];
         });
+        if ($accepted === null) {
+            throw new InvitationCodeRejected((string) $rejected);
+        }
+
+        return $accepted;
     }
 
     /**

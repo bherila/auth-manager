@@ -36,7 +36,7 @@ class AccessInvitation extends Model
 
     protected $guarded = ['id'];
 
-    protected $hidden = ['token_hash'];
+    protected $hidden = ['token_hash', 'verification_code_hash'];
 
     protected function casts(): array
     {
@@ -50,6 +50,9 @@ class AccessInvitation extends Model
             'send_count' => 'integer',
             'inviter_credential_version' => 'integer',
             'link_handed_over' => 'boolean',
+            'verification_expires_at' => 'datetime',
+            'verification_attempts' => 'integer',
+            'verification_send_count' => 'integer',
         ];
     }
 
@@ -71,6 +74,12 @@ class AccessInvitation extends Model
     public function requestedByApplication(): bool
     {
         return $this->requesting_client_id !== null;
+    }
+
+    /** A code for the invited address has been sent and can still be entered. */
+    public function verificationCodeLive(): bool
+    {
+        return $this->verification_code_hash !== null && $this->verification_expires_at?->isFuture() === true;
     }
 
     public static function normalizeEmail(string $email): string

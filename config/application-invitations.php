@@ -23,4 +23,15 @@ return [
     // (delegated-access.invitations.per_recipient_per_day).
     'per_application_per_hour' => 100,
     'per_actor_per_hour' => 20,
+    // Proof of the address before acceptance creates an account: the link always goes to the
+    // application too, so the provider emails a one-time code to the invited address and creates the
+    // account only once it is entered. A code expires, is spent by `max_attempts` wrong entries, and
+    // at most `max_sends` are sent per link (a resend starts again); codes to one address are also
+    // limited per hour across every invitation.
+    'verification' => [
+        'expires_minutes' => 15,
+        'max_attempts' => 5,
+        'max_sends' => 5,
+        'per_address_per_hour' => 5,
+    ],
 ];

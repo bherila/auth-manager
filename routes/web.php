@@ -103,6 +103,7 @@ Route::middleware([ApplicationAccessResponse::class, 'throttle:invitations'])->p
     Route::prefix('/{token}')->where(['token' => AccessInvitationService::TOKEN_PATTERN])->group(function (): void {
         Route::get('/', [InvitationAcceptanceController::class, 'show'])->name('invitations.show');
         Route::post('/accept', [InvitationAcceptanceController::class, 'accept'])->name('invitations.accept');
+        Route::post('/code', [InvitationAcceptanceController::class, 'sendCode'])->name('invitations.code');
         Route::get('/sign-in', [InvitationAcceptanceController::class, 'signIn'])->name('invitations.sign-in');
         Route::post('/sign-out', [InvitationAcceptanceController::class, 'signOut'])->name('invitations.sign-out');
     });
