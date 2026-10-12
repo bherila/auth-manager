@@ -46,6 +46,9 @@ jobs:
       - name: Run CI checks
         run: composer ci:check
 
+      - name: Test deployment hooks
+        run: bash tests/deployment/test-deploy-hooks.sh
+
       - name: Upload frontend build artifact
         if: ${{ github.event_name != 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -129,6 +132,7 @@ jobs:
           operational-audit: 'true'
           runtime-audit: 'true'
           pre-migrate-script: scripts/deploy/pre-migrate.sh
+          quiesce-script: scripts/deploy/quiesce.sh
           passport-key-directory: storage/app/private/oauth
           branding-source: ${{ vars.BRANDING_SOURCE }}
 
@@ -207,5 +211,6 @@ jobs:
           operational-audit: 'true'
           runtime-audit: 'true'
           pre-migrate-script: scripts/deploy/pre-migrate.sh
+          quiesce-script: scripts/deploy/quiesce.sh
           passport-key-directory: storage/app/private/oauth
           branding-source: ${{ vars.BRANDING_SOURCE }}

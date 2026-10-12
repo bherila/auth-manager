@@ -40,9 +40,23 @@ class DeploymentWorkflowTest extends TestCase
             "operational-audit: 'true'",
             "runtime-audit: 'true'",
             'pre-migrate-script: scripts/deploy/pre-migrate.sh',
+            // The action refuses to convert or update an existing application without a quiescence hook.
+            'quiesce-script: scripts/deploy/quiesce.sh',
         ] as $setting) {
             $this->assertSame(2, substr_count($this->workflow, $setting), $setting);
         }
+    }
+
+    public function test_quiesce_hook_waits_for_this_applications_artisan_processes_and_ci_exercises_it(): void
+    {
+        $hook = file_get_contents(__DIR__.'/../../scripts/deploy/quiesce.sh');
+        $this->assertIsString($hook);
+
+        $this->assertStringContainsString('.deployments/auth-manager/releases/*) ;;', $hook);
+        $this->assertStringContainsString('test "$stable_path" = auth-manager', $hook);
+        $this->assertStringContainsString('mapfile -d', $hook);
+        $this->assertStringContainsString('run: bash tests/deployment/test-deploy-hooks.sh', $this->workflow);
+        $this->assertFileExists(__DIR__.'/../deployment/test-deploy-hooks.sh');
     }
 
     public function test_pre_migrate_hook_installs_release_local_credentials_and_checks_the_signing_pair(): void
