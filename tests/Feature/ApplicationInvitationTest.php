@@ -12,6 +12,7 @@ use App\OAuth\ApplicationInvitationScopeRepository;
 use App\Services\Invitations\AccessInvitationService;
 use App\Services\Invitations\ApplicationActorAssertionVerifier;
 use App\Services\Invitations\InvitationAudit;
+use App\Support\ApplicationInvitationKeys;
 use App\Support\ApplicationInvitations;
 use BWH\Auth\Models\AuthAuditLog;
 use DateTimeImmutable;
@@ -124,7 +125,8 @@ class ApplicationInvitationTest extends TestCase
     {
         $defaults = require config_path('application-invitations.php');
         $this->assertSame([], $defaults['applications']);
-        $this->assertNull($defaults['keys_environment']);
+        // Unset or empty (as .env.example leaves it): no keys either way.
+        $this->assertSame([], ApplicationInvitationKeys::parse($defaults['keys_environment']));
 
         config(['application-invitations.applications' => []]);
         $this->create('person@example.test')->assertForbidden()->assertJsonPath('error', 'application_not_enabled');
