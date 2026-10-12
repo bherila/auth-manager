@@ -533,6 +533,19 @@ class ApplicationInvitationTest extends TestCase
         $this->assertNotNull(User::query()->where('email', 'person@example.test')->sole()->email_verified_at);
     }
 
+    public function test_a_refused_form_never_keeps_the_code_in_the_session(): void
+    {
+        $link = $this->path($this->create('person@example.test')->json('invitation.link'));
+        $code = $this->requestCode($link);
+
+        // The name and password fail validation before the code is looked at; the code is still live.
+        $this->post($link.'/accept', ['name' => 'Example Person', 'password' => 'a-new-password-example',
+            'password_confirmation' => 'something-else-entirely', 'code' => $code])->assertSessionHasErrors('password');
+        $this->assertSame('Example Person', session()->getOldInput('name'));
+        $this->assertArrayNotHasKey('code', session()->getOldInput());
+        $this->assertStringNotContainsString($code, (string) json_encode(session()->all()));
+    }
+
     public function test_a_code_is_bound_to_its_invitation_and_its_current_link(): void
     {
         $mine = $this->create('person@example.test')->json('invitation');
