@@ -625,6 +625,23 @@ class ApplicationInvitationTest extends TestCase
         Mail::assertSent(InvitationCodeMail::class, 1);
     }
 
+    public function test_the_last_delivered_code_stays_usable_when_a_later_send_fails(): void
+    {
+        $link = $this->path($this->create('person@example.test')->json('invitation.link'));
+        $delivered = $this->requestCode($link);
+
+        $fake = Mail::getFacadeRoot();
+        Mail::swap($fake->manager);
+        config(['mail.default' => 'brevo', 'services.brevo.dsn' => null]);
+        $this->post($link.'/code')->assertSessionHas('invitation_error');
+        Mail::swap($fake);
+        config(['mail.default' => 'smtp']);
+
+        // The failed send changed nothing: the code in the person's inbox still creates the account.
+        $this->post($link.'/accept', $this->newPerson($delivered))->assertRedirect('/invitations/accepted');
+        $this->assertNotNull(User::query()->where('email', 'person@example.test')->sole()->email_verified_at);
+    }
+
     public function test_the_application_holding_the_link_alone_cannot_create_the_account(): void
     {
         // Everything the application can do: create, resend, open the link, ask for codes and guess.

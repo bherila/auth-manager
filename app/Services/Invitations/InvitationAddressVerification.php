@@ -28,7 +28,8 @@ use Throwable;
  *   link and its address, so it is useless anywhere else and a resend (a new link) voids it;
  * - spent on success, on expiry, and after `max_attempts` wrong entries;
  * - at most `max_sends` per link, and `per_address_per_hour` to one address across invitations;
- * - none at all when the provider's mailer does not deliver: the account then cannot be created.
+ * - none at all when the provider's mailer does not deliver: the account then cannot be created;
+ * - stored only once its email was accepted for delivery, so the live code is the latest delivered.
  *
  * Audit rows name the invitation and the outcome, never the address or the code.
  */
@@ -59,41 +60,40 @@ final class InvitationAddressVerification
         }
 
         $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        [$stored, $hash] = DB::transaction(function () use ($invitation, $tokenHash, $code): array {
-            $locked = AccessInvitation::query()->lockForUpdate()->find($invitation->getKey());
-            if (! $locked instanceof AccessInvitation || ! $locked->isPending() || ! hash_equals($locked->token_hash, $tokenHash)) {
-                return ['unavailable', null];
-            }
-            if ($locked->verification_send_count >= $this->setting('max_sends', 5)) {
-                return ['send_limit', null];
-            }
-            $hash = $this->hash($locked, $code);
-            $locked->forceFill([
-                'verification_code_hash' => $hash,
-                'verification_expires_at' => now()->addMinutes($this->expiresMinutes()),
-                'verification_attempts' => 0,
-                'verification_send_count' => $locked->verification_send_count + 1,
-            ])->save();
+        try {
+            // The email goes out while the invitation is locked, and the new hash commits only if it was
+            // accepted for delivery: overlapping sends for one invitation run one after the other, so
+            // the stored code is always the one most recently delivered, and a failed send leaves the
+            // previous code (already in the person's inbox) as it was.
+            $stored = DB::transaction(function () use ($invitation, $tokenHash, $code, $applicationName): string {
+                $locked = AccessInvitation::query()->lockForUpdate()->find($invitation->getKey());
+                if (! $locked instanceof AccessInvitation || ! $locked->isPending() || ! hash_equals($locked->token_hash, $tokenHash)) {
+                    return 'unavailable';
+                }
+                if ($locked->verification_send_count >= $this->setting('max_sends', 5)) {
+                    return 'send_limit';
+                }
+                $locked->forceFill([
+                    'verification_code_hash' => $this->hash($locked, $code),
+                    'verification_expires_at' => now()->addMinutes($this->expiresMinutes()),
+                    'verification_attempts' => 0,
+                    'verification_send_count' => $locked->verification_send_count + 1,
+                ])->save();
+                Mail::to($locked->email)->send(new InvitationCodeMail($applicationName, $code, $this->expiresMinutes()));
 
-            return [self::SENT, $hash];
-        });
+                return self::SENT;
+            });
+        } catch (Throwable $failure) {
+            // Never the message or the transport's text: either could carry the code.
+            Log::warning('An invitation code email could not be sent.', ['invitation_id' => $invitation->getKey(), 'exception' => $failure::class]);
+
+            return $this->refuseSend($request, $invitation, 'delivery_failed');
+        }
         if ($stored !== self::SENT) {
             // Nothing was sent, so nothing is owed to the address's budget.
             RateLimiter::decrement($addressKey, 3600);
 
             return $this->refuseSend($request, $invitation, $stored);
-        }
-
-        try {
-            Mail::to($invitation->email)->send(new InvitationCodeMail($applicationName, $code, $this->expiresMinutes()));
-        } catch (Throwable $failure) {
-            // Never the message or the transport's text: either could carry the code.
-            Log::warning('An invitation code email could not be sent.', ['invitation_id' => $invitation->getKey(), 'exception' => $failure::class]);
-            // Nobody received it, so nobody may use it.
-            AccessInvitation::query()->whereKey($invitation->getKey())->where('verification_code_hash', $hash)
-                ->update(['verification_code_hash' => null, 'verification_expires_at' => null]);
-
-            return $this->refuseSend($request, $invitation, 'delivery_failed');
         }
         $this->audit->record(InvitationAudit::CODE_SENT, $invitation, $request, null, metadata: $this->metadata($invitation));
 
