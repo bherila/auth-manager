@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -14,11 +15,27 @@ use Illuminate\Support\Facades\Schema;
  * invitation, per link: a resend starts both again.
  *
  * New table and defaulted columns the previous release never reads, so it runs unchanged against them.
+ *
+ * MariaDB does not roll back DDL, and the first production run of this migration created the table
+ * and then failed on an index name longer than 64 characters, leaving an empty table and no
+ * migration record. A table that is still empty and has no columns added to access_invitations is
+ * that leftover and is rebuilt; anything else stops the migration instead of guessing.
  */
 return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('invitation_acceptance_codes')) {
+            $leftover = DB::table('invitation_acceptance_codes')->doesntExist()
+                && ! Schema::hasColumn('access_invitations', 'verification_attempts');
+
+            if (! $leftover) {
+                throw new RuntimeException('invitation_acceptance_codes already exists with data or completed columns; refusing to rebuild it.');
+            }
+
+            Schema::drop('invitation_acceptance_codes');
+        }
+
         Schema::create('invitation_acceptance_codes', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('access_invitation_id')->constrained('access_invitations')->cascadeOnDelete();
@@ -28,7 +45,8 @@ return new class extends Migration
             $table->timestamp('consumed_at')->nullable();
             $table->timestamp('created_at')->nullable();
 
-            $table->index(['access_invitation_id', 'consumed_at']);
+            // Explicit name: the generated one is 66 characters, over MariaDB's 64-character identifier limit.
+            $table->index(['access_invitation_id', 'consumed_at'], 'invitation_codes_invitation_consumed_idx');
         });
 
         Schema::table('access_invitations', function (Blueprint $table): void {
