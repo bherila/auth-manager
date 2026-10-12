@@ -435,6 +435,7 @@ class ApplicationInvitationTest extends TestCase
         $this->assertSame([$this->clients['example-app']->id], $accepted->metadata['oauth_client_ids']);
         $this->assertSame('application', $accepted->metadata['via']);
         $this->assertSame((string) $this->actor->id, $accepted->metadata['actor_subject']);
+        $this->assertTrue($accepted->metadata['link_returned']);
         $this->assertTrue($accepted->metadata['account_created']);
         $this->get('/invitations/accepted')->assertOk()->assertDontSee('could not be set up yet');
     }
