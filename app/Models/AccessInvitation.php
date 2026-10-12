@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * An invitation to one application, for one email address, with the access to apply on acceptance.
  *
+ * `requesting_client_id` is set when the application requested it for itself (an admission
+ * invitation: no roles, admitting only to that client); null for one sent from the provider's pages.
+ *
  * The token is never stored: {@see hashToken()} is what `token_hash` holds. Status is derived, so an
  * expired invitation needs no job to mark it.
  *
@@ -55,10 +58,19 @@ class AccessInvitation extends Model
         return hash('sha256', $token);
     }
 
-    /** The unique key a pending invitation holds for its application and normalized address. */
-    public static function pendingKey(string $application, string $emailNormalized): string
+    /**
+     * The unique key a pending invitation holds for its application and normalized address, and for
+     * an application's own invitation, also its requesting client: one pending per path.
+     */
+    public static function pendingKey(string $application, string $emailNormalized, ?string $requestingClientId = null): string
     {
-        return hash('sha256', $application."\0".$emailNormalized);
+        return hash('sha256', $application."\0".$emailNormalized.($requestingClientId === null ? '' : "\0client\0".$requestingClientId));
+    }
+
+    /** Requested by an application for itself, through its own client, rather than from these pages. */
+    public function requestedByApplication(): bool
+    {
+        return $this->requesting_client_id !== null;
     }
 
     public static function normalizeEmail(string $email): string
