@@ -469,6 +469,27 @@ class ApplicationInvitationTest extends TestCase
         $this->assertSame(5, AccessInvitation::query()->count());
     }
 
+    public function test_the_operator_command_shows_readiness_and_toggles_client_credentials_on_sign_in_clients_only(): void
+    {
+        $public = PassportClient::create(['id' => (string) Str::uuid(), 'name' => 'Example Public Client', 'secret' => null,
+            'grant_types' => ['authorization_code'], 'redirect_uris' => ['https://public.example.test/callback'], 'revoked' => false]);
+        RegisteredApplication::query()->where('key', 'example-app')->sole()->clients()->attach($public->id);
+        $this->clients['example-app']->forceFill(['grant_types' => ['authorization_code', 'refresh_token']])->save();
+
+        $this->artisan('auth-manager:application-invitations', ['key' => 'example-app'])
+            ->expectsOutputToContain('example-app-v1')->assertSuccessful();
+        $this->assertSame(['authorization_code', 'refresh_token'], $this->clients['example-app']->fresh()->grant_types);
+
+        $this->artisan('auth-manager:application-invitations', ['key' => 'example-app', '--allow-client-credentials' => true])->assertSuccessful();
+        $this->assertSame(['authorization_code', 'refresh_token', 'client_credentials'], $this->clients['example-app']->fresh()->grant_types);
+        $this->assertSame(['authorization_code'], $public->fresh()->grant_types);
+        $this->assertSame(1, AuthAuditLog::query()->where('event', 'application_invitation_client_credentials_allowed')->count());
+
+        $this->artisan('auth-manager:application-invitations', ['key' => 'example-app', '--remove-client-credentials' => true])->assertSuccessful();
+        $this->assertSame(['authorization_code', 'refresh_token'], $this->clients['example-app']->fresh()->grant_types);
+        $this->artisan('auth-manager:application-invitations', ['key' => 'missing-app'])->assertFailed();
+    }
+
     // ---------------------------------------------------------------------------------------------
 
     private function create(string $email, string $application = 'example-app', User|string|null $actor = null, ?string $token = null, ?string $keyId = null): TestResponse
