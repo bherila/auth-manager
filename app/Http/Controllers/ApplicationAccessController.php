@@ -493,7 +493,9 @@ class ApplicationAccessController extends Controller
         // newest 50 others as history.
         $pending = fn ($query) => $query->whereNull('accepted_at')->whereNull('revoked_at')->where('expires_at', '>', now());
         // Only those within the application's scope for this actor: {@see AccessInvitation::scopeVisibleTo()}.
-        $scoped = fn () => AccessInvitation::query()->where('application', $application)->visibleTo($actor, $capabilities)->with('inviter')->latest('id');
+        // Invitations the application requested for itself are its own to list and manage.
+        $scoped = fn () => AccessInvitation::query()->where('application', $application)->whereNull('requesting_client_id')
+            ->visibleTo($actor, $capabilities)->with('inviter')->latest('id');
         $list = $scoped()->where($pending)->get()->concat($scoped()->whereNot($pending)->limit(50)->get());
 
         return [

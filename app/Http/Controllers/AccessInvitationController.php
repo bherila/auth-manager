@@ -91,7 +91,8 @@ class AccessInvitationController extends Controller
 
     public function resend(Request $request, string $application, AccessInvitation $invitation): RedirectResponse
     {
-        abort_unless($invitation->application === $application, 404);
+        // An application's own invitation is managed only through its requesting client.
+        abort_unless($invitation->application === $application && ! $invitation->requestedByApplication(), 404);
         $this->authorizeInvite($request, $application);
         // A new link must still be one the application would accept now: provisioning and every
         // stored role still advertised, checked before the token is replaced.
@@ -114,7 +115,7 @@ class AccessInvitationController extends Controller
 
     public function revoke(Request $request, string $application, AccessInvitation $invitation): RedirectResponse
     {
-        abort_unless($this->permissions->invitationsEnabled() && $invitation->application === $application, 404);
+        abort_unless($this->permissions->invitationsEnabled() && $invitation->application === $application && ! $invitation->requestedByApplication(), 404);
         if (! $this->permissions->canInvite($request->user(), $application)) {
             throw new DelegatedAccessException('not_authorized', 403);
         }

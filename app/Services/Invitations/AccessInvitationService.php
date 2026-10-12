@@ -8,6 +8,7 @@ use App\Models\PassportClient;
 use App\Models\RegisteredApplication;
 use App\Models\User;
 use App\Services\OAuthClientGrantService;
+use App\Support\ApplicationInvitations;
 use App\Support\StaticApplicationClients;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -18,6 +19,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use SensitiveParameter;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Throwable;
 
 /**
@@ -29,6 +31,10 @@ use Throwable;
  *
  * Tokens are 32 random bytes, shown once (in the email and to the inviter) and stored only as a hash.
  * An invitation is used once, expires, can be revoked, and resending it replaces its token.
+ *
+ * An application may also request one for itself ({@see RequestingClient}): it carries no roles,
+ * admits only to the requesting client, is managed only through that client, and its link is
+ * returned to the application every time, so opening it never proves the address.
  */
 final class AccessInvitationService
 {
@@ -39,27 +45,33 @@ final class AccessInvitationService
         private readonly OAuthClientGrantService $grants,
         private readonly InvitationAudit $audit,
         private readonly StaticApplicationClients $clients = new StaticApplicationClients,
+        private readonly ApplicationInvitations $applicationInvitations = new ApplicationInvitations,
     ) {}
 
     /**
      * @param  array{application_admin: bool, workspaces: list<array{id: string, role: string}>}  $access
      */
-    public function create(Request $request, User $inviter, RegisteredApplication $application, string $email, array $access): IssuedInvitation
+    public function create(Request $request, User $inviter, RegisteredApplication $application, string $email, array $access, ?RequestingClient $via = null): IssuedInvitation
     {
         $email = trim($email);
-        $this->throttle($inviter, $email);
+        if ($via !== null) {
+            // Admission only: whatever the caller passed, an application's own invitation carries no roles.
+            $access = ['application_admin' => false, 'workspaces' => []];
+        }
+        $this->throttle($inviter, $email, $via);
         $token = $this->newToken();
 
         $normalized = AccessInvitation::normalizeEmail($email);
-        $invitation = $this->serialized(fn (): AccessInvitation => DB::transaction(function () use ($request, $inviter, $application, $email, $normalized, $access, $token): AccessInvitation {
+        $invitation = $this->serialized(fn (): AccessInvitation => DB::transaction(function () use ($request, $inviter, $application, $email, $normalized, $access, $token, $via): AccessInvitation {
             // Older invitations give up the pending key before this one takes it.
-            $superseded = $this->supersede($inviter, $application->key, $normalized, null);
+            $superseded = $this->supersede($inviter, $application->key, $normalized, null, $via);
             $invitation = AccessInvitation::query()->create([
                 'application' => $application->key,
+                'requesting_client_id' => $via?->clientId,
                 'email' => $email,
                 'email_normalized' => $normalized,
                 'token_hash' => AccessInvitation::hashToken($token),
-                'pending_key' => AccessInvitation::pendingKey($application->key, $normalized),
+                'pending_key' => AccessInvitation::pendingKey($application->key, $normalized, $via?->clientId),
                 'link_handed_over' => true,
                 'inviter_id' => $inviter->getKey(),
                 'inviter_credential_version' => (int) $inviter->credential_version,
@@ -70,60 +82,105 @@ final class AccessInvitationService
             // row that holds them goes when it is purged; the audit row stays.
             $this->audit->record(InvitationAudit::CREATED, $invitation, $request, $inviter, metadata: [
                 'application_admin' => $access['application_admin'], 'workspace_count' => count($access['workspaces']),
+                ...$this->viaMetadata($via, $inviter),
             ]);
-            $this->auditSuperseded($request, $inviter, $superseded, $invitation);
+            $this->auditSuperseded($request, $inviter, $superseded, $invitation, $via);
 
             return $invitation;
-        }));
+        }), $via);
 
-        return new IssuedInvitation($invitation, $this->link($token), $this->deliver($request, $inviter, $invitation, $application, $token));
+        return new IssuedInvitation($invitation, $this->link($token), $this->deliver($request, $inviter, $invitation, $application, $token, $via));
     }
 
     /** A new token and expiry for a pending or expired invitation; the old link stops working. */
-    public function resend(Request $request, User $actor, AccessInvitation $invitation, RegisteredApplication $application): IssuedInvitation
+    public function resend(Request $request, User $actor, AccessInvitation $invitation, RegisteredApplication $application, ?RequestingClient $via = null): IssuedInvitation
     {
-        $this->throttle($actor, $invitation->email);
+        $this->throttle($actor, $invitation->email, $via);
         $token = $this->newToken();
 
-        $invitation = $this->serialized(fn (): AccessInvitation => DB::transaction(function () use ($request, $actor, $invitation, $token): AccessInvitation {
+        $invitation = $this->serialized(fn (): AccessInvitation => DB::transaction(function () use ($request, $actor, $invitation, $token, $via): AccessInvitation {
             $locked = AccessInvitation::query()->lockForUpdate()->findOrFail($invitation->getKey());
+            $this->assertSamePath($locked, $via);
             if (! in_array($locked->status(), [AccessInvitation::STATUS_PENDING, AccessInvitation::STATUS_EXPIRED], true)) {
-                throw ValidationException::withMessages(['invitation' => 'Only a pending or expired invitation can be sent again.']);
+                throw $via === null
+                    ? ValidationException::withMessages(['invitation' => 'Only a pending or expired invitation can be sent again.'])
+                    : new ApplicationInvitationRefused('invitation_not_pending', 409, 'Only a pending or expired invitation can be sent again.');
             }
             $previousInviter = $locked->inviter_id;
-            $superseded = $this->supersede($actor, $locked->application, $locked->email_normalized, $locked->getKey());
+            $superseded = $this->supersede($actor, $locked->application, $locked->email_normalized, $locked->getKey(), $via);
             // Whoever resends passed the full write gate just now, so the roles are theirs to give.
             $locked->forceFill([
                 'token_hash' => AccessInvitation::hashToken($token),
                 'expires_at' => now()->addDays($this->expiresAfterDays()),
                 'inviter_id' => $actor->getKey(),
                 'inviter_credential_version' => (int) $actor->credential_version,
-                'pending_key' => AccessInvitation::pendingKey($locked->application, $locked->email_normalized),
+                'pending_key' => AccessInvitation::pendingKey($locked->application, $locked->email_normalized, $locked->requesting_client_id),
                 // A new token: unproven until its email is sent.
                 'link_handed_over' => true,
             ])->save();
-            $this->audit->record(InvitationAudit::RESENT, $locked, $request, $actor, metadata: ['previous_inviter_id' => $previousInviter]);
-            $this->auditSuperseded($request, $actor, $superseded, $locked);
+            $this->audit->record(InvitationAudit::RESENT, $locked, $request, $actor, metadata: [
+                'previous_inviter_id' => $previousInviter, ...$this->viaMetadata($via, $actor),
+            ]);
+            $this->auditSuperseded($request, $actor, $superseded, $locked, $via);
 
             return $locked;
-        }));
+        }), $via);
 
-        return new IssuedInvitation($invitation, $this->link($token), $this->deliver($request, $actor, $invitation, $application, $token));
+        return new IssuedInvitation($invitation, $this->link($token), $this->deliver($request, $actor, $invitation, $application, $token, $via));
     }
 
-    public function revoke(Request $request, User $actor, AccessInvitation $invitation): void
+    /**
+     * @return AccessInvitation the invitation as it now stands: revoked, or as it was if already revoked
+     */
+    public function revoke(Request $request, User $actor, AccessInvitation $invitation, ?RequestingClient $via = null): AccessInvitation
     {
-        DB::transaction(function () use ($request, $actor, $invitation): void {
+        return DB::transaction(function () use ($request, $actor, $invitation, $via): AccessInvitation {
             $locked = AccessInvitation::query()->lockForUpdate()->findOrFail($invitation->getKey());
+            $this->assertSamePath($locked, $via);
             if ($locked->accepted_at !== null) {
-                throw ValidationException::withMessages(['invitation' => 'This invitation was already accepted. Change the person\'s access instead.']);
+                throw $via === null
+                    ? ValidationException::withMessages(['invitation' => 'This invitation was already accepted. Change the person\'s access instead.'])
+                    : new ApplicationInvitationRefused('invitation_accepted', 409, 'This invitation was already accepted.');
             }
             if ($locked->revoked_at !== null) {
-                return;
+                return $locked;
             }
             $locked->forceFill(['revoked_at' => now(), 'revoked_by' => $actor->getKey(), 'pending_key' => null])->save();
-            $this->audit->record(InvitationAudit::REVOKED, $locked, $request, $actor);
+            $this->audit->record(InvitationAudit::REVOKED, $locked, $request, $actor, metadata: $this->viaMetadata($via, $actor));
+
+            return $locked;
         });
+    }
+
+    /**
+     * Each path manages only its own invitations: the provider's pages never touch one an application
+     * requested, and an application only those requested through its own client.
+     *
+     * @throws ApplicationInvitationRefused|NotFoundHttpException
+     */
+    private function assertSamePath(AccessInvitation $invitation, ?RequestingClient $via): void
+    {
+        if ($invitation->requesting_client_id === $via?->clientId) {
+            return;
+        }
+        if ($via !== null) {
+            throw new ApplicationInvitationRefused('invitation_not_found', 404, 'No such invitation for this client.');
+        }
+        abort(404);
+    }
+
+    /**
+     * Audit metadata for an application's own invitation: the requesting client and the actor's
+     * provider subject, as its assertion named it.
+     *
+     * @return array<string, mixed>
+     */
+    private function viaMetadata(?RequestingClient $via, User $actor): array
+    {
+        return $via === null ? [] : [
+            'via' => 'application', 'oauth_client_id' => $via->clientId,
+            'actor_subject' => (string) $actor->getKey(), 'link_returned' => true,
+        ];
     }
 
     /**
@@ -134,11 +191,15 @@ final class AccessInvitationService
      *
      * @return list<AccessInvitation> the invitations it revoked
      */
-    private function supersede(User $actor, string $application, string $normalized, ?int $except): array
+    private function supersede(User $actor, string $application, string $normalized, ?int $except, ?RequestingClient $via = null): array
     {
+        // Only invitations from the same path: an application's own never revokes one sent from the
+        // provider's pages (which may carry roles), nor one requested through another client.
         $holders = AccessInvitation::query()
             ->where('application', $application)
             ->where('email_normalized', $normalized)
+            ->when($via === null, fn ($query) => $query->whereNull('requesting_client_id'),
+                fn ($query) => $query->where('requesting_client_id', $via->clientId))
             ->whereNotNull('pending_key')
             ->when($except !== null, fn ($query) => $query->whereKeyNot($except))
             ->lockForUpdate()->get();
@@ -157,11 +218,11 @@ final class AccessInvitationService
     /**
      * @param  list<AccessInvitation>  $superseded
      */
-    private function auditSuperseded(Request $request, User $actor, array $superseded, AccessInvitation $by): void
+    private function auditSuperseded(Request $request, User $actor, array $superseded, AccessInvitation $by, ?RequestingClient $via = null): void
     {
         foreach ($superseded as $invitation) {
             $this->audit->record(InvitationAudit::REVOKED, $invitation, $request, $actor, metadata: [
-                'reason' => 'superseded', 'superseded_by' => $by->getKey(),
+                'reason' => 'superseded', 'superseded_by' => $by->getKey(), ...$this->viaMetadata($via, $actor),
             ]);
         }
     }
@@ -175,7 +236,7 @@ final class AccessInvitationService
      * @param  \Closure(): T  $work
      * @return T
      */
-    private function serialized(\Closure $work): mixed
+    private function serialized(\Closure $work, ?RequestingClient $via = null): mixed
     {
         try {
             return $work();
@@ -183,7 +244,9 @@ final class AccessInvitationService
             try {
                 return $work();
             } catch (UniqueConstraintViolationException) {
-                throw ValidationException::withMessages(['email' => 'Another invitation to this address was being sent at the same moment. Try again.']);
+                throw $via === null
+                    ? ValidationException::withMessages(['email' => 'Another invitation to this address was being sent at the same moment. Try again.'])
+                    : new ApplicationInvitationRefused('concurrent_invitation', 409, 'Another invitation to this address was being sent at the same moment. Try again.');
             }
         }
     }
@@ -245,7 +308,11 @@ final class AccessInvitationService
             if (! $locked instanceof AccessInvitation || ! $locked->isPending() || ! hash_equals($locked->token_hash, $tokenHash)) {
                 throw new InvitationUnavailable('not_pending');
             }
-            $clientIds = $this->clientIds($locked->application);
+            // An application's own invitation admits to its requesting client alone, and only while that
+            // client may still request invitations for the application.
+            $clientIds = $locked->requesting_client_id !== null
+                ? array_values(array_filter([$this->applicationInvitations->admittingClient($locked)]))
+                : $this->clientIds($locked->application);
             if ($clientIds === []) {
                 throw new InvitationUnavailable('application_unavailable');
             }
@@ -287,6 +354,10 @@ final class AccessInvitationService
             }
             $this->audit->record(InvitationAudit::ACCEPTED, $locked, $request, $person, $person, metadata: [
                 'account_created' => $created, 'oauth_client_ids' => $granted, 'link_handed_over' => $locked->link_handed_over,
+                ...($locked->requesting_client_id === null ? [] : [
+                    'via' => 'application', 'oauth_client_id' => $locked->requesting_client_id,
+                    'actor_subject' => $locked->inviter_id === null ? null : (string) $locked->inviter_id,
+                ]),
             ]);
 
             return [$person, $created];
@@ -347,7 +418,7 @@ final class AccessInvitationService
             ->values()->all();
     }
 
-    private function deliver(Request $request, User $actor, AccessInvitation $invitation, RegisteredApplication $application, #[SensitiveParameter] string $token): bool
+    private function deliver(Request $request, User $actor, AccessInvitation $invitation, RegisteredApplication $application, #[SensitiveParameter] string $token, ?RequestingClient $via = null): bool
     {
         try {
             Mail::to($invitation->email)->send(new AccessInvitationMail($application->name, $this->link($token), $this->expiresAfterDays()));
@@ -358,10 +429,13 @@ final class AccessInvitationService
             $sent = false;
         }
         if ($sent) {
-            $invitation->forceFill(['last_sent_at' => now(), 'send_count' => $invitation->send_count + 1, 'link_handed_over' => false])->save();
+            // An application's own invitation returns its link to the application every time, so
+            // opening it never proves the address, sent or not.
+            $invitation->forceFill(['last_sent_at' => now(), 'send_count' => $invitation->send_count + 1,
+                'link_handed_over' => $via !== null])->save();
         }
-        $this->audit->record(InvitationAudit::SENT, $invitation, $request, $actor, succeeded: $sent);
-        if (! $sent) {
+        $this->audit->record(InvitationAudit::SENT, $invitation, $request, $actor, succeeded: $sent, metadata: $this->viaMetadata($via, $actor));
+        if (! $sent && $via === null) {
             // The link is handed to the inviter only now, to share another way, so whoever opens it
             // is no longer proven to read the invited address.
             $this->audit->record(InvitationAudit::LINK_SHOWN, $invitation, $request, $actor);
@@ -375,12 +449,17 @@ final class AccessInvitationService
      *
      * @throws ValidationException
      */
-    private function throttle(User $actor, string $email): void
+    private function throttle(User $actor, string $email, ?RequestingClient $via = null): void
     {
-        $inviterKey = 'access-invite-inviter:'.$actor->getKey();
         $recipientKey = 'access-invite-recipient:'.hash('sha256', AccessInvitation::normalizeEmail($email));
-        $perInviter = max(1, (int) config('delegated-access.invitations.per_inviter_per_hour', 20));
         $perRecipient = max(1, (int) config('delegated-access.invitations.per_recipient_per_day', 5));
+        if ($via !== null) {
+            $this->throttleApplication($actor, $via, $recipientKey, $perRecipient);
+
+            return;
+        }
+        $inviterKey = 'access-invite-inviter:'.$actor->getKey();
+        $perInviter = max(1, (int) config('delegated-access.invitations.per_inviter_per_hour', 20));
         if (RateLimiter::tooManyAttempts($inviterKey, $perInviter)) {
             throw ValidationException::withMessages(['email' => 'You have sent too many invitations. Try again later.']);
         }
@@ -389,6 +468,30 @@ final class AccessInvitationService
         }
         RateLimiter::hit($inviterKey, 3600);
         RateLimiter::hit($recipientKey, 86400);
+    }
+
+    /**
+     * Per requesting client, per actor and per recipient address (that budget shared with the
+     * provider's own invitations), counted whether or not the address has an account.
+     *
+     * @throws ApplicationInvitationRefused
+     */
+    private function throttleApplication(User $actor, RequestingClient $via, string $recipientKey, int $perRecipient): void
+    {
+        $limits = [
+            'application' => ['application-invite-client:'.$via->clientId, max(1, (int) config('application-invitations.per_application_per_hour', 100)), 3600],
+            'actor' => ['application-invite-actor:'.$actor->getKey(), max(1, (int) config('application-invitations.per_actor_per_hour', 20)), 3600],
+            'recipient' => [$recipientKey, $perRecipient, 86400],
+        ];
+        foreach ($limits as $limit => [$key, $max]) {
+            if (RateLimiter::tooManyAttempts($key, $max)) {
+                throw new ApplicationInvitationRefused('rate_limited', 429, 'Too many invitations. Try again later.', ['limit' => $limit],
+                    ['Retry-After' => (string) max(1, RateLimiter::availableIn($key))]);
+            }
+        }
+        foreach ($limits as [$key, , $decay]) {
+            RateLimiter::hit($key, $decay);
+        }
     }
 
     private function newToken(): string
