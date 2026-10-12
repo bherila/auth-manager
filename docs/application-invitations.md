@@ -215,10 +215,8 @@ link alone is not enough to create an account.
 - It expires after 15 minutes, works once, and five wrong entries spend it; the recipient then sends
   a new one.
 - At most five codes are sent per link, and five an hour to one address across every invitation.
-- A code is sent only when the provider's mailer delivers, and stored only once its email was accepted
-  for delivery, so the live code is always the latest one delivered. If mail is unavailable, no code
-  is sent and no account can be created; the page says so. A failed send leaves any earlier code as
-  it was.
+- A code is sent only when the provider's mailer delivers. If mail is unavailable or the send fails,
+  no account can be created, and the page says so.
 
 The settings are in `config/application-invitations.php` under `verification`.
 
