@@ -18,6 +18,7 @@ use App\Support\ApplicationInvitations;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\DatabaseNonceStore;
 use DateTimeImmutable;
+use Illuminate\Cache\RateLimiter as CacheRateLimiter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Once;
 use Illuminate\Support\Str;
@@ -37,6 +39,7 @@ use Lcobucci\JWT\Encoding\JoseEncoder;
 use Lcobucci\JWT\Signer\Key\InMemory;
 use Lcobucci\JWT\Signer\Rsa\Sha256;
 use Lcobucci\JWT\Token\Builder;
+use Mockery;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\Fixtures\UsesDurableNonces;
 use Tests\TestCase;
@@ -602,6 +605,24 @@ class ApplicationInvitationTest extends TestCase
         $this->assertSame(['mail_unavailable', 'delivery_failed'], AuthAuditLog::query()->where('event', InvitationAudit::CODE_SENT)
             ->where('succeeded', false)->orderBy('id')->get()->pluck('metadata.reason')->slice(2)->values()->all());
         $this->assertSame(0, User::query()->where('email', 'third@example.test')->count());
+    }
+
+    public function test_the_per_address_code_limit_holds_when_concurrent_requests_all_see_it_unspent(): void
+    {
+        config(['application-invitations.verification.per_address_per_hour' => 1]);
+        $links = array_map(fn (string $application): string => $this->path($this->create('person@example.test', application: $application)->json('invitation.link')),
+            ['example-app', 'other-app']);
+        // Every request checks before any has counted, as concurrent ones would: only the count each
+        // request itself takes may decide.
+        $limiter = Mockery::mock(app(CacheRateLimiter::class))->makePartial();
+        $limiter->shouldReceive('tooManyAttempts')->andReturnFalse();
+        $this->app->instance(CacheRateLimiter::class, $limiter);
+        RateLimiter::swap($limiter);
+
+        foreach ($links as $link) {
+            $this->post($link.'/code')->assertRedirect($link);
+        }
+        Mail::assertSent(InvitationCodeMail::class, 1);
     }
 
     public function test_the_application_holding_the_link_alone_cannot_create_the_account(): void

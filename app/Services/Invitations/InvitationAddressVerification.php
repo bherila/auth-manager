@@ -51,8 +51,10 @@ final class InvitationAddressVerification
         if (! AccessInvitationService::mailDelivers()) {
             return $this->refuseSend($request, $invitation, 'mail_unavailable');
         }
+        // Count first and decide on the count this request took, so concurrent requests for other
+        // invitations to the same address cannot all pass a check made before any of them counted.
         $addressKey = 'invitation-code-address:'.hash('sha256', $invitation->email_normalized);
-        if (RateLimiter::tooManyAttempts($addressKey, $this->setting('per_address_per_hour', 5))) {
+        if (RateLimiter::hit($addressKey, 3600) > $this->setting('per_address_per_hour', 5)) {
             return $this->refuseSend($request, $invitation, 'rate_limited');
         }
 
@@ -76,9 +78,11 @@ final class InvitationAddressVerification
             return [self::SENT, $hash];
         });
         if ($stored !== self::SENT) {
+            // Nothing was sent, so nothing is owed to the address's budget.
+            RateLimiter::decrement($addressKey, 3600);
+
             return $this->refuseSend($request, $invitation, $stored);
         }
-        RateLimiter::hit($addressKey, 3600);
 
         try {
             Mail::to($invitation->email)->send(new InvitationCodeMail($applicationName, $code, $this->expiresMinutes()));
