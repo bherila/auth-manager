@@ -120,6 +120,9 @@ These are narrow delegated-administration permissions, not provider administrati
 
 ## Invitations
 
+(Invitations an application requests for itself, with no roles, are a separate path that these
+pages neither list nor manage: see [application-requested admission invitations](application-invitations.md).)
+
 Invitations let a manager give someone access to an application by email, whether or not that
 person has an account here yet. They are off unless `AUTH_MANAGER_INVITATIONS_ENABLED=true`, and
 are offered only for an application that advertises provisioning and has writes enabled.
