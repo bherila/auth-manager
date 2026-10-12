@@ -523,6 +523,15 @@ class ApplicationInvitationTest extends TestCase
         $client->forceFill(['scopes' => ['identity:read', ApplicationInvitations::SCOPE]])->save();
         $this->artisan('auth-manager:application-invitations', ['key' => 'example-app'])->expectsTable($headers, [$row('yes', 'yes'), $publicRow])->assertSuccessful();
 
+        // A listed key file that is missing or not a public key cannot verify anything.
+        File::put($this->oauthKeyDirectory.'/not-a-key.pem', 'not a key');
+        foreach (['missing' => $this->oauthKeyDirectory.'/missing.pem', 'not a key' => $this->oauthKeyDirectory.'/not-a-key.pem'] as $path) {
+            config(['application-invitations.keys_environment' => "example-app|example-app-v1|{$path}"]);
+            $this->artisan('auth-manager:application-invitations', ['key' => 'example-app'])
+                ->expectsOutputToContain('not a readable public key')->expectsTable($headers, [$row('yes', 'no'), $publicRow])->assertSuccessful();
+            $this->create('person@example.test')->assertStatus(503)->assertJsonPath('error', 'invalid_configuration');
+        }
+
         $this->artisan('auth-manager:application-invitations', ['key' => 'example-app', '--remove-client-credentials' => true])->assertSuccessful();
         $this->assertSame(['authorization_code', 'refresh_token'], $this->clients['example-app']->fresh()->grant_types);
         $this->artisan('auth-manager:application-invitations', ['key' => 'missing-app'])->assertFailed();

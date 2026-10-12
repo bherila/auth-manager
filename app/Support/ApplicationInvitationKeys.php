@@ -57,6 +57,31 @@ final class ApplicationInvitationKeys
     }
 
     /**
+     * The application's public keys, loaded: PEM by key id; empty when it has none. A listed file
+     * that is missing, unreadable or not a public key fails the whole set, reported by key id only.
+     *
+     * @return array<string, string>
+     *
+     * @throws InvalidArgumentException when the configured value is malformed or a key cannot be used
+     */
+    public function publicKeys(string $application): array
+    {
+        $keys = [];
+        foreach ($this->for($application) as $keyId => $path) {
+            $pem = is_file($path) && is_readable($path) ? file_get_contents($path) : false;
+            if (! is_string($pem) || openssl_pkey_get_public($pem) === false) {
+                // The key id only: paths are deployment layout.
+                $failure = new InvalidArgumentException(self::ENVIRONMENT." key {$keyId} for {$application} is not a readable public key.");
+                report($failure);
+                throw $failure;
+            }
+            $keys[$keyId] = $pem;
+        }
+
+        return $keys;
+    }
+
+    /**
      * @return array<string, array<string, string>> application => key id => absolute public key path
      *
      * @throws InvalidArgumentException

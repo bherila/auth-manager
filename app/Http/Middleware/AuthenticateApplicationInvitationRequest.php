@@ -19,7 +19,6 @@ use Laravel\Passport\AccessToken;
 use Laravel\Passport\Passport;
 use League\OAuth2\Server\Exception\OAuthServerException;
 use League\OAuth2\Server\ResourceServer;
-use RuntimeException;
 use Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -139,22 +138,10 @@ class AuthenticateApplicationInvitationRequest
     private function publicKeys(string $application): array
     {
         try {
-            $paths = $this->keys->for($application);
+            return $this->keys->publicKeys($application);
         } catch (InvalidArgumentException) {
             throw self::misconfigured();
         }
-        $keys = [];
-        foreach ($paths as $keyId => $path) {
-            $pem = is_file($path) && is_readable($path) ? file_get_contents($path) : false;
-            if (! is_string($pem) || openssl_pkey_get_public($pem) === false) {
-                // The key id only: paths are deployment layout.
-                report(new RuntimeException(ApplicationInvitationKeys::ENVIRONMENT." key {$keyId} for {$application} is not a readable public key."));
-                throw self::misconfigured();
-            }
-            $keys[$keyId] = $pem;
-        }
-
-        return $keys;
     }
 
     /** The exact URL the assertion must name: this provider's issuer and the request path. */

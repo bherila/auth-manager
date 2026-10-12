@@ -64,7 +64,8 @@ class ManageApplicationInvitations extends Command
 
         $keyIds = [];
         try {
-            $keyIds = array_keys($keys->for($application->key));
+            // Loaded as the endpoint loads them: a key id whose file cannot be used is not ready.
+            $keyIds = array_keys($keys->publicKeys($application->key));
             $keyState = $keyIds === [] ? 'none' : implode(', ', $keyIds);
         } catch (InvalidArgumentException $failure) {
             $keyState = 'invalid: '.$failure->getMessage();
