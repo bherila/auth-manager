@@ -99,8 +99,10 @@ final class InvitationAddressVerification
             // were delivered earlier are untouched.
             $row->delete();
             RateLimiter::decrement($addressKey, 3600);
-            AccessInvitation::query()->whereKey($invitation->getKey())->where('verification_send_count', '>', 0)
-                ->decrement('verification_send_count');
+            // Only while the link that reserved the send is still current: after a resend, the counter
+            // belongs to the new link, and this failure owes it nothing.
+            AccessInvitation::query()->whereKey($invitation->getKey())->where('token_hash', $tokenHash)
+                ->where('verification_send_count', '>', 0)->decrement('verification_send_count');
 
             return $this->refuseSend($request, $invitation, 'delivery_failed');
         }

@@ -692,6 +692,49 @@ class ApplicationInvitationTest extends TestCase
         $this->post($link.'/accept', $this->newPerson($code))->assertRedirect('/invitations/accepted');
     }
 
+    public function test_a_failed_send_refunds_only_its_own_link(): void
+    {
+        config(['application-invitations.verification.max_sends' => 1]);
+        $created = $this->create('person@example.test')->json('invitation');
+        $old = basename($this->path($created['link']));
+        $new = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+
+        // While the old link's code is being sent, the application resends (a new link) and the new
+        // link's one code goes out; then the old link's email fails.
+        $mailer = new class(Mail::getFacadeRoot()->manager) extends MailFake
+        {
+            public ?\Closure $during = null;
+
+            public function send($view, array $data = [], $callback = null)
+            {
+                if ($this->during !== null) {
+                    $during = $this->during;
+                    $this->during = null;
+                    $during();
+                    throw new \RuntimeException('Synthetic transport failure.');
+                }
+
+                return parent::send($view, $data, $callback);
+            }
+        };
+        $mailer->during = function () use ($created, $new): void {
+            AccessInvitation::query()->whereKey($created['id'])->update(['token_hash' => AccessInvitation::hashToken($new),
+                'verification_send_count' => 0, 'verification_attempts' => 0]);
+            InvitationAcceptanceCode::query()->where('access_invitation_id', $created['id'])->delete();
+            $this->assertSame(InvitationAddressVerification::SENT, app(InvitationAddressVerification::class)
+                ->send(Request::create('/'), AccessInvitation::query()->find($created['id']), AccessInvitation::hashToken($new), 'Example Application'));
+        };
+        Mail::swap($mailer);
+
+        $this->post("/invitations/{$old}/code")->assertSessionHas('invitation_error');
+        Mail::assertSent(InvitationCodeMail::class, 1);
+
+        // The old link's failure gave back the old link's count, not the new link's.
+        $this->assertSame(1, AccessInvitation::query()->find($created['id'])->verification_send_count);
+        $this->post("/invitations/{$new}/code")->assertSessionHas('invitation_error');
+        Mail::assertSent(InvitationCodeMail::class, 1);
+    }
+
     public function test_one_code_verified_twice_at_once_admits_once(): void
     {
         $created = $this->create('person@example.test')->json('invitation');
