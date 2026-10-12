@@ -210,13 +210,18 @@ the recipient to have a six-digit code emailed to the invited address; the accou
 when the code is entered with the name and password, and it is then marked email-verified. Holding the
 link alone is not enough to create an account.
 
-- The code is stored only as a keyed hash, bound to the invitation, its current link and its address:
-  it works nowhere else, and a resend (a new link) voids it.
-- It expires after 15 minutes, works once, and five wrong entries spend it; the recipient then sends
-  a new one.
-- At most five codes are sent per link, and five an hour to one address across every invitation.
-- A code is sent only when the provider's mailer delivers. If mail is unavailable or the send fails,
-  no account can be created, and the page says so.
+- Each code is stored only as a keyed hash, bound to the invitation, its current link and its
+  address: it works nowhere else, and a resend (a new link) deletes them all.
+- Every code sent for the link stays usable until it expires (15 minutes), so asking twice gives two
+  working codes. One works once; using it spends the others too.
+- Wrong entries count per invitation: five spend every live code, and the recipient sends a new one.
+- At most five codes are sent per link and five an hour to one address across every invitation, so
+  one link allows at most 25 wrong entries. A send that fails counts against neither limit.
+- The email goes out only after its code is stored, never inside a database transaction. A failed send
+  deletes its code; codes delivered earlier are untouched.
+- A code is sent only when the provider's mailer delivers. If mail is unavailable, no code is sent
+  and no account can be created; the page says so.
+- Expired codes are pruned hourly by the host's scheduler.
 
 The settings are in `config/application-invitations.php` under `verification`.
 
@@ -236,7 +241,8 @@ Everything below is off by default. Enable one application at a time, after the 
 side is deployed with its feature off.
 
 1. Deploy (the migrations add `access_invitations.requesting_client_id`, the
-   `access_invitations.verification_*` columns for acceptance codes, and the
+   `invitation_acceptance_codes` table and two `access_invitations.verification_*` counters for
+   acceptance codes, and the
    `bherila_auth_delegated_nonces` table, used for assertion ids; all are inert until enabled).
    The provider's mailer must deliver: without it, invitations are refused and no code can be sent.
 2. Generate an RS256 key pair for the application, separate from its OAuth and delegated access
@@ -253,7 +259,7 @@ side is deployed with its feature off.
    configuration cache, and run the command again: every column should say yes.
 6. Check end to end from the application with a test address before telling its managers.
 
-The host's scheduler prunes expired assertion ids hourly.
+The host's scheduler prunes expired assertion ids and acceptance codes hourly.
 
 **Turn it off** by removing the application from `AUTH_MANAGER_APPLICATION_INVITATIONS` and
 rebuilding the configuration cache: requests are refused and outstanding links stop admitting. Also

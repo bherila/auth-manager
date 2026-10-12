@@ -119,10 +119,10 @@ final class AccessInvitationService
                 'pending_key' => AccessInvitation::pendingKey($locked->application, $locked->email_normalized, $locked->requesting_client_id),
                 // A new token: unproven until its email is sent.
                 'link_handed_over' => true,
-                // A code was bound to the old link; this one starts with none.
-                'verification_code_hash' => null, 'verification_expires_at' => null,
+                // Codes were bound to the old link; this one starts with none.
                 'verification_attempts' => 0, 'verification_send_count' => 0,
             ])->save();
+            $locked->acceptanceCodes()->delete();
             $this->audit->record(InvitationAudit::RESENT, $locked, $request, $actor, metadata: [
                 'previous_inviter_id' => $previousInviter, ...$this->viaMetadata($via, $actor),
             ]);
