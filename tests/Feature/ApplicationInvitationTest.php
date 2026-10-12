@@ -15,6 +15,7 @@ use App\Services\Invitations\InvitationAudit;
 use App\Support\ApplicationInvitationKeys;
 use App\Support\ApplicationInvitations;
 use BWH\Auth\Models\AuthAuditLog;
+use BWH\Auth\OAuth\DelegatedAccess\DatabaseNonceStore;
 use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Once;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
@@ -275,6 +277,23 @@ class ApplicationInvitationTest extends TestCase
         config(['application-invitations.nonce_connection' => null]);
         $this->create('person@example.test')->assertStatus(503)->assertJsonPath('error', 'replay_storage_unavailable');
         $this->assertSame(0, AccessInvitation::query()->count());
+    }
+
+    public function test_the_nonce_table_is_created_on_the_configured_connection(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'synthetic-nonce-migration-');
+        config(['database.connections.nonce_migration_test' => ['driver' => 'sqlite', 'database' => $path, 'prefix' => ''],
+            'application-invitations.nonce_connection' => 'nonce_migration_test']);
+        try {
+            $migration = require database_path('migrations/2026_10_12_000100_create_delegated_nonces_table.php');
+            $migration->up();
+            $migration->up();
+            $this->assertTrue(Schema::connection('nonce_migration_test')->hasTable(DatabaseNonceStore::TABLE));
+            $this->assertTrue((new DatabaseNonceStore(DB::connection('nonce_migration_test')))->consume(str_repeat('a', 64), 60));
+        } finally {
+            DB::purge('nonce_migration_test');
+            @unlink($path);
+        }
     }
 
     public function test_the_actor_must_be_an_active_account_with_a_grant_to_the_calling_client(): void
