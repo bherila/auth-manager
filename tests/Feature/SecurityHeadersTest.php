@@ -7,6 +7,20 @@ use Tests\TestCase;
 
 final class SecurityHeadersTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // /up answers 500 unless Passport can load its signing keys.
+        $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        $this->assertNotFalse($key);
+        $this->assertTrue(openssl_pkey_export($key, $private));
+        $details = openssl_pkey_get_details($key);
+        if ($details === false) {
+            $this->fail('Could not read the generated public key.');
+        }
+        config(['passport.private_key' => $private, 'passport.public_key' => $details['key']]);
+    }
+
     public function test_secure_responses_include_the_security_header_baseline(): void
     {
         $response = $this->get('https://identity.example.test/up');
