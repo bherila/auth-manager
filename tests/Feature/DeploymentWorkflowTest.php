@@ -20,7 +20,7 @@ class DeploymentWorkflowTest extends TestCase
     public function test_both_deployments_pin_the_v2_action_and_use_atomic_releases(): void
     {
         $this->assertSame(2, preg_match_all(
-            '/uses: bherila\/shared-cpanel-deployment@76e914604ae1e7d07d045f5412371b6634178e47 # v2\.3\.2/',
+            '/uses: bherila\/shared-cpanel-deployment@57aacf3e6f7c1972e1fd0f09eb459c85635900e7 # v2\.4\.0/',
             $this->workflow,
         ));
         $this->assertSame(2, preg_match_all('/uses: bherila\/shared-cpanel-deployment@[a-f0-9]{40}\b/', $this->workflow));
