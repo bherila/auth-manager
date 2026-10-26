@@ -20,7 +20,7 @@
         "laravel-vite-plugin": "^3.2.0",
         "tailwindcss": "^4.3.3",
         "typescript": "^7.0.2",
-        "vite": "^8.3.4"
+        "vite": "^8.3.5"
     },
     "optionalDependencies": {
         "@laravel/multiplex": "^0.4.5"
@@ -30,9 +30,9 @@
         "bwh-auth": "0.4.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
-        "lucide-react": "^1.55.0",
-        "react": "^19.3.0",
-        "react-dom": "^19.3.0",
+        "lucide-react": "^1.61.0",
+        "react": "^19.3.1",
+        "react-dom": "^19.3.1",
         "tailwind-merge": "^3.7.0"
     }
 }
