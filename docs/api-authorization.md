@@ -780,15 +780,18 @@ deprecated once no application uses it.
 ### Caches on both sides
 
 Every short-lived authorization cache in this design uses one configurable Laravel cache
-store, and that store must be **Redis**. The typical deployment is a per-host Redis reached
-over a Unix socket.
+store, and that store must be **Redis**: a dedicated Redis instance for these caches, typically
+one per host reached over its own Unix socket, configured with `maxmemory-policy allkeys-lru`
+(or `volatile-lru`, since every key here has a TTL). The policy is per Redis instance, not per
+database, so a separate database number on a shared no-eviction instance does not provide it.
+Provisioning that instance is an infrastructure prerequisite of P6a, P8, P9, L4 and L5.
 
 | Side | Cache | Lifetime |
 | --- | --- | --- |
-| Relying | Personal-token introspection results | 60 seconds |
-| Relying | Current-status checks for operations requiring a `sensitive` scope | 30 seconds |
+| Relying | Personal-token introspection results, keyed by token hash | 60 seconds active, 10 seconds inactive |
+| Relying | Current-status checks for operations requiring a `sensitive` scope, keyed by `jti` | 30 seconds |
 | Relying | JWKS (key set from the last successful fetch, also held in process memory) | 10 minutes, served stale up to 6 hours |
-| Provider | Application eligibility answers (allow only) | 60 seconds |
+| Provider | Application eligibility answers (allow only), keyed by subject, API and scope set | 60 seconds |
 | Provider | Short lookups whose source is the provider's own database | Up to 60 seconds |
 
 Pending authorization state and rate limiters are not caches of an authoritative source and
@@ -807,14 +810,17 @@ Rules:
   without a stored answer from the source.
 - **Writes are best effort.** Storing an answer may fail silently (logged at most once per
   interval, without the key); it never fails the request that produced the answer.
-- **Namespaced keys.** Keys are `<prefix>:<sha256(issuer)>:<api>:<kind>:<sha256(subject…)>`,
-  so instances and APIs sharing one Redis never read each other's entries. A token is never a
-  key or a value; only its hash is used. Values hold the decision and its expiry, nothing
-  secret.
-- **Eviction is safe.** Losing an entry only causes a recheck, so use an evicting memory policy
-  for these keys (a separate Redis database or instance from anything that needs
-  no-eviction). Under a no-eviction policy a full store rejects every write, which is harmless
-  here but turns every check into an uncached one.
+- **Namespaced keys.** Keys are `<prefix>:<sha256(issuer)>:<api>:<kind>:<id>`, so instances
+  and APIs sharing one Redis never read each other's entries. `<id>` is the token's `jti` for
+  status checks and the SHA-256 of the token for personal tokens: a token's status is cached
+  **per token, never per subject**, so one token's answer can never stand for another of the
+  same person's. Eligibility is the one per-subject entry, because it answers a question about
+  the subject. A token is never a key or a value. Values hold the decision and its expiry,
+  nothing secret.
+- **Eviction is safe.** Losing an entry only causes a recheck, which is why the dedicated
+  instance evicts. On a no-eviction instance a full store rejects every write; the miss rule
+  above keeps that correct, but every check becomes uncached, so it is acceptable only as a
+  stopgap where writes failing is tolerated, never as the configured state.
 - **An outage moves load to the sources.** While Redis is down every check is uncached: each
   personal-token call and each operation requiring a `sensitive` scope introspects, and each
   refresh under `user_access: application` calls the application. The provider bounds this
