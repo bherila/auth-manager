@@ -408,7 +408,9 @@ subset of X it allows now, or none, with a reason code.
 - At every refresh, before a new access token is issued. A positive answer may be cached for
   at most 60 seconds per (subject, API, scope set), so a burst of refreshes is one call; a
   negative answer is never cached.
-- By introspection for sensitive operations, through the same 60-second cache.
+- By introspection, through the same 60-second cache: for operations requiring a `sensitive`
+  scope, and for every personal-token call (personal tokens have no refresh, so this is where
+  a demotion reaches them).
 
 An application-side demotion therefore ends the refresh lineage at the next refresh (within
 one access-token lifetime), instead of leaving a token family that refreshes for its full
