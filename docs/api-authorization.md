@@ -30,7 +30,7 @@ deferred.
 | # | Question | Recommendation |
 | --- | --- | --- |
 | 1 | Catalog | A versioned JSON file per instance, assembled from per-application fragments generated in each application's CI, reviewed where the instance's deployment is defined (the operator's repository, or beside the identity deploy workflow when the application owns that pipeline), read at config-cache time by a pinned release. Not secret. No publish API. |
-| 2 | Token format | RFC 9068 JWT access tokens (`typ: at+jwt`), RS256, a dedicated per-instance key set with `kid`, JWKS validated locally. Five-minute TTL, rotating refresh tokens with family revocation on reuse. |
+| 2 | Token format | RFC 9068 JWT access tokens (`typ: at+jwt`), RS256, a dedicated per-instance key set with `kid`, JWKS validated locally. Five-minute TTL, rotating refresh tokens with family revocation on reuse. Operations needing a catalog-`sensitive` scope get a current-status check automatically. |
 | 3 | Clients | Public DCR clients with PKCE for MCP, static confidential clients by operator command, client credentials deferred. A per-API user-access policy (`granted`, `open` or `application`) keeps the per-user grant posture available and lets an application own eligibility, asked at authorization and at every refresh. |
 | 4 | Consent | Provider-side consent per subject × client × API × scopes, shown with the catalog's text; revocable in account settings and by administrators. Outstanding JWTs live out their five minutes unless the API introspects. |
 | 5 | Personal tokens | Provider-issued, opaque, per API, bound to a non-connection resource, validated by cached introspection. Connection scopes (`mcp:use`) are refused by the catalog validator, the issuer and the relying guard. No opt-in. |
@@ -110,6 +110,10 @@ Validation rules, enforced by one validator used at load and by a check command:
   are reserved and refused in any API.
 - `connection: true` scopes may appear only on resources that also `require` them, and never
   in `personal_tokens` (section 5).
+- `sensitive: true` marks a scope whose operations must see current token status (section 2):
+  the consent screen calls it out and the relying guard checks status before every operation
+  that requires it. It comes from the application's scope declarations through the fragment,
+  like the description.
 - Descriptions are plain text, at most 200 characters, rendered escaped. They are the consent
   copy, so they come only from reviewed configuration, never from client registration.
 - Durations are ISO-8601 with hard ceilings: access tokens at most `PT15M`, refresh absolute
@@ -184,9 +188,9 @@ unreachable); a scope the provider offers but the application does not know is a
 Opaque tokens with RFC 7662 introspection on every request would put the provider on every
 API call's critical path and make a provider outage an outage of every API. Local validation
 keeps the property the per-application design was chosen for (no per-request dependency) and
-costs only the revocation latency of one access-token lifetime, which section 2.5 bounds.
-Introspection survives as an opt-in for sensitive operations and as the validation path for
-personal tokens.
+costs only the revocation latency of one access-token lifetime, which the section on disabled
+accounts below bounds. Introspection survives for operations that require a `sensitive` scope
+and as the validation path for personal tokens.
 
 ### Claims
 
@@ -267,15 +271,17 @@ generation and revoke OAuth rows. With local validation that takes effect:
 
 1. **Within one access-token lifetime** (five minutes by default) everywhere, because the next
    refresh is refused.
-2. **Immediately** for operations an API marks sensitive, through `RequireCurrentTokenStatus`
-   (section 7): an introspection call, cached at most 30 seconds, that answers inactive for a
-   revoked lineage, revoked consent, changed generation or disabled account.
+2. **Immediately** for every operation whose required scopes include a catalog-`sensitive`
+   scope: the relying guard applies the current-status check automatically (section 7), an
+   introspection call cached at most 30 seconds that answers inactive for a revoked lineage,
+   revoked consent, changed generation, disabled account or (for `user_access: application`)
+   withdrawn eligibility.
 3. Applications that already enforce identity status for their web sessions may also compare
    the token's `credential_version` with the generation they recorded for that subject; a
    mismatch is a refusal.
 
-No revocation list is pushed to applications: five minutes plus opt-in introspection is the
-accepted bound.
+No revocation list is pushed to applications: five minutes, plus status checks on sensitive
+operations, is the accepted bound.
 
 ### Authentication context: `auth_time`, `amr`, `acr`, `prompt`, `max_age`
 
@@ -487,7 +493,8 @@ that refuses authorization, refresh and introspection for it at once.
 
 **What revocation does to outstanding JWTs.** Nothing directly: they remain valid until
 `exp`, at most the API's access-token TTL, because they are validated locally. Refresh fails
-immediately. Operations behind `RequireCurrentTokenStatus` refuse within its 30-second cache.
+immediately. Operations requiring a `sensitive` scope refuse within the status check's
+30-second cache.
 The account page says so ("may keep working for up to five minutes").
 
 ## 5. Personal API tokens
@@ -576,7 +583,16 @@ It provides:
   `acr_values` (RFC 9470). `OAuthClient` gains `prompt`, `max_age` and `acr_values` and checks
   the returned `auth_time`, `acr` and `amr` itself rather than trusting that the provider
   honoured the request.
-- **`RequireCurrentTokenStatus`**: introspection for sensitive operations (section 2).
+- **Automatic current-status checks for sensitive scopes.** The scope declarations the
+  fragment is generated from (the capability registry's scope catalog, with descriptions and
+  `sensitive`) are also what the guard reads. Before an operation runs, if its `Requirement`
+  names any `sensitive` scope, the guard checks the token's current status by introspection
+  (30-second cache, fail closed) and refuses an inactive token with 401 `invalid_token`. This
+  applies to registry operations on every binding (REST and MCP tools) and to `RequireScopes`
+  on routes outside the registry, which reads the same declarations. There is no per-route
+  list of sensitive operations to keep in step: marking a scope sensitive in the one
+  declaration changes consent copy, the provider catalog (through the fragment) and enforcement
+  together, and `--check`/`verify` flag a provider catalog whose `sensitive` flags differ.
 - **Protected-resource metadata** (RFC 9728) per resource at its path-inserted well-known URL,
   `authorization_servers: [issuer]`, `scopes_supported` from the registry, `resource` exactly
   the identifier.
@@ -676,7 +692,7 @@ behind each provider capability.
 | L1 | `OAuthClient` `prompt`/`max_age`/`acr_values` with returned-claim checks; session capture of `auth_time`/`amr`/`acr`; `RequireRecentAuthentication` (seconds, `acr=`, `amr=` set) for sessions. | P2 |
 | L2 | JWKS cache (stale, refetch, pinned file) and RFC 9068 validator. | P3 |
 | L3 | `provider-api` guard with dual-accept, resource and scope middleware, challenges, protected-resource metadata, bridge `Principal` adapter, contract test trait. | L2, P4 |
-| L4 | Token step-up challenge (RFC 9470) and `RequireCurrentTokenStatus`. | L3, P8 |
+| L4 | Token step-up challenge (RFC 9470) and automatic current-status checks for operations requiring `sensitive` scopes, driven by the registry's scope declarations. | L3, P8 |
 | L5 | Personal-token introspection path with connection-scope refusal. | L3, P9 |
 | L6 | Catalog fragment generator, `--check`, `verify`. | P1 |
 | L6a | Application side of eligibility: an `eligibility` handler on the access adapter, with a conformance test. | P6a |
