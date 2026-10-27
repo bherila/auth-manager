@@ -259,21 +259,28 @@ APIs are never accepted by the provider's own API routes, which keep Passport's 
   signing), `apis:keys:activate` after at least the relying JWKS cache maximum plus margin
   (one hour), `apis:keys:retire` once the previous key has signed nothing for longer than the
   maximum access-token TTL. Scheduled cadence: every six months. **Emergency rotation**
-  removes the compromised key from JWKS at once; relying caches stop accepting it within
-  their maximum cache age (ten minutes), and the refresh path keeps working, so connectors
-  recover silently on their next refresh.
+  removes the compromised key from JWKS at once and activates the next one; the refresh path
+  keeps working, so connectors recover silently on their next refresh. A relying application
+  that can reach the provider stops accepting the removed key within its cache age (ten
+  minutes). One that cannot (an outage, or an attacker blocking it) keeps the last fetched key
+  set for the stale window (six hours), so the compromised `kid` is also added to the relying
+  deployment's `revoked_kids` denylist, which applies to cached and stale keys alike and
+  takes effect with a configuration deploy.
 
 ### Relying-side validation and JWKS caching
 
-A token is accepted only if all of these hold: `typ` is `at+jwt`; `alg` is in the pinned
+A token is accepted only if all of these hold: `typ` is `at+jwt` or `application/at+jwt`,
+compared case-insensitively (RFC 9068 §4); `alg` is in the pinned
 allowlist; `kid` is in the cached JWKS for the configured issuer; the signature verifies;
 `iss` equals the configured issuer byte for byte; `aud` equals the identifier of the resource
 the route expects (not merely any resource of the application); `exp`/`nbf` hold with at most
 60 seconds of leeway; `client_id`, `sub` and `scope` are present.
 
 JWKS cache: honour `Cache-Control` capped at ten minutes; on an unknown `kid`, refetch at most
-once per minute; if the provider is unreachable, keep serving the last good key set for up to
-24 hours (keys only; tokens still expire). Applications that cannot make outbound calls may
+once per minute; if the provider is unreachable, keep serving the key set from the last
+successful fetch, and only that, for up to six hours (keys only; tokens still expire). No key
+is ever accepted from a response that failed validation, and a `kid` in the deployment's
+`revoked_kids` list is refused whatever the cache holds. Applications that cannot make outbound calls may
 pin the key set in a deployment file instead, as delegated access pins keys, and rotate by
 deploying the next key before activation.
 
@@ -665,7 +672,7 @@ One configuration block names the provider and the application's resources:
         'mcp_alias' => 'https://records.example.test/mcp',
     ],
     'cache_store' => env('PROVIDER_API_CACHE_STORE', 'redis'),
-    'jwks' => ['max_age' => 600, 'stale_for' => 86400, 'pinned_file' => null],
+    'jwks' => ['max_age' => 600, 'stale_for' => 21600, 'pinned_file' => null, 'revoked_kids' => []],
     'introspection' => ['client_id' => env('PROVIDER_API_CLIENT_ID'), 'client_secret' => env('PROVIDER_API_CLIENT_SECRET')],
 ],
 ```
@@ -725,7 +732,7 @@ over a Unix socket.
 | --- | --- | --- |
 | Relying | Personal-token introspection results | 60 seconds |
 | Relying | Current-status checks for operations requiring a `sensitive` scope | 30 seconds |
-| Relying | JWKS (last good key set, also held in process memory) | 10 minutes, served stale up to 24 hours |
+| Relying | JWKS (key set from the last successful fetch, also held in process memory) | 10 minutes, served stale up to 6 hours |
 | Provider | Application eligibility answers (allow only) | 60 seconds |
 | Provider | Short lookups whose source is the provider's own database | Up to 60 seconds |
 
@@ -815,9 +822,9 @@ revoked credentials.
 | Refresh-token theft | Rotation with lineage revocation on reuse; idle and absolute limits; generation and consent rechecked on refresh |
 | Access-token replay | Five-minute TTL; TLS. DPoP (RFC 9449) is planned and built once major MCP clients support it; the token format reserves `cnf.jkt` and the relying validator will require a proof for tokens that carry it |
 | Personal token leak | Opaque with scannable prefix, revocable within 60 seconds, never a connection scope |
-| Signing-key compromise | Blast radius is one instance: every API on it until rotation completes (≤ ten minutes for relying caches) plus outstanding tokens' remaining life. Dedicated instances per product keep this to one product; a shared instance accepts it for its personal applications. Keys are files outside the release tree, never in the database |
+| Signing-key compromise | Blast radius is one instance: every API on it. Forged tokens stop being accepted within ten minutes at relying applications that can reach the provider; one that cannot keeps the old key set for up to six hours unless its `revoked_kids` denylist is deployed, which takes effect immediately. Dedicated instances per product keep this to one product; a shared instance accepts it for its personal applications. Keys are files outside the release tree, never in the database |
 | Catalog tampering | Catalog is reviewed configuration in the pinned release; no runtime write path |
-| Provider unavailable | Issued tokens keep validating until `exp`; JWKS served stale for 24 hours; new connections, refreshes, personal tokens and sensitive-operation checks fail closed |
+| Provider unavailable | Issued tokens keep validating until `exp`; JWKS served stale for up to six hours; new connections, refreshes, personal tokens and sensitive-operation checks fail closed |
 
 Compared with per-application servers, this concentrates risk in the provider (one key set per
 instance instead of one per application) in exchange for one hardened implementation of
@@ -838,7 +845,7 @@ behind each provider capability.
 | P3 | API key set, JWKS, `jwks_uri`, key commands (generate, activate, retire). | — |
 | P4 | RFC 9068 issuance for catalog APIs: resource→API resolution, per-resource ceilings, per-API TTL, authorization-response `iss`. | P1, P3 |
 | P5 | Consent store, consent screen from catalog text, `user_access` policy, first-party skip rule. | P4 |
-| P6 | Refresh rules: lineage reuse revocation, idle/absolute limits, refusal checks. | P4 |
+| P6 | Refresh rules: lineage reuse revocation, idle/absolute limits, refusal checks. Includes an explicit **lineage cutover** step: refresh tokens issued before lineages are recorded for an API are either assigned a lineage at their next refresh (with the credential generation and authentication context they already carry) or retired, chosen and tested before any lineage-dependent revocation is relied on. | P4 |
 | P6a | `user_access: application`: eligibility operation on the application-access channel, authorize-time check and no-consent page, refresh-time check with lineage revocation, scope narrowing. | P5, P6 |
 | P7 | Account connections page, administrator views, instance-wide client revocation, API kill switch. | P5 |
 | P8 | Per-API introspection credentials and `active` rules for API tokens. | P4 |
@@ -852,7 +859,7 @@ behind each provider capability.
 | # | Slice | Depends on |
 | --- | --- | --- |
 | L1 | `OAuthClient` `prompt`/`max_age`/`acr_values` with returned-claim checks; session capture of `auth_time`/`amr`/`acr`; `RequireRecentAuthentication` (seconds, `acr=`, `amr=` set) for sessions. | P2 |
-| L2 | JWKS cache (stale, refetch, pinned file) and RFC 9068 validator. | P3 |
+| L2 | JWKS cache (last-fetch-only stale window, refetch, pinned file, `revoked_kids`) and RFC 9068 validator (`typ` in both spellings). | P3 |
 | L3 | `provider-api` guard with dual-accept, resource and scope middleware, challenges, protected-resource metadata, bridge `Principal` adapter, contract test trait. | L2, P4 |
 | L4 | Token step-up challenge (RFC 9470) and automatic current-status checks for operations requiring `sensitive` scopes, driven by the registry's scope declarations. | L3, P8 |
 | L5 | Personal-token introspection path with connection-scope refusal. | L3, P9 |
