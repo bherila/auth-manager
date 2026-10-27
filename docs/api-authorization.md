@@ -65,6 +65,7 @@ scopes must stay off MCP tokens.
 ```json
 {
   "catalog_version": 1,
+  "source": { "kind": "operator" },
   "apis": {
     "records": {
       "application": "records",
@@ -90,13 +91,18 @@ scopes must stay off MCP tokens.
         "refresh_absolute": "P90D",
         "personal_tokens": { "enabled": true, "resource": "rest", "lifetimes": ["P30D", "P90D"] }
       },
-      "source": { "fragment_sha256": "…", "generated_from": "records@<commit>" }
+      "fragment": { "sha256": "…", "generated_from": "records@<commit>" }
     }
   }
 }
 ```
 
-Validation rules, enforced by one validator used at load and by a check command:
+Validation rules. One validator runs in two modes: **release-time** (`apis:check`, run by the
+release before activation; every rule) and **runtime load** (structural rules only; never a rule
+that depends on the date or on state outside the file). At runtime an invalid API entry
+disables that API only, and two entries that conflict (for example over an identifier) disable
+both; the rest of the catalog and sign-in keep working. Only a file that cannot be read or
+parsed at all disables API authorization for the instance.
 
 - API keys and resource names are registry-style lowercase keys. `application` must be an
   instance registry key (checked when the registry is readable; the file alone is still
@@ -105,10 +111,17 @@ Validation rules, enforced by one validator used at load and by a check command:
   `validatedAbsoluteUrl()` rules, canonicalized, and **unique across the whole instance**.
   None may equal the issuer or sit under the issuer's own paths.
 - An alias resource (`scopes_from`) exists only for a migration window and must carry
-  `alias_until`. New connections are never issued for it: an authorization naming an alias is
-  refused with `invalid_target`, and the alias's protected-resource document names the primary
-  resource. Lineages already bound to it keep refreshing until `alias_until`; after that date
-  the validator refuses the catalog until the alias is removed.
+  `alias_until`. The provider never issues tokens for an alias: an authorization naming one is
+  refused with `invalid_target`. During the window the application's alias route answers a
+  request without a token with a permanent redirect (308, so `POST` survives) to the primary
+  endpoint, before any challenge, so new connections discover the primary resource; and it
+  accepts tokens for the primary identifier as well as the application's own legacy
+  alias-bound tokens (dual-accept, section 8). If a client fetches the alias's
+  protected-resource document anyway, it names the alias identifier, because RFC 9728 §3.3
+  requires the document's `resource` to match the URL it was reached from. After
+  `alias_until` the alias simply stops being accepted; the runtime never refuses a catalog
+  for a date. `apis:check` fails a catalog with an expired alias, so the next release removes
+  it.
 - Every scope listed under a resource exists in the API's `scopes`. `requires` lists scopes a
   token for that resource must contain (today's `resource_required_scopes`).
 - Scope names are unique within an API and may repeat across APIs: a scope means nothing
@@ -142,7 +155,13 @@ Validation rules, enforced by one validator used at load and by a check command:
    - *The relying application owns the instance's deployment pipeline* (its identity deploy
      workflow lives in the application's own repository, which may be public): the
      application's CI-generated fragment and the instance policy are committed beside that
-     workflow, and the workflow assembles the catalog for the release it builds.
+     workflow, and the workflow assembles the catalog for the release it builds. This source is
+     valid **only for an instance that serves exactly that one application**: the catalog
+     declares `"source": {"kind": "application", "application": "<key>"}`, and the validator
+     refuses it if any API belongs to another application. Its policy values are bounded by
+     ceilings compiled into the provider release (the duration ceilings above, the allowed
+     `user_access` values, the DCR limits), which the catalog cannot raise; the instance
+     environment may tighten them further.
 
    Either way the invariants are the same: every change is reviewed (a pull request to the
    repository that defines the deployment), the catalog is pinned to the release (its digest
@@ -155,10 +174,11 @@ Validation rules, enforced by one validator used at load and by a check command:
    The release engine places it with the rest of the deployment configuration. It is read
    during `config:cache`, so a running release serves exactly the catalog it was activated
    with; changing it is a configuration rebuild, never a database or host-panel edit.
-4. `php artisan auth-manager:apis:check` validates the file and is run by the release before
-   activation. At runtime, an invalid catalog disables API authorization only (every API
-   request is refused with `temporarily_unavailable`, reported once without the value);
-   sign-in keeps working. This mirrors the delegated-access map.
+4. `php artisan auth-manager:apis:check` validates the file in release-time mode and is run
+   by the release before activation. At runtime the load rules above apply: a disabled API is
+   refused at the authorization endpoint with `temporarily_unavailable` and at the token and
+   introspection endpoints with HTTP 503 and `Retry-After`, reported once without the value.
+   Sign-in keeps working. This mirrors the delegated-access map.
 
 A small catalog may instead be passed inline as `AUTH_MANAGER_API_CATALOG_JSON` for
 deployments whose engine cannot place files; the same validator applies.
@@ -600,9 +620,10 @@ The account page says so ("may keep working for up to five minutes").
   API that needs them, instead of being tied to `AUTH_MANAGER_PROFILE=resource`.
 - An instance on the `resource` profile **without** a catalog gets a synthesized one-API
   catalog from `AUTH_MANAGER_OAUTH_RESOURCE`: one resource, scopes `mcp:use` and `offers:read`,
-  `user_access: open`, its existing introspection client. Its tokens keep today's format until
-  the operator replaces the synthesis with an explicit catalog; the move to RFC 9068 tokens is
-  then an ordinary release with a reconnect.
+  `user_access: open`, its existing introspection client. It keeps today's token format and is
+  **excluded from RFC 9068 issuance**, JWKS publication, consent records and the other
+  per-API features until the operator replaces it with an explicit catalog; the move to RFC 9068
+  tokens is then an ordinary release with a reconnect.
 - The `bherila` profile without a catalog is unchanged: sign-in only, per-client grants.
 - Once no instance relies on the synthesis, the `resource` profile is removed and profiles
   carry only theme and issuer defaults. That closes the question #68 asked.
@@ -761,7 +782,7 @@ revoked credentials.
 | Threat | Mitigation |
 | --- | --- |
 | Token for API A used at API B on the same instance | Single `aud`, compared exactly per route; identifiers unique per instance; scope ceilings per resource |
-| REST token used at MCP (or alias) | Each is its own audience; the connection scope is required on MCP resources and admissible nowhere else |
+| REST token used at MCP (or alias) | Each is its own audience; the connection scope is required on MCP resources and admissible nowhere else. An alias route accepts its primary MCP identifier only during its window, and the provider never issues for an alias |
 | Token from another instance | Pinned issuer and its own JWKS; keys never shared across instances |
 | Sign-in token used as an API token | `typ: at+jwt` required; sign-in tokens' `aud` is a client ID |
 | Issuer mix-up at a client | RFC 9207 `iss` on authorization responses (enable `authorization_response_issuer` for API flows); the package's existing named-server defences |
@@ -792,7 +813,7 @@ behind each provider capability.
 
 | # | Slice | Depends on |
 | --- | --- | --- |
-| P1 | Catalog schema, validator, loader, `apis:check`, synthesized `resource`-profile catalog, public per-API catalog document. No behaviour change. | — |
+| P1 | Catalog schema, validator (release-time and runtime modes, per-API disablement), loader, `apis:check`, source kinds and policy ceilings, synthesized `resource`-profile catalog kept on the legacy format, public per-API catalog document. No behaviour change. | — |
 | P2 | Authentication context: record `auth_time`/`amr` at every sign-in method, carry on codes/tokens/lineages, add to the identity response, enforce `prompt=login`, `max_age`, `acr_values` (ladder and method-class values, restricting offered methods), advertise them. | — |
 | P3 | API key set, JWKS, `jwks_uri`, key commands (generate, activate, retire). | — |
 | P4 | RFC 9068 issuance for catalog APIs: resource→API resolution, per-resource ceilings, per-API TTL, authorization-response `iss`. | P1, P3 |
