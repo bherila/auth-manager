@@ -72,7 +72,7 @@ scopes must stay off MCP tokens.
       "resources": {
         "rest":      { "identifier": "https://records.example.test/api/v1",     "scopes": ["records:read", "records:write"] },
         "mcp":       { "identifier": "https://records.example.test/api/v1/mcp", "scopes": ["mcp:use", "records:read", "records:write"], "requires": ["mcp:use"] },
-        "mcp_alias": { "identifier": "https://records.example.test/mcp",        "scopes_from": "mcp" }
+        "mcp_alias": { "identifier": "https://records.example.test/mcp",        "scopes_from": "mcp", "alias_until": "2027-01-31" }
       },
       "default_resource": "rest",
       "scopes": {
@@ -83,7 +83,7 @@ scopes must stay off MCP tokens.
       "policy": {
         "user_access": "granted",
         "dynamic_registration": true,
-        "first_party_consent_skip": false,
+        "first_party_consent_skip": true,
         "access_token_ttl": "PT5M",
         "refresh_idle": "P30D",
         "refresh_absolute": "P90D",
@@ -103,6 +103,11 @@ Validation rules, enforced by one validator used at load and by a check command:
 - Every resource `identifier` is an absolute HTTPS URL by the existing
   `validatedAbsoluteUrl()` rules, canonicalized, and **unique across the whole instance**.
   None may equal the issuer or sit under the issuer's own paths.
+- An alias resource (`scopes_from`) exists only for a migration window and must carry
+  `alias_until`. New connections are never issued for it: an authorization naming an alias is
+  refused with `invalid_target`, and the alias's protected-resource document names the primary
+  resource. Lineages already bound to it keep refreshing until `alias_until`; after that date
+  the validator refuses the catalog until the alias is removed.
 - Every scope listed under a resource exists in the API's `scopes`. `requires` lists scopes a
   token for that resource must contain (today's `resource_required_scopes`).
 - Scope names are unique within an API and may repeat across APIs: a scope means nothing
@@ -117,7 +122,7 @@ Validation rules, enforced by one validator used at load and by a check command:
 - Descriptions are plain text, at most 200 characters, rendered escaped. They are the consent
   copy, so they come only from reviewed configuration, never from client registration.
 - Durations are ISO-8601 with hard ceilings: access tokens at most `PT15M`, refresh absolute
-  at most `P365D`, personal tokens at most `P365D`.
+  at most `P365D`, personal tokens at most `P90D`.
 
 ### How the catalog reaches the provider
 
@@ -222,7 +227,9 @@ APIs are never accepted by the provider's own API routes, which keep Passport's 
   `/.well-known/jwks.json`, referenced by `jwks_uri` in the authorization-server metadata.
 - **RS256, 3072-bit.** It is the RFC 9068 mandatory algorithm, the one Passport and the
   delegated-access assertions already use, and supported by the package's JWT library
-  without new dependencies. HS256 is rejected outright (every API would hold a minting
+  without new dependencies. **One key set per instance**, shared by its APIs: tokens carry a
+  single exact audience, so a per-API key would add rotation work without separating anything
+  the audience check does not already separate. HS256 is rejected outright (every API would hold a minting
   secret). ES256/EdDSA are acceptable later; the relying validator pins an algorithm
   allowlist per issuer so a change is an explicit configuration step.
 - **`kid` is the RFC 7638 thumbprint**, so a key cannot be republished under another
@@ -296,7 +303,8 @@ it, and the refresh lineage carry them unchanged.
 | --- | --- |
 | Password | `pwd` |
 | Emailed sign-in code | `otp` |
-| Passkey | `hwk`, plus `user` when the authenticator reported user verification |
+| Device-bound passkey (authenticator data's backup-eligible flag clear) | `hwk`, plus `user` when the authenticator reported user verification |
+| Synced passkey (backup-eligible flag set) | `swk`, plus `user` when the authenticator reported user verification |
 | Password then a second factor (roadmap) | `pwd`, the factor's value, `mfa` |
 
 **`acr`.** A small instance vocabulary, ordered:
@@ -304,7 +312,7 @@ it, and the refresh lineage carry them unchanged.
 | `acr` | Satisfied by |
 | --- | --- |
 | `urn:auth-manager:acr:single` | Any one method |
-| `urn:auth-manager:acr:phishing-resistant` | A passkey with user verification |
+| `urn:auth-manager:acr:phishing-resistant` | A passkey (synced or device-bound) with user verification |
 | `urn:auth-manager:acr:mfa` | Reserved until a second factor exists (appendix) |
 
 **Method sets, not only the ladder.** Some step-ups ask "did this person just prove control of
@@ -319,9 +327,11 @@ already carry:
 | --- | --- |
 | `urn:auth-manager:amr:pwd` | Password |
 | `urn:auth-manager:amr:otp` | Emailed sign-in code |
-| `urn:auth-manager:amr:hwk` | Passkey |
+| `urn:auth-manager:amr:hwk` | Device-bound passkey |
+| `urn:auth-manager:amr:swk` | Synced passkey |
 
-Several entries mean any of them (`acr_values` is a preference list). The returned `acr` names
+Several entries mean any of them (`acr_values` is a preference list); "any passkey" is
+`amr:hwk amr:swk`. The returned `acr` names
 the entry satisfied, and `amr` lists what was actually used.
 
 **Requests the provider enforces** on `/oauth/authorize`, for sign-in and API clients alike:
@@ -330,8 +340,8 @@ the entry satisfied, and `amr` lists what was actually used.
 - `max_age=N`: re-authenticate if the session's `auth_time` is older than N seconds
   (`max_age=0` behaves like `prompt=login`).
 - `acr_values`: re-authenticate with a method that satisfies one of the values, offering only
-  those methods on the sign-in screen (a request for `amr:otp amr:hwk` shows no password
-  form); refuse with `access_denied`/`unmet_authentication_requirements` when the person has no
+  those methods on the sign-in screen (a request for `amr:otp amr:hwk amr:swk` shows no
+  password form); refuse with `access_denied`/`unmet_authentication_requirements` when the person has no
   such method (for example, no passkey enrolled).
 - `prompt=none` remains refused, as today.
 
@@ -479,9 +489,9 @@ mishandle partially granted scope sets and the result is support load, not safet
 by application eligibility is different: it is policy, applied before the screen, and the
 token response's `scope` reports it.)
 
-`first_party_consent_skip` lets a static first-party client of the API's own application skip
-consent (today's `skipsAuthorization` rule, narrowed to its own API). Dynamic clients never
-skip.
+`first_party_consent_skip` lets the API's own application's first-party static client skip
+consent for that API only (today's `skipsAuthorization` rule, narrowed to its own API). No
+other client skips, on that API or any other, and dynamic clients never skip.
 
 **Account pages.** `/settings/connections` lists, per API, each connected client with scopes,
 dates and last use, and offers **Disconnect**. Disconnecting revokes the consent, every
@@ -576,7 +586,8 @@ It provides:
   token, so the capability registry's `Requirement`s enforce scopes unchanged and permissions
   stay the application's.
 - **`RequireRecentAuthentication:<seconds>[,acr=<value>][,amr=<m>|<m>…]`** for both
-  principals, for example `RequireRecentAuthentication:300,amr=otp|hwk`. It is satisfied when
+  principals, for example `RequireRecentAuthentication:300,amr=otp|hwk|swk`
+  (email or any passkey). It is satisfied when
   `auth_time` is within the given seconds **and**, if given, `acr` satisfies the rung **and**,
   if given, `amr` intersects the set. For a session it checks the claims captured at sign-in
   and, when unsatisfied, redirects through `OAuthClient` with `max_age` and the matching
@@ -654,7 +665,7 @@ revoked credentials.
 | Consent phishing (lookalike client names) | Consent text from the reviewed catalog only; dynamic-client warning with redirect host; `user_access: granted` on shared instances; per-API DCR switch; administrators revoke clients instance-wide |
 | Authorization-code interception | S256 PKCE for every client; exact redirect match |
 | Refresh-token theft | Rotation with lineage revocation on reuse; idle and absolute limits; generation and consent rechecked on refresh |
-| Access-token replay | Five-minute TTL; TLS; no sender-constraining in v1 (DPoP is an open question) |
+| Access-token replay | Five-minute TTL; TLS. DPoP (RFC 9449) is planned and built once major MCP clients support it; the token format reserves `cnf.jkt` and the relying validator will require a proof for tokens that carry it |
 | Personal token leak | Opaque with scannable prefix, revocable within 60 seconds, never a connection scope |
 | Signing-key compromise | Blast radius is one instance: every API on it until rotation completes (≤ ten minutes for relying caches) plus outstanding tokens' remaining life. Dedicated instances per product keep this to one product; a shared instance accepts it for its personal applications. Keys are files outside the release tree, never in the database |
 | Catalog tampering | Catalog is reviewed configuration in the pinned release; no runtime write path |
@@ -703,27 +714,26 @@ behind each provider capability.
 P1–P3, P10, L1 and L6 can proceed in parallel. The first relying application pilots once P5,
 P6 and L3 are released; sign-in step-up (P2 + L1) is useful on its own and can ship first.
 
-## Open questions for the owner
+## Decisions (owner, 2026-10-27)
 
-1. **Refresh lifetimes.** Are 30 days idle and 90 days absolute right for API connections, or
-   should connectors re-consent more (or less) often?
-2. **Shared-instance eligibility.** Is "holds a grant to the application's sign-in client" the
-   right rule for `user_access: granted`, or should API access be a separate grant?
-3. **First-party consent skip.** Allow it for an application's own static client on its own
-   API, or always show consent?
-4. **Personal tokens.** Is an introspection dependency (60-second cache) acceptable for
-   personal-token callers? Maximum lifetime: 90 or 365 days?
-5. **Machine-to-machine.** Is there a named service caller that would justify client
-   credentials for relying APIs now?
-6. **Passkey `amr`.** Report synced passkeys as `hwk`, or distinguish device-bound from synced
-   (`swk`) where the authenticator data allows?
-7. **MCP aliases.** Keep alias resources for new connections, or register only one MCP
-   resource per API and keep aliases solely for migration?
-8. **Sender-constrained tokens.** Is DPoP worth planning for once major MCP clients support
-   it?
-9. **Key blast radius on the shared instance.** Accept one key set across its personal
-   applications, or give each API its own signing key (more keys to rotate, smaller blast
-   radius)?
+The questions this proposal left open are decided; the sections above reflect them.
+
+1. **Agent connection refresh:** 30 days idle, 90 days absolute.
+2. **Shared-instance eligibility:** holding a grant to the application's sign-in client is
+   enough to use its API (`user_access: granted`); there is no separate API grant. Where an API
+   uses `user_access: application`, the application's answer governs instead.
+3. **First-party consent skip:** an application's own first-party client may skip consent for
+   its own API, and only that client.
+4. **Personal tokens:** calls may depend on the provider through the short introspection cache;
+   the maximum personal-token lifetime is 90 days.
+5. **Client credentials:** not now (no named machine caller); deferred as described in section 3.
+6. **Passkey `amr`:** synced passkeys are reported as `swk`, device-bound ones as `hwk`.
+7. **Unknown subjects:** refused with `account_not_provisioned`; API calls never provision.
+8. **MCP aliases:** alias resources exist only during migration windows, never for new
+   connections.
+9. **DPoP:** planned; built when major MCP clients support it.
+10. **Signing keys:** one key set per instance; single-audience tokens make per-API keys mostly
+    rotation overhead.
 
 ## Appendix: sign-in layer gaps (out of scope; roadmap)
 
