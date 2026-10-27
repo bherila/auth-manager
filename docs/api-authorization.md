@@ -687,26 +687,42 @@ over a Unix socket.
 | Relying | Current-status checks for operations requiring a `sensitive` scope | 30 seconds |
 | Relying | JWKS (last good key set, also held in process memory) | 10 minutes, served stale up to 24 hours |
 | Provider | Application eligibility answers (allow only) | 60 seconds |
-| Provider | Pending authorization state, registration and token-endpoint throttles | Their existing lifetimes |
+| Provider | Short lookups whose source is the provider's own database | Up to 60 seconds |
+
+Pending authorization state and rate limiters are not caches of an authoritative source and
+are outside this section; they keep their existing stores.
 
 Rules:
 
-- **Fail closed.** A store error never yields an allow. A request that needs a cached answer
-  and cannot read or write the store is refused (503 `temporarily_unavailable`, or the OAuth
-  error of the endpoint) rather than falling through to an uncached provider or application
-  call, which would turn a cache outage into load on the provider. The JWKS is the one
-  exception: a store failure falls back to the in-process copy, never to accepting unverified
-  tokens.
+- **An unavailable store is a cache miss, not a deny.** If Redis cannot be read, the check goes
+  to its authoritative source and proceeds normally if that source answers: provider
+  introspection or the status endpoint for personal tokens and sensitive scopes, the
+  application's eligibility callback, the provider's own database for provider-side lookups,
+  and the in-process copy and then the provider's JWKS endpoint for keys. A request is denied
+  only when the authoritative source itself cannot answer, under the fail-closed rules already
+  given for it (an introspection or eligibility timeout, error or malformed answer). A cache
+  failure never turns into an allow on its own, because nothing is ever allowed from the cache
+  without a stored answer from the source.
+- **Writes are best effort.** Storing an answer may fail silently (logged at most once per
+  interval, without the key); it never fails the request that produced the answer.
 - **Namespaced keys.** Keys are `<prefix>:<sha256(issuer)>:<api>:<kind>:<sha256(subject…)>`,
   so instances and APIs sharing one Redis never read each other's entries. A token is never a
   key or a value; only its hash is used. Values hold the decision and its expiry, nothing
   secret.
-- **Eviction is safe, a full store is not.** Losing an entry only causes a recheck, so use an
-  evicting memory policy for these keys (a separate Redis database or instance from anything
-  that needs no-eviction). Under a no-eviction policy a full store makes every write fail and
-  therefore every cached check fail closed.
-- **The `database` cache store is not acceptable**, and the configuration checks on both sides
-  refuse it (as well as `file`; `array` only in tests). An identical re-put of an existing row
+- **Eviction is safe.** Losing an entry only causes a recheck, so use an evicting memory policy
+  for these keys (a separate Redis database or instance from anything that needs
+  no-eviction). Under a no-eviction policy a full store rejects every write, which is harmless
+  here but turns every check into an uncached one.
+- **An outage moves load to the sources.** While Redis is down every check is uncached: each
+  personal-token call and each operation requiring a `sensitive` scope introspects, and each
+  refresh under `user_access: application` calls the application. The provider bounds this
+  with a rate limit per API introspection credential (and per application for eligibility
+  calls), kept in a limiter store that is not the cache store, so the bound holds during the
+  outage. Calls beyond it get 429, which the relying side treats as a source that cannot
+  answer: sensitive operations and personal-token calls on a busy API are then refused until
+  Redis returns, while ordinary JWT-validated calls are unaffected.
+- **The `database` and `file` cache stores are not configured for these caches**; the
+  configuration checks on both sides refuse them (`array` only in tests). An identical re-put of an existing row
   is reported as a failed write by an engine that counts changed rather than matched rows, and
   that failure mode has caused sign-in outages before.
 
