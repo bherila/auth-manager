@@ -64,8 +64,8 @@ profile. See [`docs/deployment-profiles.md`](docs/deployment-profiles.md) for
 the environment contract, OAuth metadata, dynamic client registration, and
 introspection configuration.
 
-[`docs/api-authorization.md`](docs/api-authorization.md) is the proposed (not
-implemented) design for making the provider the authorization server for
+[`docs/api-authorization.md`](docs/api-authorization.md) is the approved-in-principle
+(not yet implemented) design for making the provider the authorization server for
 relying applications' APIs: per-API audiences and scope catalogs, provider-side
 consent, and locally validated JWT access tokens.
 
