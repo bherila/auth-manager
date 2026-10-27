@@ -377,14 +377,59 @@ authentication).
 - Redirect URIs: exact HTTPS URLs, or RFC 8252 loopback (`http://127.0.0.1`, `http://[::1]`,
   any port) for native clients. No wildcards, fragments, user information or private-use
   schemes in v1.
-- Abuse limits: per-IP registration throttle (10 per hour), an instance-wide cap on
-  registrations that have never completed an authorization (default 500, oldest pruned
-  first), pruning of never-used registrations after 24 hours and of unused ones after the
-  existing 30-day retention.
+- Abuse limits: per-IP registration throttle (10 per hour), an instance-wide cap on unbound
+  registrations (default 500, oldest pruned first), and the per-person limits below.
 - A registration is not consent and is not bound to an API. Every authorization names a
   resource, and consent is per API (section 4).
 - Each API can switch DCR off (`dynamic_registration: false`); DCR is available on the
   instance while at least one enabled API allows it.
+
+### User-scoped dynamic registrations
+
+Popular MCP clients register a new client for every person who connects them, so an instance
+would otherwise collect many near-identical registrations with the same name, each used by one
+person, which nobody can review. A dynamic registration is therefore **owned by the first
+person who completes an authorization with it**:
+
+- **Unbound at registration.** `POST /oauth/register` is anonymous, so a new registration has
+  no owner. An unbound registration expires 24 hours after registration and is
+  garbage-collected hourly, with any codes issued to it.
+- **Bound at the first successful code exchange**, not at consent: when a token request
+  presents an authorization code *and* a PKCE verifier that matches it, the provider sets the
+  owner in the same transaction that consumes the code, with a conditional update that sets
+  the owner only while it is still empty and then re-reads it. A different stored owner fails
+  the exchange with `invalid_grant`.
+- **Only the owner afterwards.** Authorization by anyone else is refused before consent, with a
+  provider page saying the connection belongs to another account and the client should
+  connect again, and `error=access_denied` to the client.
+- **Per-person caps:** at most 25 bound dynamic registrations per person per instance. Binding
+  a further one is refused with a page linking to the connections list; nothing is revoked
+  silently.
+- **Dedupe at binding.** Because registration is anonymous, duplicates cannot be detected when
+  they are registered; they are folded together when bound. A registration's fingerprint is
+  its `software_id` when present, otherwise its normalized `client_name`, plus its sorted
+  redirect URIs and token-endpoint auth method. When a person binds a registration whose
+  fingerprint matches one they already own, the new registration takes its place: the older
+  one is deleted and its lineages revoked, its consent moves to the new client, and consent is
+  shown again if the requested scopes exceed it. Each person therefore has at most one live
+  registration per fingerprint. Returning an existing `client_id` at registration is rejected:
+  anonymous callers would then share one unbound registration, and the first to bind would
+  take it from the others.
+- **Inactivity:** a bound registration with no live lineage for 30 days is deleted.
+
+**Why a registration cannot be hijacked.** Binding needs a valid authorization code delivered
+to one of the registration's redirect URIs (fixed at registration) and the PKCE verifier that
+started that authorization. Someone who learns another person's freshly registered
+`client_id` and authorizes with their own account gets a code sent to the victim's redirect
+endpoint, which they do not control, so they cannot exchange it and cannot bind. Binding adds no
+new consent-phishing path: a malicious registration that a victim authorizes binds to the
+victim, exactly as its tokens already would.
+
+**Compatibility risk.** A client that shares one registration across several people (for
+example a connector registered once for a whole organization) works for the first person and
+is refused for the rest. Verify the major MCP clients register per person before enabling
+binding on an instance; until then an API can set `dynamic_registration_binding: none`, which
+keeps today's unowned registrations with the instance-wide limits.
 
 **Static clients** gain a stored list of APIs and a scope ceiling; authorization outside it is
 `invalid_scope` or `invalid_target`. The existing `oauth_client_grants` keep governing
@@ -493,13 +538,21 @@ token response's `scope` reports it.)
 consent for that API only (today's `skipsAuthorization` rule, narrowed to its own API). No
 other client skips, on that API or any other, and dynamic clients never skip.
 
-**Account pages.** `/settings/connections` lists, per API, each connected client with scopes,
-dates and last use, and offers **Disconnect**. Disconnecting revokes the consent, every
-refresh lineage for that subject × client × API, and the access-token rows, and is audited
-(`api_consent_revoked`).
+**Account pages.** `/settings/connections` groups a person's connections by client name, then
+API, with scopes, dates and last use, and offers **Disconnect**. Disconnecting revokes the
+consent, every refresh lineage for that subject × client × API, and the access-token rows, and
+is audited (`api_consent_revoked`). For a dynamic registration the person owns, disconnecting
+its last API also deletes the registration, so the client's next refresh gets `invalid_client`
+and it registers again if the person reconnects. Access tokens already issued remain valid
+until `exp` (at most five minutes); operations requiring a `sensitive` scope refuse within the
+status check's cache.
 
-**Administration.** Directory administrators can list and revoke a person's connections, and
-revoke a dynamic client instance-wide (all its consents and lineages). An API can be switched
+**Administration.** Directory administrators see dynamic registrations as aggregates, not
+rows: per fingerprint (`software_id` or client name), the number of bound registrations,
+people with live connections, unbound registrations pending expiry, and registrations in the
+last day. From an aggregate they can drill into one person's connections, revoke everything
+under a fingerprint, or add it to a deployment-configured denylist that refuses its future
+registrations. They can also list and revoke a person's connections. An API can be switched
 off by `AUTH_MANAGER_APIS_DISABLED=<key>,…` in deployment configuration as a kill switch;
 that refuses authorization, refresh and introspection for it at once.
 
@@ -660,7 +713,8 @@ revoked credentials.
 | Sign-in token used as an API token | `typ: at+jwt` required; sign-in tokens' `aud` is a client ID |
 | Issuer mix-up at a client | RFC 9207 `iss` on authorization responses (enable `authorization_response_issuer` for API flows); the package's existing named-server defences |
 | `alg` confusion, key substitution | Algorithm allowlist; keys only from the configured issuer's JWKS; thumbprint `kid` |
-| DCR flooding | Throttles, never-used cap and fast pruning; registration creates no consent |
+| DCR flooding | Throttles, an unbound cap with 24-hour expiry, per-person caps and dedupe at binding; registration creates no consent |
+| Binding someone else's registration | Binding only at a code exchange that presents a code sent to the registration's own redirect URI and its PKCE verifier; conditional set-once owner; owner-only authorization afterwards |
 | Application compromise abusing eligibility | Answers can only deny or narrow within the catalog ceiling and the person's consent; never widen. Signed by the provider, pinned endpoint, no redirects |
 | Consent phishing (lookalike client names) | Consent text from the reviewed catalog only; dynamic-client warning with redirect host; `user_access: granted` on shared instances; per-API DCR switch; administrators revoke clients instance-wide |
 | Authorization-code interception | S256 PKCE for every client; exact redirect match |
@@ -696,6 +750,7 @@ behind each provider capability.
 | P8 | Per-API introspection credentials and `active` rules for API tokens. | P4 |
 | P9 | Personal tokens: issuance page, opaque format, introspection path, connection-scope refusals. | P8 |
 | P10 | DCR hardening: redirect rules, caps, pruning. | — |
+| P10a | User-scoped registrations: set-once owner at code exchange, owner-only authorization, per-person caps, fingerprint dedupe, grouped connections page, administrator aggregates and denylist. | P5, P10 |
 | P11 | Remove the synthesized catalog and the `resource` profile once unused. | migrations |
 
 ### auth-laravel
