@@ -623,7 +623,8 @@ One configuration block names the provider and the application's resources:
         'mcp' => 'https://records.example.test/api/v1/mcp',
         'mcp_alias' => 'https://records.example.test/mcp',
     ],
-    'jwks' => ['cache_store' => null, 'max_age' => 600, 'stale_for' => 86400, 'pinned_file' => null],
+    'cache_store' => env('PROVIDER_API_CACHE_STORE', 'redis'),
+    'jwks' => ['max_age' => 600, 'stale_for' => 86400, 'pinned_file' => null],
     'introspection' => ['client_id' => env('PROVIDER_API_CLIENT_ID'), 'client_secret' => env('PROVIDER_API_CLIENT_SECRET')],
 ],
 ```
@@ -672,6 +673,41 @@ It provides:
 
 The in-application authorization-server preset stays in the package during migration and is
 deprecated once no application uses it.
+
+### Caches on both sides
+
+Every short-lived authorization cache in this design uses one configurable Laravel cache
+store, and that store must be **Redis**. The typical deployment is a per-host Redis reached
+over a Unix socket.
+
+| Side | Cache | Lifetime |
+| --- | --- | --- |
+| Relying | Personal-token introspection results | 60 seconds |
+| Relying | Current-status checks for operations requiring a `sensitive` scope | 30 seconds |
+| Relying | JWKS (last good key set, also held in process memory) | 10 minutes, served stale up to 24 hours |
+| Provider | Application eligibility answers (allow only) | 60 seconds |
+| Provider | Pending authorization state, registration and token-endpoint throttles | Their existing lifetimes |
+
+Rules:
+
+- **Fail closed.** A store error never yields an allow. A request that needs a cached answer
+  and cannot read or write the store is refused (503 `temporarily_unavailable`, or the OAuth
+  error of the endpoint) rather than falling through to an uncached provider or application
+  call, which would turn a cache outage into load on the provider. The JWKS is the one
+  exception: a store failure falls back to the in-process copy, never to accepting unverified
+  tokens.
+- **Namespaced keys.** Keys are `<prefix>:<sha256(issuer)>:<api>:<kind>:<sha256(subject…)>`,
+  so instances and APIs sharing one Redis never read each other's entries. A token is never a
+  key or a value; only its hash is used. Values hold the decision and its expiry, nothing
+  secret.
+- **Eviction is safe, a full store is not.** Losing an entry only causes a recheck, so use an
+  evicting memory policy for these keys (a separate Redis database or instance from anything
+  that needs no-eviction). Under a no-eviction policy a full store makes every write fail and
+  therefore every cached check fail closed.
+- **The `database` cache store is not acceptable**, and the configuration checks on both sides
+  refuse it (as well as `file`; `array` only in tests). An identical re-put of an existing row
+  is reported as a failed write by an engine that counts changed rather than matched rows, and
+  that failure mode has caused sign-in outages before.
 
 ## 8. Migration per relying application
 
