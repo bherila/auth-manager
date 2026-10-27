@@ -200,7 +200,7 @@ Three independent checks, because each catches a different drift:
 | Drift | Detected by |
 | --- | --- |
 | Application registry changed, fragment not regenerated | Application CI `--check` |
-| Fragment regenerated, instance catalog not updated (or the reverse) | The relying package's `verify` command, run after each application deploy and daily: it fetches the provider's public per-API catalog (`GET /.well-known/api-catalog/{api}`, names, descriptions, resources, scopes and `fragment_sha256`; no policy, no secrets) and compares it with what the application generates |
+| Fragment regenerated, instance catalog not updated (or the reverse) | The relying package's `verify` command, run after each application deploy and daily: it fetches the provider's public per-API catalog (`GET /.well-known/api-catalog/{api}`, names, descriptions, resources, scopes and the fragment digest; no policy, no secrets) and compares it with what the application generates |
 | Catalog validates but the resource is not actually served | `auth-manager:apis:check --live` fetches each resource's RFC 9728 document and requires its `resource` to match and its `authorization_servers` to name this issuer |
 
 A scope the application requires but the provider lacks is an error (operations are
@@ -230,7 +230,7 @@ Header: `{"typ": "at+jwt", "alg": "RS256", "kid": "<RFC 7638 thumbprint>"}`.
 | `client_id` | The OAuth client |
 | `scope` | Space-delimited scopes, already intersected with the resource's ceiling |
 | `iat`, `nbf`, `exp`, `jti` | Standard; `exp - iat` is the API's access-token TTL |
-| `auth_time` | When the person last actively authenticated at the provider (section 2.6) |
+| `auth_time` | When the person last presented a credential at the provider (below) |
 | `amr` | Methods used for that authentication |
 | `acr` | Assurance class satisfied |
 | `credential_version` | The subject's credential generation when the grant was issued |
@@ -621,7 +621,9 @@ last granted, last used, revoked. Passport keeps tokens; the consent row is the 
 decision that tokens descend from.
 
 **Flow.** At `/oauth/authorize` the provider resolves `resource` to one resource of one API
-(several resources, or none with no `default_resource`, is `invalid_target`), checks
+(several resources is `invalid_target`; no resource is a sign-in request for a static client
+and, for a dynamic client, is refused unless the instance's `omitted_resource_api` applies;
+section 3), checks
 `user_access` (for `application`, the scopes the application allows become the ceiling, and an
 ineligible person sees no consent; section 3), applies the scope ceiling, and shows consent unless an unrevoked consent
 already covers every requested scope. The screen shows the API's name, its application, the
@@ -982,3 +984,36 @@ drop their own login code. None is designed here.
 8. **Anonymous or bearer admission.** Invitations are per email address with a per-inviter
    rate limit, so a shareable "join" link or QR code (for example, for an event-style
    application) cannot be expressed with them.
+
+## Review dispositions
+
+An independent adversarial review of this document at `6483e79` produced the findings below.
+Every one was applied; the table says where and how. (The later change making an unavailable
+cache store a miss rather than a deny was reconciled with them.)
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | `alias_until` makes a catalog fail at runtime on a date | Applied: date rules are release-time only; runtime disables only an invalid API entry; an expired alias just stops being accepted (section 1) |
+| 2 | Fingerprint dedupe revokes sibling registrations of hosted clients | Applied: fingerprints only group, cap and denylist; nothing is folded or revoked at binding; only idle duplicates are cleaned up, audited (section 3) |
+| 3 | A dynamic client could obtain a sign-in token | Applied, with one compatibility rule: `identity:read` is refused and a missing `resource` is `invalid_target`, except that an instance may name a single `omitted_resource_api` for clients that never send `resource`, which binds to that API and never to a sign-in token (section 3) |
+| 4 | Introspection calling the asking application's eligibility endpoint can deadlock | Applied: introspection never asks eligibility; the application checks locally on sensitive operations and personal-token calls; this supersedes the earlier personal-token-by-introspection rule (section 3) |
+| 5 | `maxmemory-policy` is per Redis instance | Applied: a dedicated evicting instance, listed as a slice prerequisite (section 7) |
+| 6 | 24-hour stale JWKS contradicts the key-compromise bound | Applied: last successful fetch only, six hours, `revoked_kids` denylist; threat-model numbers corrected (sections 2, 9) |
+| 7 | Session restoration must not refresh `auth_time`/`amr` | Applied (section 2) |
+| 8 | `hwk`/`swk` assurance and RFC 8176 `user` misuse | Applied: BE recorded and checked, `hwk` documented as unattested, `user` no longer emitted, the phishing-resistant rung is the only passkey assurance to require (section 2) |
+| 9 | Consent moving between clients | Moot after #2; consent never moves (section 3) |
+| 10 | Introspection audience per route | Applied: provider answers inactive for another API's token; relying side compares `aud`/`resource` with the route's resource (sections 2, 10) |
+| 11 | Application-owned catalog source on a multi-application instance | Applied: single-application instances only, validator-enforced, policy bounded by release ceilings (section 1) |
+| 12 | Alias protected-resource document must name the alias | Applied: it names the alias; unauthenticated alias requests are redirected (308) to the primary before any challenge; the alias route accepts primary tokens during its window (section 1) |
+| 13 | Eligibility "bad signature" without signed responses; deadline | Applied: responses are trusted through TLS, pinning and an echo rule; `deadline_ms` per operation (section 3) |
+| 14 | Token endpoint unavailability should be HTTP 503 | Applied: 503 with `Retry-After`; keeping refresh tokens on 5xx is an interoperability test (sections 2, 10) |
+| 15 | Loopback port matching; "no hijack" overstated | Applied: port-insensitive loopback matching, port excluded from fingerprints; rationale restated as no token theft, with the loopback first-binder case (section 3) |
+| 16 | A full unbound cap lets a flood evict fresh registrations | Applied: prune only entries older than 15 minutes, otherwise 429 (section 3) |
+| 17 | Unknown personal tokens can flood introspection | Applied: 10-second negative cache and a per-IP limit (section 5) |
+| 18 | Status cache keyed per subject | Applied: per token (`jti` or token hash) (section 7) |
+| 19 | Synthesized `resource`-profile catalog and RFC 9068 issuance | Applied: legacy format, excluded from RFC 9068 issuance until replaced (section 6) |
+| 20 | Non-owner consents survive binding | Applied: deleted when the owner is set (section 3) |
+| 21 | MCP clients ignore step-up hints | Applied: resources may declare `requires_recent_authentication`, applied at authorization (section 2) |
+| 22 | `acr` versus `amr` precedence | Applied: rungs only from `acr`, methods only from `amr`; returned `acr` is always a rung (section 2) |
+| 23 | Credential-lineage cutover implicit | Applied: an explicit step in the refresh slice (section 10) |
+| 24 | `typ` spelling | Applied: `at+jwt` and `application/at+jwt`, case-insensitive (section 2) |
