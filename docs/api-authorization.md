@@ -288,14 +288,32 @@ it, and the refresh lineage carry them unchanged.
 | `urn:auth-manager:acr:phishing-resistant` | A passkey with user verification |
 | `urn:auth-manager:acr:mfa` | Reserved until a second factor exists (appendix) |
 
+**Method sets, not only the ladder.** Some step-ups ask "did this person just prove control of
+their email or a passkey?" That is neither multi-factor nor phishing-resistant (an emailed code
+is phishable), so no rung of the ladder expresses it, and a ladder rung that did would mislead
+every other reader of `acr`. Requirements can therefore name a set of `amr` methods instead.
+On the wire a method set is requested through `acr_values` with one method-class value per
+method, because `acr_values` is the standard request parameter and the one RFC 9470 challenges
+already carry:
+
+| `acr_values` entry | Re-authenticate with |
+| --- | --- |
+| `urn:auth-manager:amr:pwd` | Password |
+| `urn:auth-manager:amr:otp` | Emailed sign-in code |
+| `urn:auth-manager:amr:hwk` | Passkey |
+
+Several entries mean any of them (`acr_values` is a preference list). The returned `acr` names
+the entry satisfied, and `amr` lists what was actually used.
+
 **Requests the provider enforces** on `/oauth/authorize`, for sign-in and API clients alike:
 
 - `prompt=login`: always re-authenticate before issuing a code.
 - `max_age=N`: re-authenticate if the session's `auth_time` is older than N seconds
   (`max_age=0` behaves like `prompt=login`).
-- `acr_values`: re-authenticate with a method that satisfies one of the values; refuse with
-  `access_denied`/`unmet_authentication_requirements` when the person has no such method
-  (for example, no passkey enrolled).
+- `acr_values`: re-authenticate with a method that satisfies one of the values, offering only
+  those methods on the sign-in screen (a request for `amr:otp amr:hwk` shows no password
+  form); refuse with `access_denied`/`unmet_authentication_requirements` when the person has no
+  such method (for example, no passkey enrolled).
 - `prompt=none` remains refused, as today.
 
 Re-authentication during authorization reuses the existing sign-in screens and must reach the
@@ -306,7 +324,12 @@ same subject; a different person signing in cancels the flow.
 application can store them in its session at login. The authorization-server metadata
 advertises `acr_values_supported`, and `prompt_values_supported` lists `login`.
 
-**Rejected:** applications re-prompting for a password themselves (that is a second login path
+**Enforcement is relying-side.** The provider honouring a request is a convenience; the
+relying application decides from the returned `auth_time` and `amr` (section 7), so a provider
+that ignored `max_age` or offered another method would still be refused.
+
+**Rejected:** a non-standard `amr_values` request parameter (no client library sends it, and
+challenges could not carry it), and applications re-prompting for a password themselves (that is a second login path
 to secure), and inferring freshness from token `iat` (refresh resets it without any
 authentication).
 
@@ -530,12 +553,16 @@ It provides:
 - **`RequireScopes:<scope>,…`** and a bridge `Principal` adapter whose `hasScope()` reads the
   token, so the capability registry's `Requirement`s enforce scopes unchanged and permissions
   stay the application's.
-- **`RequireRecentAuthentication:<seconds>[,<acr>]`** for both principals: for a session,
-  against the `auth_time`/`acr` captured at sign-in, redirecting through `OAuthClient` with
-  `max_age`/`acr_values` (and `SameSubject` on return); for a bearer token, a 401
-  `insufficient_user_authentication` challenge with `max_age` and `acr_values` (RFC 9470).
-  `OAuthClient` gains `prompt`, `max_age` and `acr_values`, and checks the returned
-  `auth_time` and `acr` itself rather than trusting that the provider honoured them.
+- **`RequireRecentAuthentication:<seconds>[,acr=<value>][,amr=<m>|<m>…]`** for both
+  principals, for example `RequireRecentAuthentication:300,amr=otp|hwk`. It is satisfied when
+  `auth_time` is within the given seconds **and**, if given, `acr` satisfies the rung **and**,
+  if given, `amr` intersects the set. For a session it checks the claims captured at sign-in
+  and, when unsatisfied, redirects through `OAuthClient` with `max_age` and the matching
+  `acr_values` (method-class values for an `amr` set), with `SameSubject` on return; for a
+  bearer token it answers 401 `insufficient_user_authentication` with `max_age` and
+  `acr_values` (RFC 9470). `OAuthClient` gains `prompt`, `max_age` and `acr_values` and checks
+  the returned `auth_time`, `acr` and `amr` itself rather than trusting that the provider
+  honoured the request.
 - **`RequireCurrentTokenStatus`**: introspection for sensitive operations (section 2).
 - **Protected-resource metadata** (RFC 9728) per resource at its path-inserted well-known URL,
   `authorization_servers: [issuer]`, `scopes_supported` from the registry, `resource` exactly
@@ -617,7 +644,7 @@ behind each provider capability.
 | # | Slice | Depends on |
 | --- | --- | --- |
 | P1 | Catalog schema, validator, loader, `apis:check`, synthesized `resource`-profile catalog, public per-API catalog document. No behaviour change. | — |
-| P2 | Authentication context: record `auth_time`/`amr` at every sign-in method, carry on codes/tokens/lineages, add to the identity response, enforce `prompt=login`, `max_age`, `acr_values`, advertise them. | — |
+| P2 | Authentication context: record `auth_time`/`amr` at every sign-in method, carry on codes/tokens/lineages, add to the identity response, enforce `prompt=login`, `max_age`, `acr_values` (ladder and method-class values, restricting offered methods), advertise them. | — |
 | P3 | API key set, JWKS, `jwks_uri`, key commands (generate, activate, retire). | — |
 | P4 | RFC 9068 issuance for catalog APIs: resource→API resolution, per-resource ceilings, per-API TTL, authorization-response `iss`. | P1, P3 |
 | P5 | Consent store, consent screen from catalog text, `user_access` policy, first-party skip rule. | P4 |
@@ -633,7 +660,7 @@ behind each provider capability.
 
 | # | Slice | Depends on |
 | --- | --- | --- |
-| L1 | `OAuthClient` `prompt`/`max_age`/`acr_values` with returned-claim checks; session capture of `auth_time`/`amr`/`acr`; `RequireRecentAuthentication` for sessions. | P2 |
+| L1 | `OAuthClient` `prompt`/`max_age`/`acr_values` with returned-claim checks; session capture of `auth_time`/`amr`/`acr`; `RequireRecentAuthentication` (seconds, `acr=`, `amr=` set) for sessions. | P2 |
 | L2 | JWKS cache (stale, refetch, pinned file) and RFC 9068 validator. | P3 |
 | L3 | `provider-api` guard with dual-accept, resource and scope middleware, challenges, protected-resource metadata, bridge `Principal` adapter, contract test trait. | L2, P4 |
 | L4 | Token step-up challenge (RFC 9470) and `RequireCurrentTokenStatus`. | L3, P8 |
