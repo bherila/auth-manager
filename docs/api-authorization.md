@@ -29,7 +29,7 @@ deferred.
 
 | # | Question | Recommendation |
 | --- | --- | --- |
-| 1 | Catalog | A versioned JSON file per instance, assembled from per-application fragments generated in each application's CI, reviewed in the operator's deployment repository, read at config-cache time by a pinned release. No publish API. |
+| 1 | Catalog | A versioned JSON file per instance, assembled from per-application fragments generated in each application's CI, reviewed where the instance's deployment is defined (the operator's repository, or beside the identity deploy workflow when the application owns that pipeline), read at config-cache time by a pinned release. Not secret. No publish API. |
 | 2 | Token format | RFC 9068 JWT access tokens (`typ: at+jwt`), RS256, a dedicated per-instance key set with `kid`, JWKS validated locally. Five-minute TTL, rotating refresh tokens with family revocation on reuse. |
 | 3 | Clients | Public DCR clients with PKCE for MCP, static confidential clients by operator command, client credentials deferred. A per-API user-access policy (`granted`, `open` or `application`) keeps the per-user grant posture available and lets an application own eligibility, asked at authorization and at every refresh. |
 | 4 | Consent | Provider-side consent per subject × client × API × scopes, shown with the catalog's text; revocable in account settings and by administrators. Outstanding JWTs live out their five minutes unless the API introspects. |
@@ -124,10 +124,23 @@ Validation rules, enforced by one validator used at load and by a check command:
    configuration that drive its MCP tools and OpenAPI document. A `--check` mode fails CI
    when the committed fragment differs from what the registry generates, exactly like the
    existing OpenAPI drift checks.
-2. The operator's private deployment repository holds one catalog per instance, assembled
-   from fragments pinned by digest plus instance-owned `policy` blocks (policy is the
-   instance's decision, not the application's). A catalog change is an ordinary reviewed
-   change to that repository.
+2. The catalog lives **where the instance's deployment is defined**, assembled from fragments
+   pinned by digest plus instance-owned `policy` blocks (policy is the instance's decision,
+   not the application's). Two sources are valid:
+   - *An operator deploys the instance:* the operator's private deployment repository holds
+     one catalog per instance.
+   - *The relying application owns the instance's deployment pipeline* (its identity deploy
+     workflow lives in the application's own repository, which may be public): the
+     application's CI-generated fragment and the instance policy are committed beside that
+     workflow, and the workflow assembles the catalog for the release it builds.
+
+   Either way the invariants are the same: every change is reviewed (a pull request to the
+   repository that defines the deployment), the catalog is pinned to the release (its digest
+   recorded with the release, so an activated release has exactly one catalog), and it is read
+   when configuration is built. **Catalog content is not secret**: the provider publishes it
+   (the per-API catalog document and the consent screen), so a public repository is fine.
+   Nothing secret belongs in it; introspection and application-access credentials, signing keys
+   and endpoint secrets stay in the instance's secret store and environment.
 3. The instance's environment names the file: `AUTH_MANAGER_API_CATALOG=/absolute/path`.
    The release engine places it with the rest of the deployment configuration. It is read
    during `config:cache`, so a running release serves exactly the catalog it was activated
