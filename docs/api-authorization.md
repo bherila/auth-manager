@@ -31,7 +31,7 @@ deferred.
 | --- | --- | --- |
 | 1 | Catalog | A versioned JSON file per instance, assembled from per-application fragments generated in each application's CI, reviewed in the operator's deployment repository, read at config-cache time by a pinned release. No publish API. |
 | 2 | Token format | RFC 9068 JWT access tokens (`typ: at+jwt`), RS256, a dedicated per-instance key set with `kid`, JWKS validated locally. Five-minute TTL, rotating refresh tokens with family revocation on reuse. |
-| 3 | Clients | Public DCR clients with PKCE for MCP, static confidential clients by operator command, client credentials deferred. Per-API user-access policy keeps the per-user grant posture available. |
+| 3 | Clients | Public DCR clients with PKCE for MCP, static confidential clients by operator command, client credentials deferred. A per-API user-access policy (`granted`, `open` or `application`) keeps the per-user grant posture available and lets an application own eligibility, asked at authorization and at every refresh. |
 | 4 | Consent | Provider-side consent per subject × client × API × scopes, shown with the catalog's text; revocable in account settings and by administrators. Outstanding JWTs live out their five minutes unless the API introspects. |
 | 5 | Personal tokens | Provider-issued, opaque, per API, bound to a non-connection resource, validated by cached introspection. Connection scopes (`mcp:use`) are refused by the catalog validator, the issuer and the relying guard. No opt-in. |
 | 6 | Profiles | Capability derived from the catalog. The `resource` profile becomes a synthesized one-API catalog so its deployment keeps working unchanged; profiles shrink to defaults. |
@@ -244,7 +244,7 @@ deploying the next key before activation.
 - A refresh is refused, without consuming the token, unless the account is active, its
   `credential_version` matches the one recorded on the lineage, the client is not revoked,
   the consent still covers the scopes, the person still satisfies the API's `user_access`
-  policy, and the API is enabled. The refreshed token keeps the original `auth_time`, `amr`
+  policy (for `application`, by asking the application; section 3), and the API is enabled. The refreshed token keeps the original `auth_time`, `amr`
   and `acr`: refreshing is not re-authenticating.
 
 ### Disabled accounts and credential generations under local validation
@@ -346,8 +346,70 @@ sign-in.
   application" posture without per-client grants for dynamic registrations, which cannot
   exist in advance. Recommended default for shared instances.
 - `open`: any active person on the instance may authorize. Equivalent to today's `resource`
-  profile behaviour, suited to a dedicated product instance whose application decides
-  eligibility itself.
+  profile behaviour. The application can still refuse every call, but the provider will keep
+  refreshing a lineage the application no longer honours until its absolute lifetime ends, so
+  prefer `application` when the application has its own notion of who may use the API.
+- `application`: the provider asks the API's application whether this person may use this API
+  with these scopes, before consent is shown and again at every refresh (below). Recommended
+  for a dedicated product instance whose application owns roles and memberships.
+
+### Application-owned eligibility (`user_access: application`)
+
+**Question asked.** "May subject S use API A with scopes X?" The application answers with the
+subset of X it allows now, or none, with a reason code.
+
+**When.**
+
+- At `/oauth/authorize`, after the person is authenticated and the resource and scope ceiling
+  are resolved, and **before** consent is shown. Always asked fresh (no cache): it is
+  interactive and rare.
+- At every refresh, before a new access token is issued. A positive answer may be cached for
+  at most 60 seconds per (subject, API, scope set), so a burst of refreshes is one call; a
+  negative answer is never cached.
+- By introspection for sensitive operations, through the same 60-second cache.
+
+An application-side demotion therefore ends the refresh lineage at the next refresh (within
+one access-token lifetime), instead of leaving a token family that refreshes for its full
+absolute lifetime while every call is refused.
+
+**Outcomes.**
+
+| Answer | At authorize | At refresh |
+| --- | --- | --- |
+| All requested scopes allowed | Consent (or the existing consent) as usual | New tokens |
+| Some allowed, every resource-`requires` scope among them | Consent shows only the allowed scopes and says some were withheld by the application; the token carries the subset | New tokens with the intersection of consented and allowed scopes, recorded on the lineage |
+| None allowed, or a `requires` scope (such as the connection scope) withheld | No consent offered (below) | `invalid_grant`; the lineage is revoked and audited (`api_eligibility_revoked`) |
+| No usable answer (timeout, error, malformed, bad signature) | "Temporarily unavailable" page; no consent, no code | `temporarily_unavailable`; the refresh token is **not** consumed and the lineage is kept, so a later refresh can succeed |
+
+Narrowing never widens: if the application later allows more, the client gets it only through
+a new authorization and consent. Narrowing below a resource's `requires` set is treated as
+ineligible rather than issuing a token the resource would refuse.
+
+**When eligibility fails at authorize** the provider shows its own page, not a consent
+screen: "Your account does not have access to *API* in *Application*. Ask its administrator."
+The reason code (`not_provisioned`, `not_permitted`, `suspended`) selects fixed provider copy;
+application-supplied text is never rendered. One button returns to the client with
+`error=access_denied`. Nothing is recorded as consent.
+
+**Transport: reuse the signed application-access channel.** The provider already signs
+requests to each application with that application's own key (`application-access+jwt`:
+exact issuer, audience and method, body hash, nonce, at most 60 seconds), pins its endpoint
+in deployment configuration, never follows redirects, bounds the response and fails closed
+([delegated access](delegated-access-transport.md)). Eligibility is one more read operation,
+`eligibility`, on that channel and endpoint, carrying `subject`, `api`, `resource` and
+`scopes` and answered with `{allowed_scopes, reason}`. It is a sessionless path, like
+invitation application, because refresh happens without a provider session; the actor is the
+provider itself, and the subject is a parameter. It ships as an additive contract revision
+that an application opts into by naming it in its delegated-access entry; an API with
+`user_access: application` whose application has not opted in fails catalog validation. The
+deadline is shorter than writes' (two seconds), because it sits on the token endpoint.
+
+**Rejected: the application pushes an eligible-subjects list.** It needs a new authenticated
+write endpoint at the provider (runtime state an application credential can change, which the
+catalog design avoids), it is stale by its push interval exactly when it matters (right after
+a demotion), per-scope answers multiply its size, and it needs reconciliation after missed
+pushes. The pull's apparent cost, a dependency on the application at refresh, is not a real
+one: when the application is down its API is down too, and the lineage survives the outage.
 
 **Client credentials: deferred.** No relying API has a named machine caller. When one does,
 it gets static clients only, scopes marked `machine: true` that are never offered to people,
@@ -363,12 +425,15 @@ decision that tokens descend from.
 
 **Flow.** At `/oauth/authorize` the provider resolves `resource` to one resource of one API
 (several resources, or none with no `default_resource`, is `invalid_target`), checks
-`user_access`, applies the scope ceiling, and shows consent unless an unrevoked consent
+`user_access` (for `application`, the scopes the application allows become the ceiling, and an
+ineligible person sees no consent; section 3), applies the scope ceiling, and shows consent unless an unrevoked consent
 already covers every requested scope. The screen shows the API's name, its application, the
 client's name, the "registered automatically" warning and redirect host for dynamic clients,
 and each scope's catalog description, with `sensitive` and `connection` scopes called out.
 Consent is all-or-nothing in v1; deselecting individual scopes is rejected because clients
-mishandle partially granted scope sets and the result is support load, not safety.
+mishandle partially granted scope sets and the result is support load, not safety. (Narrowing
+by application eligibility is different: it is policy, applied before the screen, and the
+token response's `scope` reports it.)
 
 `first_party_consent_skip` lets a static first-party client of the API's own application skip
 consent (today's `skipsAuthorization` rule, narrowed to its own API). Dynamic clients never
@@ -527,6 +592,7 @@ revoked credentials.
 | Issuer mix-up at a client | RFC 9207 `iss` on authorization responses (enable `authorization_response_issuer` for API flows); the package's existing named-server defences |
 | `alg` confusion, key substitution | Algorithm allowlist; keys only from the configured issuer's JWKS; thumbprint `kid` |
 | DCR flooding | Throttles, never-used cap and fast pruning; registration creates no consent |
+| Application compromise abusing eligibility | Answers can only deny or narrow within the catalog ceiling and the person's consent; never widen. Signed by the provider, pinned endpoint, no redirects |
 | Consent phishing (lookalike client names) | Consent text from the reviewed catalog only; dynamic-client warning with redirect host; `user_access: granted` on shared instances; per-API DCR switch; administrators revoke clients instance-wide |
 | Authorization-code interception | S256 PKCE for every client; exact redirect match |
 | Refresh-token theft | Rotation with lineage revocation on reuse; idle and absolute limits; generation and consent rechecked on refresh |
@@ -556,6 +622,7 @@ behind each provider capability.
 | P4 | RFC 9068 issuance for catalog APIs: resource→API resolution, per-resource ceilings, per-API TTL, authorization-response `iss`. | P1, P3 |
 | P5 | Consent store, consent screen from catalog text, `user_access` policy, first-party skip rule. | P4 |
 | P6 | Refresh rules: lineage reuse revocation, idle/absolute limits, refusal checks. | P4 |
+| P6a | `user_access: application`: eligibility operation on the application-access channel, authorize-time check and no-consent page, refresh-time check with lineage revocation, scope narrowing. | P5, P6 |
 | P7 | Account connections page, administrator views, instance-wide client revocation, API kill switch. | P5 |
 | P8 | Per-API introspection credentials and `active` rules for API tokens. | P4 |
 | P9 | Personal tokens: issuance page, opaque format, introspection path, connection-scope refusals. | P8 |
@@ -572,6 +639,7 @@ behind each provider capability.
 | L4 | Token step-up challenge (RFC 9470) and `RequireCurrentTokenStatus`. | L3, P8 |
 | L5 | Personal-token introspection path with connection-scope refusal. | L3, P9 |
 | L6 | Catalog fragment generator, `--check`, `verify`. | P1 |
+| L6a | Application side of eligibility: an `eligibility` handler on the access adapter, with a conformance test. | P6a |
 | L7 | Deprecate, then remove, the in-application server preset. | all migrations |
 
 P1–P3, P10, L1 and L6 can proceed in parallel. The first relying application pilots once P5,
