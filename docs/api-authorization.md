@@ -323,17 +323,33 @@ operations, is the accepted bound.
 So that applications can require a fresh sign-in or a stronger method without writing login
 code, the provider records how a session was authenticated and enforces requests for more.
 
-**Recording.** Each successful interactive authentication at the provider updates the session
-with `auth_time` and the `amr` values used. The authorization code, the tokens issued from
-it, and the refresh lineage carry them unchanged.
+**Recording.** Only presenting a credential sets `auth_time` and `amr`: a verified password,
+emailed code or passkey assertion updates the session with the time and the method used.
+Restoring a session without one (a remember-me cookie, a session revived after expiry) keeps
+the values the session already had, or none when they are unknown, and a session with none
+satisfies no `max_age` or `acr_values` request, so those always force a real
+re-authentication. The authorization code, the tokens issued from it, and the refresh
+lineage carry the values unchanged.
 
 | Method | `amr` (RFC 8176) |
 | --- | --- |
 | Password | `pwd` |
 | Emailed sign-in code | `otp` |
-| Device-bound passkey (authenticator data's backup-eligible flag clear) | `hwk`, plus `user` when the authenticator reported user verification |
-| Synced passkey (backup-eligible flag set) | `swk`, plus `user` when the authenticator reported user verification |
+| Device-bound passkey (backup-eligible flag clear when enrolled) | `hwk` |
+| Synced passkey (backup-eligible flag set when enrolled) | `swk` |
 | Password then a second factor (roadmap) | `pwd`, the factor's value, `mfa` |
+
+Passkey details:
+
+- The backup-eligible (BE) flag is recorded at enrolment, and an assertion whose BE flag
+  differs from the enrolled value is refused: the flag is fixed for a credential, so a change
+  means the authenticator is not the one enrolled.
+- `hwk` is **not** a stronger assurance than `swk`. Enrolment requests no attestation, so
+  "device-bound" is the authenticator's own unverified claim. `hwk`/`swk` are informational;
+  the only passkey assurance an application may require is the phishing-resistant rung below.
+- User verification is recorded but not reported as an `amr` value. RFC 8176's `user` means a
+  user-presence test, which every passkey assertion includes, so emitting it for verification
+  would misstate what it means. Verification shows up only through the `acr` rung.
 
 **`acr`.** A small instance vocabulary, ordered:
 
@@ -359,8 +375,14 @@ already carry:
 | `urn:auth-manager:amr:swk` | Synced passkey |
 
 Several entries mean any of them (`acr_values` is a preference list); "any passkey" is
-`amr:hwk amr:swk`. The returned `acr` names
-the entry satisfied, and `amr` lists what was actually used.
+`amr:hwk amr:swk`, and applications should ask for that or the phishing-resistant rung rather
+than `amr:hwk` alone. Method-class entries are requests only. The returned `acr` is always a
+rung (the highest one the authentication satisfied), and the method used appears only in
+`amr`.
+
+**Precedence.** Rungs are read only from `acr`, and method sets only from `amr`. A relying check
+never infers a rung from `amr` or a method from `acr`, so the two cannot disagree in a way
+that lets one stand in for the other.
 
 **Requests the provider enforces** on `/oauth/authorize`, for sign-in and API clients alike:
 
@@ -375,6 +397,14 @@ the entry satisfied, and `amr` lists what was actually used.
 
 Re-authentication during authorization reuses the existing sign-in screens and must reach the
 same subject; a different person signing in cancels the flow.
+
+**Catalog-declared freshness.** MCP clients generally ignore step-up challenges and send no
+`max_age`. A resource may therefore declare `requires_recent_authentication`, for example
+`{"max_age": "PT12H", "amr": ["otp", "hwk", "swk"]}` or `{"max_age": "PT1H", "acr":
+"urn:auth-manager:acr:phishing-resistant"}`. The provider applies it at authorization whenever
+the client sent nothing at least as strict, exactly as if the client had sent it. It governs
+when a connection is made; it does not shorten refresh, so operations that need freshness at
+call time still use `RequireRecentAuthentication`.
 
 **Where it surfaces.** API access tokens carry the three claims. The identity response
 (`GET /api/oauth/user`) adds `auth_time`, `amr` and `acr` from the sign-in token, so a relying
@@ -690,8 +720,9 @@ It provides:
 - **`RequireRecentAuthentication:<seconds>[,acr=<value>][,amr=<m>|<m>…]`** for both
   principals, for example `RequireRecentAuthentication:300,amr=otp|hwk|swk`
   (email or any passkey). It is satisfied when
-  `auth_time` is within the given seconds **and**, if given, `acr` satisfies the rung **and**,
-  if given, `amr` intersects the set. For a session it checks the claims captured at sign-in
+  `auth_time` is present and within the given seconds **and**, if given, the `acr` claim
+  satisfies the rung **and**, if given, the `amr` claim intersects the set (rungs only from
+  `acr`, methods only from `amr`). For a session it checks the claims captured at sign-in
   and, when unsatisfied, redirects through `OAuthClient` with `max_age` and the matching
   `acr_values` (method-class values for an `amr` set), with `SameSubject` on return; for a
   bearer token it answers 401 `insufficient_user_authentication` with `max_age` and
@@ -841,7 +872,7 @@ behind each provider capability.
 | # | Slice | Depends on |
 | --- | --- | --- |
 | P1 | Catalog schema, validator (release-time and runtime modes, per-API disablement), loader, `apis:check`, source kinds and policy ceilings, synthesized `resource`-profile catalog kept on the legacy format, public per-API catalog document. No behaviour change. | — |
-| P2 | Authentication context: record `auth_time`/`amr` at every sign-in method, carry on codes/tokens/lineages, add to the identity response, enforce `prompt=login`, `max_age`, `acr_values` (ladder and method-class values, restricting offered methods), advertise them. | — |
+| P2 | Authentication context: record `auth_time`/`amr` only on credential presentation (not session restoration), passkey BE recorded at enrolment and checked at assertion, carry on codes/tokens/lineages, add to the identity response, enforce `prompt=login`, `max_age`, `acr_values` (ladder and method-class values, restricting offered methods) and catalog `requires_recent_authentication`, advertise them. | — |
 | P3 | API key set, JWKS, `jwks_uri`, key commands (generate, activate, retire). | — |
 | P4 | RFC 9068 issuance for catalog APIs: resource→API resolution, per-resource ceilings, per-API TTL, authorization-response `iss`. | P1, P3 |
 | P5 | Consent store, consent screen from catalog text, `user_access` policy, first-party skip rule. | P4 |
