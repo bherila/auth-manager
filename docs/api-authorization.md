@@ -1,6 +1,6 @@
 # API authorization: the provider as authorization server for application APIs
 
-**Status: Approved in principle (owner, 2026-10-27), pending independent review.** Nothing
+**Status: Approved (owner, 2026-10-27)**, after an independent adversarial review (see Review dispositions). Nothing
 here is implemented. This replaces the direction of #68
 (retire the `resource` profile): its pieces become the starting point instead.
 
