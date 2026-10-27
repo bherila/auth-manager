@@ -298,6 +298,11 @@ deploying the next key before activation.
   the consent still covers the scopes, the person still satisfies the API's `user_access`
   policy (for `application`, by asking the application; section 3), and the API is enabled. The refreshed token keeps the original `auth_time`, `amr`
   and `acr`: refreshing is not re-authenticating.
+- When the provider cannot decide (the application's eligibility answer is unavailable, the
+  API is disabled by a catalog error), the token endpoint answers HTTP 503 with `Retry-After`
+  rather than an OAuth error code, and the refresh token is not consumed. Clients are expected
+  to keep their refresh token on a 5xx; that is an interoperability test for each major client
+  (section 10), because a client that discards it on 5xx would be forced to reconnect.
 
 ### Disabled accounts and credential generations under local validation
 
@@ -309,8 +314,14 @@ generation and revoke OAuth rows. With local validation that takes effect:
 2. **Immediately** for every operation whose required scopes include a catalog-`sensitive`
    scope: the relying guard applies the current-status check automatically (section 7), an
    introspection call cached at most 30 seconds that answers inactive for a revoked lineage,
-   revoked consent, changed generation, disabled account or (for `user_access: application`)
-   withdrawn eligibility.
+   revoked consent, changed generation or disabled account. Under `user_access: application`
+   the application also checks its own eligibility locally on those operations (section 3);
+   introspection does not ask it.
+
+Introspection is per API: the provider answers `active: false` for a token whose audience
+belongs to a different API from the introspecting credential's, and the relying side still
+compares the returned `aud` and `resource` with the resource the route expects, so a valid
+answer about a token for another resource of the same API is refused too.
 3. Applications that already enforce identity status for their web sessions may also compare
    the token's `credential_version` with the generation they recorded for that subject; a
    mismatch is a refusal.
@@ -540,9 +551,14 @@ subset of X it allows now, or none, with a reason code.
 - At every refresh, before a new access token is issued. A positive answer may be cached for
   at most 60 seconds per (subject, API, scope set), so a burst of refreshes is one call; a
   negative answer is never cached.
-- By introspection, through the same 60-second cache: for operations requiring a `sensitive`
-  scope, and for every personal-token call (personal tokens have no refresh, so this is where
-  a demotion reaches them).
+- When a person creates a personal token for the API.
+
+**Never from introspection.** Introspection is called by the API's own application, so asking
+that application's eligibility endpoint from inside it would be a call back into the caller,
+which can deadlock a worker pool and adds nothing the caller does not already know. The
+application instead checks its own eligibility locally wherever it would have relied on that
+answer: on operations requiring a `sensitive` scope and on every personal-token call
+(personal tokens have no refresh, so this is where a demotion reaches them).
 
 An application-side demotion therefore ends the refresh lineage at the next refresh (within
 one access-token lifetime), instead of leaving a token family that refreshes for its full
@@ -555,7 +571,7 @@ absolute lifetime while every call is refused.
 | All requested scopes allowed | Consent (or the existing consent) as usual | New tokens |
 | Some allowed, every resource-`requires` scope among them | Consent shows only the allowed scopes and says some were withheld by the application; the token carries the subset | New tokens with the intersection of consented and allowed scopes, recorded on the lineage |
 | None allowed, or a `requires` scope (such as the connection scope) withheld | No consent offered (below) | `invalid_grant`; the lineage is revoked and audited (`api_eligibility_revoked`) |
-| No usable answer (timeout, error, malformed, bad signature) | "Temporarily unavailable" page; no consent, no code | `temporarily_unavailable`; the refresh token is **not** consumed and the lineage is kept, so a later refresh can succeed |
+| No usable answer (timeout, error, malformed, or not matching the request it answers) | "Temporarily unavailable" page; no consent, no code | HTTP 503 with `Retry-After`; the refresh token is **not** consumed and the lineage is kept, so a later refresh can succeed |
 
 Narrowing never widens: if the application later allows more, the client gets it only through
 a new authorization and consent. Narrowing below a resource's `requires` set is treated as
@@ -577,8 +593,13 @@ in deployment configuration, never follows redirects, bounds the response and fa
 invitation application, because refresh happens without a provider session; the actor is the
 provider itself, and the subject is a parameter. It ships as an additive contract revision
 that an application opts into by naming it in its delegated-access entry; an API with
-`user_access: application` whose application has not opted in fails catalog validation. The
-deadline is shorter than writes' (two seconds), because it sits on the token endpoint.
+`user_access: application` whose application has not opted in fails catalog validation.
+
+Requests are signed; **responses are not**. Their trust rests on TLS to an endpoint pinned in
+deployment configuration, no redirects, a bounded body, and the contract's echo rule: an
+answer must repeat the operation, subject, API and request nonce it answers, or it is
+unusable. The deadline is a transport parameter per operation (`deadline_ms`), two seconds for
+`eligibility` because it sits on the token endpoint, against ten for writes.
 
 **Rejected: the application pushes an eligible-subjects list.** It needs a new authenticated
 write endpoint at the provider (runtime state an application credential can change, which the
@@ -655,8 +676,11 @@ The account page says so ("may keep working for up to five minutes").
   for a personal token that carries one or names an MCP resource. There is no opt-in
   (unlike the package's `personal_token_connection_scopes`, which this design retires).
 - Validated by introspection with positive caching of at most 60 seconds, because a long-lived
-  token must be revocable promptly and cannot carry a meaningful `exp`. This is the one place a
-  provider outage affects API calls, and only for personal-token callers.
+  token must be revocable promptly and cannot carry a meaningful `exp`. An unknown or inactive
+  personal token is cached as inactive for 10 seconds, and the relying side limits
+  unknown-personal-token attempts per client IP (default 20 a minute), so guessing or replaying
+  dead tokens cannot turn into an introspection flood. This is the one place a provider outage
+  affects API calls, and only for personal-token callers.
 
 **Rejected:**
 
@@ -847,7 +871,7 @@ revoked credentials.
 | DCR flooding | Throttles, an unbound cap with 24-hour expiry that prunes only entries older than 15 minutes and otherwise answers 429, per-person caps and idle-duplicate clean-up; registration creates no consent |
 | Binding someone else's registration | Binding only at a code exchange that presents a code sent to the registration's own redirect URI and its PKCE verifier; conditional set-once owner; owner-only authorization afterwards. A loopback registration can be bound first by someone who learns its `client_id`: denial of that registration only, never token theft |
 | A dynamic client obtaining a sign-in token | `identity:read` refused to dynamic clients; no `resource` refused unless one omitted-resource API is configured; never an unbound token |
-| Application compromise abusing eligibility | Answers can only deny or narrow within the catalog ceiling and the person's consent; never widen. Signed by the provider, pinned endpoint, no redirects |
+| Application compromise abusing eligibility | Answers can only deny or narrow within the catalog ceiling and the person's consent; never widen. Requests signed by the provider; responses trusted through TLS to a pinned endpoint, no redirects and the echo rule |
 | Consent phishing (lookalike client names) | Consent text from the reviewed catalog only; dynamic-client warning with redirect host; `user_access: granted` on shared instances; per-API DCR switch; administrators revoke clients instance-wide |
 | Authorization-code interception | S256 PKCE for every client; exact redirect match |
 | Refresh-token theft | Rotation with lineage revocation on reuse; idle and absolute limits; generation and consent rechecked on refresh |
@@ -879,7 +903,7 @@ behind each provider capability.
 | P6 | Refresh rules: lineage reuse revocation, idle/absolute limits, refusal checks. Includes an explicit **lineage cutover** step: refresh tokens issued before lineages are recorded for an API are either assigned a lineage at their next refresh (with the credential generation and authentication context they already carry) or retired, chosen and tested before any lineage-dependent revocation is relied on. | P4 |
 | P6a | `user_access: application`: eligibility operation on the application-access channel, authorize-time check and no-consent page, refresh-time check with lineage revocation, scope narrowing. | P5, P6 |
 | P7 | Account connections page, administrator views, instance-wide client revocation, API kill switch. | P5 |
-| P8 | Per-API introspection credentials and `active` rules for API tokens. | P4 |
+| P8 | Per-API introspection credentials and `active` rules for API tokens, including `active: false` for another API's token; introspection never calls an eligibility endpoint. | P4 |
 | P9 | Personal tokens: issuance page, opaque format, introspection path, connection-scope refusals. | P8 |
 | P10 | DCR hardening: redirect rules, caps, pruning. | — |
 | P10a | User-scoped registrations: set-once owner at code exchange, removal of non-owner consents, owner-only authorization, per-person caps, fingerprint grouping and idle-duplicate clean-up, grouped connections page, administrator aggregates and denylist; tests that a dynamic client never receives a sign-in token on either profile. | P5, P10 |
@@ -892,11 +916,16 @@ behind each provider capability.
 | L1 | `OAuthClient` `prompt`/`max_age`/`acr_values` with returned-claim checks; session capture of `auth_time`/`amr`/`acr`; `RequireRecentAuthentication` (seconds, `acr=`, `amr=` set) for sessions. | P2 |
 | L2 | JWKS cache (last-fetch-only stale window, refetch, pinned file, `revoked_kids`) and RFC 9068 validator (`typ` in both spellings). | P3 |
 | L3 | `provider-api` guard with dual-accept, resource and scope middleware, challenges, protected-resource metadata, bridge `Principal` adapter, contract test trait. | L2, P4 |
-| L4 | Token step-up challenge (RFC 9470) and automatic current-status checks for operations requiring `sensitive` scopes, driven by the registry's scope declarations. | L3, P8 |
-| L5 | Personal-token introspection path with connection-scope refusal. | L3, P9 |
+| L4 | Token step-up challenge (RFC 9470) and automatic current-status checks for operations requiring `sensitive` scopes, driven by the registry's scope declarations, comparing the introspected `aud`/`resource` with the route's expected resource; local eligibility hook for `user_access: application`. | L3, P8 |
+| L5 | Personal-token introspection path with connection-scope refusal, per-route audience comparison, negative cache and per-IP limit for unknown tokens, local eligibility hook. | L3, P9 |
 | L6 | Catalog fragment generator, `--check`, `verify`. | P1 |
 | L6a | Application side of eligibility: an `eligibility` handler on the access adapter, with a conformance test. | P6a |
 | L7 | Deprecate, then remove, the in-application server preset. | all migrations |
+
+**Interoperability tests** before an instance enables API authorization: for each major MCP
+client, dynamic registration and connection, refresh across a provider restart, keeping the
+refresh token on a 503 from the token endpoint, per-person registration (binding), and
+reconnection after a disconnect.
 
 P1–P3, P10, L1 and L6 can proceed in parallel. The first relying application pilots once P5,
 P6 and L3 are released; sign-in step-up (P2 + L1) is useful on its own and can ship first.
