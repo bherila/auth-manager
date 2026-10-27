@@ -566,9 +566,9 @@ One configuration block names the provider and the application's resources:
 It provides:
 
 - **`provider-api` guard**: validates per section 2, resolves `sub` to the local account
-  through the same provider-subject binding as sign-in, and applies the application's
-  `CredentialOwnerPolicy`. An unknown subject is refused (403 `account_not_provisioned`);
-  API calls never provision accounts. Personal tokens take the introspection path by prefix.
+  through the same explicit provider-and-subject binding as sign-in (never by email), and
+  applies the application's `CredentialOwnerPolicy`. An unknown subject is refused (403
+  `account_not_provisioned`); API calls never provision accounts. Personal tokens take the introspection path by prefix.
 - **`ExpectProviderResource:<name>`**: the route's expected audience (one per route).
 - **`RequireScopes:<scope>,…`** and a bridge `Principal` adapter whose `hasScope()` reads the
   token, so the capability registry's `Requirement`s enforce scopes unchanged and permissions
@@ -715,15 +715,13 @@ P6 and L3 are released; sign-in step-up (P2 + L1) is useful on its own and can s
    credentials for relying APIs now?
 6. **Passkey `amr`.** Report synced passkeys as `hwk`, or distinguish device-bound from synced
    (`swk`) where the authenticator data allows?
-7. **Unknown subjects.** Refuse API calls for a subject the application has not provisioned
-   (recommended), or allow application-controlled provisioning from an API call?
-8. **MCP aliases.** Keep alias resources for new connections, or register only one MCP
+7. **MCP aliases.** Keep alias resources for new connections, or register only one MCP
    resource per API and keep aliases solely for migration?
-9. **Sender-constrained tokens.** Is DPoP worth planning for once major MCP clients support
+8. **Sender-constrained tokens.** Is DPoP worth planning for once major MCP clients support
    it?
-10. **Key blast radius on the shared instance.** Accept one key set across its personal
-    applications, or give each API its own signing key (more keys to rotate, smaller blast
-    radius)?
+9. **Key blast radius on the shared instance.** Accept one key set across its personal
+   applications, or give each API its own signing key (more keys to rotate, smaller blast
+   radius)?
 
 ## Appendix: sign-in layer gaps (out of scope; roadmap)
 
