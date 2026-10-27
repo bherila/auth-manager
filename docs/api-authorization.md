@@ -155,13 +155,21 @@ parsed at all disables API authorization for the instance.
    - *The relying application owns the instance's deployment pipeline* (its identity deploy
      workflow lives in the application's own repository, which may be public): the
      application's CI-generated fragment and the instance policy are committed beside that
-     workflow, and the workflow assembles the catalog for the release it builds. This source is
-     valid **only for an instance that serves exactly that one application**: the catalog
-     declares `"source": {"kind": "application", "application": "<key>"}`, and the validator
-     refuses it if any API belongs to another application. Its policy values are bounded by
-     ceilings compiled into the provider release (the duration ceilings above, the allowed
-     `user_access` values, the DCR limits), which the catalog cannot raise; the instance
-     environment may tighten them further.
+     workflow, and the workflow assembles the catalog for the release it builds. The catalog
+     declares the applications that pipeline deploys and pins alongside the identity instance:
+     `"source": {"kind": "application", "deployed_with": ["<key>", "<sidecar key>"]}` (for
+     example the application and a sidecar application released by the same pipeline). The
+     restriction is on **API ownership only**: every API in the catalog must belong to an
+     application in `deployed_with`, and the validator refuses one that does not. Other
+     applications may still be sign-in clients of the instance; they just cannot have APIs
+     catalogued from this source. Policy values for every API are bounded by ceilings compiled
+     into the provider release (the duration ceilings above, the allowed `user_access` values,
+     the DCR limits), which the catalog cannot raise; the instance environment may tighten them
+     further.
+
+   An operator-deployed instance serving independently deployed applications, such as a shared
+   instance, must use the operator's private source: an application's own repository cannot
+   define APIs for applications it does not deploy.
 
    Either way the invariants are the same: every change is reviewed (a pull request to the
    repository that defines the deployment), the catalog is pinned to the release (its digest
@@ -1003,7 +1011,7 @@ cache store a miss rather than a deny was reconciled with them.)
 | 8 | `hwk`/`swk` assurance and RFC 8176 `user` misuse | Applied: BE recorded and checked, `hwk` documented as unattested, `user` no longer emitted, the phishing-resistant rung is the only passkey assurance to require (section 2) |
 | 9 | Consent moving between clients | Moot after #2; consent never moves (section 3) |
 | 10 | Introspection audience per route | Applied: provider answers inactive for another API's token; relying side compares `aud`/`resource` with the route's resource (sections 2, 10) |
-| 11 | Application-owned catalog source on a multi-application instance | Applied: single-application instances only, validator-enforced, policy bounded by release ceilings (section 1) |
+| 11 | Application-owned catalog source on a multi-application instance | Applied: the source declares the applications its pipeline deploys (`deployed_with`); APIs may belong only to those, validator-enforced; other applications may still be sign-in clients; policy bounded by release ceilings; instances serving independently deployed applications must use the operator's source (section 1) |
 | 12 | Alias protected-resource document must name the alias | Applied: it names the alias; unauthenticated alias requests are redirected (308) to the primary before any challenge; the alias route accepts primary tokens during its window (section 1) |
 | 13 | Eligibility "bad signature" without signed responses; deadline | Applied: responses are trusted through TLS, pinning and an echo rule; `deadline_ms` per operation (section 3) |
 | 14 | Token endpoint unavailability should be HTTP 503 | Applied: 503 with `Retry-After`; keeping refresh tokens on 5xx is an interoperability test (sections 2, 10) |
