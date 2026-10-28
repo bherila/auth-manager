@@ -469,6 +469,15 @@ authentication).
   holds on every profile, including the per-user-grant one, and has its own tests there.
 - Each API can switch DCR off (`dynamic_registration: false`); DCR is available on the
   instance while at least one enabled API allows it.
+- **A dynamic registration has no stored scope ceiling.** Its ceiling is always the target
+  resource's current catalog ceiling (narrowed by `user_access` and consent), evaluated at each
+  authorization and refresh, never a copy taken at registration time. Clients reuse their
+  registration when they reconnect, so a ceiling frozen at registration turns every scope
+  added to the catalog later into `invalid_scope` before sign-in for every existing
+  connector. Some clients then report that as an opaque setup error, which has caused a real
+  outage on a relying application. Scopes the client asked for at registration are recorded
+  for display only. Removing a scope from the catalog takes effect at the next refresh;
+  adding one needs fresh consent, never a re-registration or an operator repair.
 
 ### User-scoped dynamic registrations
 
