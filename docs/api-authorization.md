@@ -933,6 +933,7 @@ behind each provider capability.
 | P10 | DCR hardening: redirect rules, caps, pruning. | — |
 | P10a | User-scoped registrations: set-once owner at code exchange, removal of non-owner consents, owner-only authorization, per-person caps, fingerprint grouping and idle-duplicate clean-up, grouped connections page, administrator aggregates and denylist; tests that a dynamic client never receives a sign-in token on either profile. | P5, P10 |
 | P11 | Remove the synthesized catalog and the `resource` profile once unused. | migrations |
+| P12 | Local development instance: a Dockerfile and compose service that relying applications' development environments can run beside themselves, seeded from committed fixtures with a synthetic person, the application's sign-in client, its catalog fragment and a development-only signing key. All provider configuration comes from the environment the container is given; nothing on the host is edited by hand. | P1, P3 |
 
 ### auth-laravel
 
@@ -945,12 +946,15 @@ behind each provider capability.
 | L5 | Personal-token introspection path with connection-scope refusal, per-route audience comparison, negative cache and per-IP limit for unknown tokens, local eligibility hook. | L3, P9 |
 | L6 | Catalog fragment generator, `--check`, `verify`. | P1 |
 | L6a | Application side of eligibility: an `eligibility` handler on the access adapter, with a conformance test. | P6a |
+| L6b | Test issuer: a local signing key and key set that mint RFC 9068 tokens with chosen `aud`, scopes, `auth_time`, `amr` and `acr`, wired into the guard by configuration in the testing and local environments only and refused in production, so relying applications' tests and quick local runs need no running provider. | L2 |
 | L7 | Deprecate, then remove, the in-application server preset. | all migrations |
 
 **Interoperability tests** before an instance enables API authorization: for each major MCP
 client, dynamic registration and connection, refresh across a provider restart, keeping the
 refresh token on a 503 from the token endpoint, per-person registration (binding), and
 reconnection after a disconnect.
+
+**Development environments.** Once applications validate provider tokens, every development environment needs an issuer. Most tests use the L6b test issuer; the P12 instance is for end-to-end runs of sign-in, consent and agent connections, including an application's provider sign-in mode. A deployed instance's settings are written by its deploy pipeline from committed configuration plus secrets, never by editing the live environment file on the host, which the next deploy overwrites.
 
 P1–P3, P10, L1 and L6 can proceed in parallel. The first relying application pilots once P5,
 P6 and L3 are released; sign-in step-up (P2 + L1) is useful on its own and can ship first.
