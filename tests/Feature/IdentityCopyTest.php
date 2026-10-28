@@ -197,6 +197,25 @@ class IdentityCopyTest extends TestCase
         $this->assertSame(40, $created->id);
     }
 
+    public function test_the_sequence_moves_before_anyone_is_written_and_a_failure_writes_nothing(): void
+    {
+        $this->app->bind(TableSequence::class, static fn ($app, array $parameters): TableSequence => new class($parameters['connection']) extends TableSequence
+        {
+            public function raiseTo(string $table, int $next): bool
+            {
+                throw new \RuntimeException('ALTER command denied');
+            }
+        });
+        $this->writeDocument(35, [$this->entry(1, 'one@example.test')]);
+
+        $this->artisan('identity:import', ['--input' => $this->documentPath, '--apply' => true])
+            ->expectsOutputToContain('The identifier sequence could not be raised (ALTER command denied). Nothing was written.')
+            ->assertFailed();
+
+        $this->assertDatabaseCount('users', 0);
+        $this->assertSame(0, DB::table('auth_audit_log')->where('event', 'identity_copied_in')->count());
+    }
+
     public function test_an_unknown_or_revoked_grant_client_refuses_before_writing(): void
     {
         $revoked = $this->client(revoked: true);

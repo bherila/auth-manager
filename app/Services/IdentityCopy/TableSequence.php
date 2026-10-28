@@ -14,7 +14,7 @@ use RuntimeException;
  * binding. The counter is engine state rather than data, so each supported engine is handled
  * explicitly and anything else is refused before a single row is written.
  */
-final class TableSequence
+class TableSequence
 {
     public function __construct(private readonly Connection $connection) {}
 

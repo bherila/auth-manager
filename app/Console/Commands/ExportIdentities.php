@@ -37,7 +37,7 @@ class ExportIdentities extends Command
             return self::FAILURE;
         }
 
-        $sequence = new TableSequence(DB::connection());
+        $sequence = app()->makeWith(TableSequence::class, ['connection' => DB::connection()]);
         if (! $sequence->supported()) {
             $this->errorLine('This database engine is not supported.');
 

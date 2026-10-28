@@ -17,8 +17,8 @@ use Throwable;
  * arrives unchanged. Reports what it would do and writes nothing unless --apply is passed. It
  * refuses the whole document, writing nothing, when any subject or address already belongs to
  * a different person here, or a subject was deleted here. Re-running it after a successful
- * apply changes nothing. Once the rows exist it raises the users identifier sequence to the
- * sending instance's floor, so a person created here later can never receive a subject that an
+ * apply changes nothing. Before writing anyone it raises the users identifier sequence to the
+ * sending instance's floor, so a person created here can never receive a subject that an
  * application already bound on the sending instance.
  */
 class ImportIdentities extends Command
@@ -52,7 +52,7 @@ class ImportIdentities extends Command
             $floor = max($floor, (int) $minimum);
         }
 
-        $sequence = new TableSequence(DB::connection());
+        $sequence = app()->makeWith(TableSequence::class, ['connection' => DB::connection()]);
         if (! $sequence->supported()) {
             $this->components->error('This database engine is not supported. Nothing was written.');
 
@@ -81,41 +81,43 @@ class ImportIdentities extends Command
 
         $grants = $this->missingGrants($document, $clients);
         $nextBefore = $sequence->next('users');
-
-        if ($apply && ($plan['create'] !== [] || $grants !== [])) {
-            DB::transaction(function () use ($plan, $grants): void {
-                $now = now();
-                foreach ($plan['create'] as $user) {
-                    DB::table('users')->insert($user + ['credential_version' => 0]);
-                    AuthAuditLog::create([
-                        'user_id' => $user['id'], 'acting_user_id' => null,
-                        'event' => 'identity_copied_in', 'auth_method' => 'console', 'succeeded' => true,
-                        'metadata' => ['command' => 'identity:import'],
-                    ]);
-                }
-                foreach ($grants as [$clientId, $subject]) {
-                    DB::table('oauth_client_grants')->insertOrIgnore([
-                        'oauth_client_id' => $clientId,
-                        'subject' => $subject,
-                        'created_at' => $now,
-                        'updated_at' => $now,
-                    ]);
-                }
-            });
-        }
-
-        // DDL commits implicitly on MySQL and MariaDB, so the sequence moves only after the rows
-        // are committed. A failure here leaves the rows in place, and a re-run only retries this.
         $nextAfter = max($nextBefore, $floor);
         $raised = false;
+
         if ($apply) {
+            // The sequence moves first, before any person is written, so nothing created here in
+            // the meantime can take a subject the sending instance used. On MySQL and MariaDB this
+            // is DDL and commits implicitly, so it cannot share the insert transaction anyway.
             try {
                 $raised = $sequence->raiseTo('users', $floor);
-            } catch (Throwable) {
-                $this->components->error('The identities were written, but the identifier sequence could not be raised. Re-run to retry; do not create people here until it succeeds.');
+            } catch (Throwable $e) {
+                $this->components->error('The identifier sequence could not be raised ('.$e->getMessage().'). Nothing was written.');
 
                 return self::FAILURE;
             }
+
+            if ($plan['create'] !== [] || $grants !== []) {
+                DB::transaction(function () use ($plan, $grants): void {
+                    $now = now();
+                    foreach ($plan['create'] as $user) {
+                        DB::table('users')->insert($user + ['credential_version' => 0]);
+                        AuthAuditLog::create([
+                            'user_id' => $user['id'], 'acting_user_id' => null,
+                            'event' => 'identity_copied_in', 'auth_method' => 'console', 'succeeded' => true,
+                            'metadata' => ['command' => 'identity:import'],
+                        ]);
+                    }
+                    foreach ($grants as [$clientId, $subject]) {
+                        DB::table('oauth_client_grants')->insertOrIgnore([
+                            'oauth_client_id' => $clientId,
+                            'subject' => $subject,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ]);
+                    }
+                });
+            }
+
             $nextAfter = $sequence->next('users');
         }
 
@@ -125,7 +127,7 @@ class ImportIdentities extends Command
         $this->line(sprintf(
             'sequence  next id %d -> %d%s',
             $nextBefore,
-            $apply ? $nextAfter : max($nextBefore, $floor),
+            $nextAfter,
             $apply && ! $raised ? ' (already at or above the floor)' : '',
         ));
 
