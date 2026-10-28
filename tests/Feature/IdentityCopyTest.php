@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Services\IdentityCopy\IdentityCopyDocument;
 use App\Services\IdentityCopy\TableSequence;
+use Illuminate\Database\Connection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -234,6 +235,23 @@ class IdentityCopyTest extends TestCase
 
         $this->assertDatabaseCount('users', 0);
         $this->assertSame(0, DB::table('auth_audit_log')->where('event', 'identity_copied_in')->count());
+    }
+
+    public function test_mysql_counters_are_read_with_the_statistics_cache_off(): void
+    {
+        $builder = \Mockery::mock();
+        $builder->shouldReceive('max')->with('id')->andReturn(41);
+        $connection = \Mockery::mock(Connection::class);
+        $connection->shouldReceive('getDriverName')->andReturn('mysql');
+        $connection->shouldReceive('getTablePrefix')->andReturn('');
+        $connection->shouldReceive('table')->with('users')->andReturn($builder);
+        $connection->shouldReceive('statement')->once()->with('SET SESSION information_schema_stats_expiry = 0')->andReturn(true);
+        $connection->shouldReceive('selectOne')->andReturn((object) ['next_id' => 57]);
+
+        $sequence = new TableSequence($connection);
+
+        $this->assertSame(57, $sequence->next('users'));
+        $this->assertSame(57, $sequence->next('users'));
     }
 
     public function test_an_unknown_or_revoked_grant_client_refuses_before_writing(): void

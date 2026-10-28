@@ -16,6 +16,8 @@ use RuntimeException;
  */
 class TableSequence
 {
+    private bool $statisticsAreLive = false;
+
     public function __construct(private readonly Connection $connection) {}
 
     /**
@@ -67,6 +69,10 @@ class TableSequence
 
     private function counter(string $table): int
     {
+        if (in_array($this->connection->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $this->useLiveStatistics();
+        }
+
         return match ($this->connection->getDriverName()) {
             'mysql', 'mariadb' => (int) $this->connection->selectOne(
                 'SELECT AUTO_INCREMENT AS next_id FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
@@ -76,6 +82,26 @@ class TableSequence
             'sqlite' => $this->sqliteSequence($table) + 1,
             default => throw new RuntimeException('This database engine is not supported for identifier sequences.'),
         };
+    }
+
+    /**
+     * MySQL 8 caches information_schema table statistics, AUTO_INCREMENT included, for a day by
+     * default, so a read could report a counter from before purges or from before the raise.
+     * Turning the cache off for this session makes the read current. MariaDB has no such cache
+     * and no such variable, so the statement failing there is expected and ignored.
+     */
+    private function useLiveStatistics(): void
+    {
+        if ($this->statisticsAreLive) {
+            return;
+        }
+
+        try {
+            $this->connection->statement('SET SESSION information_schema_stats_expiry = 0');
+        } catch (\Throwable) {
+            // Not MySQL 8: statistics are read live already.
+        }
+        $this->statisticsAreLive = true;
     }
 
     private function sqliteSequence(string $table): int
