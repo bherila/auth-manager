@@ -67,6 +67,20 @@ class IdentityCopyTest extends TestCase
         $this->assertSame(2, Artisan::call('identity:export', ['--subject' => ['one']]));
     }
 
+    public function test_export_of_a_row_that_cannot_be_copied_fails_cleanly(): void
+    {
+        $this->person(1, 'one@example.test');
+        $this->person(2, 'two@example.test');
+        DB::table('users')->where('id', 2)->update(['password' => 'legacy-plaintext']);
+
+        $this->assertSame(1, Artisan::call('identity:export', ['--subject' => ['1', '2']]));
+        $this->assertStringContainsString('Subject 2 does not carry a recognized password hash. Nothing was exported.', Artisan::output());
+        $this->assertStringNotContainsString('"users"', Artisan::output());
+
+        $this->expectException(\InvalidArgumentException::class);
+        IdentityCopyDocument::timestamp('0000-00-00 00:00:00');
+    }
+
     public function test_export_floor_is_above_every_identifier_this_instance_has_used(): void
     {
         $this->person(1, 'one@example.test');

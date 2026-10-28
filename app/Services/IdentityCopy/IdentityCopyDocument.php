@@ -104,6 +104,11 @@ final class IdentityCopyDocument
             throw new InvalidArgumentException('A timestamp is not a date string.');
         }
 
+        // MySQL's zero date is not an instant; parsing it would invent year -1.
+        if (is_string($value) && str_starts_with($value, '0000-00-00')) {
+            throw new InvalidArgumentException('A timestamp is a zero date.');
+        }
+
         try {
             return CarbonImmutable::parse($value)->format('Y-m-d H:i:s');
         } catch (\Throwable) {

@@ -6,6 +6,7 @@ use App\Services\IdentityCopy\IdentityCopyDocument;
 use App\Services\IdentityCopy\TableSequence;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -84,7 +85,13 @@ class ExportIdentities extends Command
             return $user;
         })->all();
 
-        $document = IdentityCopyDocument::make($floor, array_values($users));
+        try {
+            $document = IdentityCopyDocument::make($floor, array_values($users));
+        } catch (InvalidArgumentException $e) {
+            $this->errorLine($e->getMessage().' Nothing was exported.');
+
+            return self::FAILURE;
+        }
 
         $this->output->writeln($document->encode(), OutputInterface::OUTPUT_RAW);
         $this->errorLine(sprintf('Exported %d identities; the receiving instance must allocate from %d.', count($users), $floor));
