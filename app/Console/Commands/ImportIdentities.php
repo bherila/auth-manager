@@ -1,0 +1,283 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Models\User;
+use App\Services\IdentityCopy\IdentityCopyDocument;
+use App\Services\IdentityCopy\TableSequence;
+use App\Services\OAuthClientGrantService;
+use BWH\Auth\Models\AuthAuditLog;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
+use Throwable;
+
+/**
+ * Create identities exported by `identity:export` on another instance, keeping their subjects.
+ *
+ * Relying applications bind accounts to the subject, so a copy is only useful if every subject
+ * arrives unchanged. Reports what it would do and writes nothing unless --apply is passed. It
+ * refuses the whole document, writing nothing, when any subject or address already belongs to
+ * a different person here, or a subject was deleted here. Re-running it after a successful
+ * apply changes nothing. Before writing anyone it raises the users identifier sequence to the
+ * sending instance's floor, so a person created here can never receive a subject that an
+ * application already bound on the sending instance.
+ */
+class ImportIdentities extends Command
+{
+    protected $signature = 'identity:import
+        {--input=php://stdin : Where to read the document. Standard input by default, so the hashes never touch disk.}
+        {--apply : Write the changes. Without this the command only reports what it would do.}
+        {--grant-client=* : An OAuth client id on this instance to grant every imported person who may sign in; repeatable.}
+        {--next-id-at-least= : Raise the identifier sequence at least this far, above the document\'s floor.}';
+
+    protected $description = 'Import identities exported by identity:export, preserving their subjects.';
+
+    public function __construct(private readonly OAuthClientGrantService $grants)
+    {
+        parent::__construct();
+    }
+
+    public function handle(): int
+    {
+        try {
+            $document = IdentityCopyDocument::decode($this->readInput());
+        } catch (InvalidArgumentException $e) {
+            $this->components->error($e->getMessage().' Nothing was written.');
+
+            return self::FAILURE;
+        }
+
+        $floor = $document->nextIdFloor;
+        $minimum = $this->option('next-id-at-least');
+        if ($minimum !== null) {
+            if (! is_string($minimum) || preg_match('/^[1-9][0-9]{0,18}$/D', $minimum) !== 1) {
+                $this->components->error('--next-id-at-least must be a positive integer.');
+
+                return self::INVALID;
+            }
+            $floor = max($floor, (int) $minimum);
+        }
+
+        $sequence = app()->makeWith(TableSequence::class, ['connection' => DB::connection()]);
+        if (! $sequence->supported()) {
+            $this->components->error('This database engine is not supported. Nothing was written.');
+
+            return self::FAILURE;
+        }
+
+        $clients = $this->clients();
+        if ($clients === null) {
+            return self::FAILURE;
+        }
+
+        $plan = $this->plan($document);
+        if ($plan['conflicts'] !== []) {
+            foreach ($plan['conflicts'] as $conflict) {
+                $this->components->error($conflict);
+            }
+            $this->components->error('The document conflicts with this instance. Nothing was written.');
+
+            return self::FAILURE;
+        }
+
+        $apply = (bool) $this->option('apply');
+        if (! $apply) {
+            $this->components->warn('Dry run. Nothing will be written. Pass --apply to commit.');
+        }
+
+        $grants = $this->missingGrants($document, $clients);
+        $nextBefore = $sequence->next('users');
+        $nextAfter = max($nextBefore, $floor);
+        $raised = false;
+
+        if ($apply) {
+            // The sequence moves first, before any person is written, so nothing created here in
+            // the meantime can take a subject the sending instance used. On MySQL and MariaDB this
+            // is DDL and commits implicitly, so it cannot share the insert transaction anyway.
+            try {
+                $raised = $sequence->raiseTo('users', $floor);
+            } catch (Throwable $e) {
+                $this->components->error('The identifier sequence could not be raised ('.$e->getMessage().'). Nothing was written.');
+
+                return self::FAILURE;
+            }
+
+            if ($plan['create'] !== [] || $grants !== []) {
+                DB::transaction(function () use ($plan, $grants): void {
+                    foreach ($plan['create'] as $user) {
+                        DB::table('users')->insert($user + ['credential_version' => 0]);
+                        AuthAuditLog::create([
+                            'user_id' => $user['id'], 'acting_user_id' => null,
+                            'event' => 'identity_copied_in', 'auth_method' => 'console', 'succeeded' => true,
+                            'metadata' => ['command' => 'identity:import'],
+                        ]);
+                    }
+                    foreach ($grants as [$clientId, $subject]) {
+                        $this->grants->grant((string) $subject, $clientId);
+                    }
+                });
+            }
+
+            $nextAfter = $sequence->next('users');
+        }
+
+        $this->newLine();
+        $this->line(sprintf('users     created %d, unchanged %d', count($plan['create']), $plan['unchanged']));
+        $this->line(sprintf('grants    created %d', count($grants)));
+        $this->line(sprintf(
+            'sequence  next id %d -> %d%s',
+            $nextBefore,
+            $nextAfter,
+            $apply && ! $raised ? ' (already at or above the floor)' : '',
+        ));
+
+        return self::SUCCESS;
+    }
+
+    private function readInput(): string
+    {
+        $path = (string) $this->option('input');
+        $contents = @file_get_contents($path, false, null, 0, 16 * 1024 * 1024);
+
+        if ($contents === false || $contents === '') {
+            throw new InvalidArgumentException('No document could be read from the input.');
+        }
+
+        return $contents;
+    }
+
+    /**
+     * @return list<string>|null
+     */
+    private function clients(): ?array
+    {
+        $ids = array_values(array_unique(array_map('strval', (array) $this->option('grant-client'))));
+        if ($ids === []) {
+            return [];
+        }
+
+        $usable = DB::table('oauth_clients')
+            ->whereIn('id', $ids)
+            ->where('revoked', false)
+            ->pluck('id')
+            ->map(static fn (mixed $id): string => (string) $id)
+            ->all();
+
+        $unknown = array_values(array_diff($ids, $usable));
+        if ($unknown !== []) {
+            $this->components->error('Not an active OAuth client on this instance: '.implode(', ', $unknown).'. Nothing was written.');
+
+            return null;
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return array{create: list<array<string, mixed>>, unchanged: int, conflicts: list<string>}
+     */
+    private function plan(IdentityCopyDocument $document): array
+    {
+        $create = [];
+        $unchanged = 0;
+        $conflicts = [];
+
+        foreach ($document->users as $user) {
+            $id = $user['id'];
+
+            if (DB::table('identity_tombstones')->where('subject', $id)->exists()) {
+                $conflicts[] = "Subject {$id} was deleted on this instance.";
+
+                continue;
+            }
+
+            $existing = DB::table('users')->where('id', $id)->first();
+
+            $owner = DB::table('users')
+                ->whereRaw('lower(email) = ?', [strtolower(trim($user['email']))])
+                ->where('id', '!=', $id)
+                ->value('id');
+            if ($owner !== null) {
+                $conflicts[] = "Subject {$id}'s address belongs to subject {$owner} on this instance.";
+
+                continue;
+            }
+
+            if ($existing === null) {
+                $create[] = $user;
+
+                continue;
+            }
+
+            if ($existing->deleted_at !== null) {
+                $conflicts[] = "Subject {$id} was deleted on this instance.";
+
+                continue;
+            }
+
+            $differs = array_filter(IdentityCopyDocument::COMPARED, static function (string $column) use ($existing, $user): bool {
+                $here = $existing->{$column};
+                $there = $user[$column];
+                if (str_ends_with($column, '_at')) {
+                    return IdentityCopyDocument::timestamp($here) !== $there;
+                }
+
+                return $column === 'email'
+                    ? strtolower(trim((string) $here)) !== strtolower(trim((string) $there))
+                    : (string) $here !== (string) $there;
+            });
+
+            if ($differs !== []) {
+                $conflicts[] = "Subject {$id} already exists here with different ".implode(', ', $differs).'.';
+
+                continue;
+            }
+
+            $unchanged++;
+        }
+
+        // Every subject below the floor was issued by the sending instance. One already held here
+        // by somebody the document does not carry would inherit that subject's bindings in every
+        // relying application, so the receiving instance must not hold any.
+        $carried = array_column($document->users, 'id');
+        $occupied = DB::table('users')->where('id', '<', $document->nextIdFloor)->whereNotIn('id', $carried)->pluck('id')
+            ->merge(DB::table('identity_tombstones')->where('subject', '<', $document->nextIdFloor)->whereNotIn('subject', $carried)->pluck('subject'))
+            ->map(static fn (mixed $id): int => (int) $id)->unique()->sort()->values()->all();
+        if ($occupied !== []) {
+            $conflicts[] = 'Subjects below the floor are already used here by people this document does not carry: '.implode(', ', $occupied).'.';
+        }
+
+        return ['create' => $create, 'unchanged' => $unchanged, 'conflicts' => $conflicts];
+    }
+
+    /**
+     * Grants each named client to every imported person who may sign in and lacks it.
+     *
+     * @param  list<string>  $clients
+     * @return list<array{0: string, 1: int}>
+     */
+    private function missingGrants(IdentityCopyDocument $document, array $clients): array
+    {
+        $grants = [];
+
+        foreach ($document->users as $user) {
+            // The same rule sign-in applies: an enabled account holding the user or admin role.
+            if (! (new User)->forceFill(['user_role' => $user['user_role'], 'disabled_at' => $user['disabled_at'], 'deleted_at' => null])->canLogin()) {
+                continue;
+            }
+
+            foreach ($clients as $clientId) {
+                $present = DB::table('oauth_client_grants')
+                    ->where('oauth_client_id', $clientId)
+                    ->where('subject', $user['id'])
+                    ->exists();
+                if (! $present) {
+                    $grants[] = [$clientId, $user['id']];
+                }
+            }
+        }
+
+        return $grants;
+    }
+}

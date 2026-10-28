@@ -33,7 +33,7 @@ same versioned tooling.
 ### Guards on the upstream deploy jobs
 
 The two deploy jobs in `.github/workflows/ci.yml` run only for a push to `main`
-of the canonical repository, after the CI job passed: never for pull requests,
+of the canonical repository, after the CI and MariaDB engine test jobs passed: never for pull requests,
 forks, tags or other branches. Each targets its own GitHub environment. Restrict
 each environment's deployment branches to `main` (environment settings,
 **Deployment branches and tags**, selected branch `main`), so a workflow edited on

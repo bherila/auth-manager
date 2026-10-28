@@ -57,6 +57,50 @@ jobs:
           path: public/build/
           retention-days: 2
 
+  mariadb:
+    name: MariaDB engine tests
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    # The `mariadb` PHPUnit group asserts engine behaviour SQLite cannot model (identifier
+    # sequences, implicit DDL commits). phpunit.xml excludes it; phpunit.mariadb.xml forces this
+    # throwaway database name, so the run cannot be pointed at anything else.
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root
+          MARIADB_DATABASE: auth_manager_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: |
+          composer install --no-interaction --prefer-dist
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run the MariaDB group
+        run: php -d memory_limit=1G vendor/bin/phpunit -c phpunit.mariadb.xml
+
   release_artifact:
     name: Reproducible release artifact
     runs-on: ubuntu-24.04-arm
@@ -102,9 +146,9 @@ jobs:
 
   deploy:
     name: Deploy to web1
-    needs: ci
-    # Deploys only from a push to main of the canonical repository, after CI passed.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
+    needs: [ci, mariadb]
+    # Deploys only from a push to main of the canonical repository, after CI and the MariaDB engine tests passed.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' && needs.mariadb.result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: web1
     concurrency:
@@ -182,9 +226,9 @@ jobs:
 
   deploy_resource:
     name: Deploy resource profile to web1
-    needs: ci
-    # Deploys only from a push to main of the canonical repository, after CI passed.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
+    needs: [ci, mariadb]
+    # Deploys only from a push to main of the canonical repository, after CI and the MariaDB engine tests passed.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' && needs.mariadb.result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: resource-web1
     concurrency:

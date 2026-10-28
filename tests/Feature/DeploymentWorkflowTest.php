@@ -94,11 +94,13 @@ class DeploymentWorkflowTest extends TestCase
 
     public function test_deployments_run_only_for_a_push_to_main_of_the_canonical_repository(): void
     {
-        $guard = "    if: \${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}\n";
+        $guard = "    if: \${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' && needs.mariadb.result == 'success' }}\n";
 
         $this->assertStringContainsString($guard, $this->job('  deploy:', '  deploy_resource:'));
         $this->assertStringContainsString($guard, $this->job('  deploy_resource:'));
         $this->assertSame(2, substr_count($this->workflow, $guard));
+        // The production engine's tests gate the deploys they protect.
+        $this->assertSame(2, substr_count($this->workflow, "    needs: [ci, mariadb]\n"));
         $this->assertStringNotContainsString('pull_request_target', $this->workflow);
         $this->assertStringContainsString("permissions:\n  contents: read\n", $this->workflow);
     }
