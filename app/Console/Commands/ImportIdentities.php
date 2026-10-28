@@ -2,8 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Models\User;
 use App\Services\IdentityCopy\IdentityCopyDocument;
 use App\Services\IdentityCopy\TableSequence;
+use App\Services\OAuthClientGrantService;
 use BWH\Auth\Models\AuthAuditLog;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +32,11 @@ class ImportIdentities extends Command
         {--next-id-at-least= : Raise the identifier sequence at least this far, above the document\'s floor.}';
 
     protected $description = 'Import identities exported by identity:export, preserving their subjects.';
+
+    public function __construct(private readonly OAuthClientGrantService $grants)
+    {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -98,7 +105,6 @@ class ImportIdentities extends Command
 
             if ($plan['create'] !== [] || $grants !== []) {
                 DB::transaction(function () use ($plan, $grants): void {
-                    $now = now();
                     foreach ($plan['create'] as $user) {
                         DB::table('users')->insert($user + ['credential_version' => 0]);
                         AuthAuditLog::create([
@@ -108,12 +114,7 @@ class ImportIdentities extends Command
                         ]);
                     }
                     foreach ($grants as [$clientId, $subject]) {
-                        DB::table('oauth_client_grants')->insertOrIgnore([
-                            'oauth_client_id' => $clientId,
-                            'subject' => $subject,
-                            'created_at' => $now,
-                            'updated_at' => $now,
-                        ]);
+                        $this->grants->grant((string) $subject, $clientId);
                     }
                 });
             }
@@ -261,7 +262,8 @@ class ImportIdentities extends Command
         $grants = [];
 
         foreach ($document->users as $user) {
-            if ($user['disabled_at'] !== null || ! $this->roleMaySignIn($user['user_role'])) {
+            // The same rule sign-in applies: an enabled account holding the user or admin role.
+            if (! (new User)->forceFill(['user_role' => $user['user_role'], 'disabled_at' => $user['disabled_at'], 'deleted_at' => null])->canLogin()) {
                 continue;
             }
 
@@ -277,15 +279,5 @@ class ImportIdentities extends Command
         }
 
         return $grants;
-    }
-
-    private function roleMaySignIn(string $role): bool
-    {
-        $roles = array_filter(array_map(
-            static fn (string $value): string => strtolower(trim($value)),
-            explode(',', $role),
-        ));
-
-        return in_array('user', $roles, true) || in_array('admin', $roles, true);
     }
 }
