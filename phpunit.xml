@@ -12,6 +12,12 @@
             <directory>tests/Feature</directory>
         </testsuite>
     </testsuites>
+    <!-- Engine-specific tests run only in phpunit.mariadb.xml, against a throwaway server. -->
+    <groups>
+        <exclude>
+            <group>mariadb</group>
+        </exclude>
+    </groups>
     <source>
         <include>
             <directory>app</directory>
