@@ -69,11 +69,8 @@ class ExportIdentities extends Command
 
         // The receiving instance must never allocate an identifier this one has used: not for a
         // live person, a deleted one awaiting purge, or a tombstoned subject whose row is gone.
-        $floor = max(
-            $sequence->next('users'),
-            (int) DB::table('users')->max('id') + 1,
-            (int) DB::table('identity_tombstones')->max('subject') + 1,
-        );
+        // next() already covers the highest stored id, soft-deleted rows included.
+        $floor = max($sequence->next('users'), (int) DB::table('identity_tombstones')->max('subject') + 1);
 
         $users = $rows->map(static function (object $row): array {
             $user = [];
