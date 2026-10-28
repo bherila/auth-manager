@@ -104,7 +104,8 @@ Start with [the deployment guide](docs/deployment.md), then use the focused
 [branding guide](docs/deployment-branding.md) and
 [OAuth profile reference](docs/deployment-profiles.md). The repository's existing
 automatic deployment jobs serve configured installations; they are not a generic
-onboarding mechanism for another client.
+onboarding mechanism for another client. Relying deployments can install a pinned,
+attested build instead: see [provider releases](docs/releases.md).
 
 The host invokes `php artisan schedule:run` every minute. The application
 scheduler runs identity-tombstone retention hourly and prevents overlapping

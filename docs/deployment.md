@@ -30,6 +30,24 @@ operator should use its own deployment jobs rather than add its host credentials
 to those jobs. A cloud build service or another trusted CI executor can run the
 same versioned tooling.
 
+### Guards on the upstream deploy jobs
+
+The two deploy jobs in `.github/workflows/ci.yml` run only for a push to `main`
+of the canonical repository, after the CI job passed: never for pull requests,
+forks, tags or other branches. Each targets its own GitHub environment. Restrict
+each environment's deployment branches to `main` (environment settings,
+**Deployment branches and tags**, selected branch `main`), so a workflow edited on
+another branch cannot obtain its secrets. Environment variables hold only
+non-secret values such as the site URL and profile name; SSH material lives in
+environment secrets, and runtime configuration stays on the server.
+
+### Pinned releases for relying deployments
+
+A deployment that should not build Auth Manager itself can install a tagged
+release instead: a reproducible tarball of the same tree the deploy jobs upload,
+with a checksum and build provenance. [Provider releases](releases.md) describes
+the artifact, how to verify it and the notification consumers can act on.
+
 ## Default UI and optional branding
 
 The default application includes both light and dark themes. No branding bundle

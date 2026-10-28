@@ -1,0 +1,324 @@
+name: release
+
+# Publishes a pinned, attested provider build for a version tag. Relying
+# deployments install the release asset after verifying its checksum and build
+# provenance; see docs/releases.md.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to rebuild and publish, for example v1.2.3
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve the release tag
+    # Only the canonical repository publishes, from a tag push or from a manual
+    # re-run that uses the workflow definition on main.
+    if: >-
+      github.repository == 'bherila/auth-manager' && (
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      )
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      commit: ${{ steps.commit.outputs.commit }}
+
+    steps:
+      - name: Validate the tag name
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSHED_TAG: ${{ github.ref_name }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then tag=$REQUESTED_TAG; else tag=$PUSHED_TAG; fi
+          if ! [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "::error::Release tags look like v1.2.3 or v1.2.3-rc.1." >&2
+            exit 1
+          fi
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+
+      - name: Checkout the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require a commit that is already on main
+        id: commit
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse --verify "refs/tags/$TAG^{commit}")
+          test "$(git rev-parse HEAD)" = "$commit"
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$commit" refs/remotes/origin/main; then
+            echo "::error::$TAG points at a commit that is not on main." >&2
+            exit 1
+          fi
+          echo "commit=$commit" >>"$GITHUB_OUTPUT"
+
+  verify:
+    name: Run the CI checks on the tagged commit
+    needs: resolve
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.commit }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@12.11.2 --activate
+
+      - name: Setup application
+        run: composer setup
+
+      - name: Run CI checks
+        run: composer ci:check
+
+      - name: Test deployment hooks
+        run: bash tests/deployment/test-deploy-hooks.sh
+
+  build:
+    name: Build and attest the release artifact
+    needs: [resolve, verify]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.commit }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@12.11.2 --activate
+
+      - name: Build the reproducible tarball
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+          COMMIT: ${{ needs.resolve.outputs.commit }}
+        run: bash scripts/release/build-artifact.sh "$TAG" "$RUNNER_TEMP/release" "$COMMIT"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/release/auth-manager-${{ needs.resolve.outputs.tag }}.tar.gz
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-files
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish the GitHub release
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    outputs:
+      sha256: ${{ steps.checksum.outputs.sha256 }}
+
+    steps:
+      - name: Download the release files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-files
+          path: release
+
+      - name: Check the checksum file
+        id: checksum
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+        working-directory: release
+        run: |
+          set -euo pipefail
+          name="auth-manager-$TAG.tar.gz"
+          test "$(wc -l <SHA256SUMS)" -eq 1
+          sha256sum --check --strict SHA256SUMS
+          sha256=$(awk -v name="$name" '$2 == name { print $1 }' SHA256SUMS)
+          [[ $sha256 =~ ^[0-9a-f]{64}$ ]]
+          echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          COMMIT: ${{ needs.resolve.outputs.commit }}
+          SHA256: ${{ steps.checksum.outputs.sha256 }}
+        working-directory: release
+        run: |
+          set -euo pipefail
+          name="auth-manager-$TAG.tar.gz"
+
+          # The tag must still name the commit that was tested and built.
+          ref=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG")
+          object=$(jq -r '.object.sha' <<<"$ref")
+          if [ "$(jq -r '.object.type' <<<"$ref")" = tag ]; then
+            object=$(gh api "repos/$GH_REPO/git/tags/$object" --jq '.object.sha')
+          fi
+          if [ "$object" != "$COMMIT" ]; then
+            echo "::error::$TAG moved after it was built; nothing was published." >&2
+            exit 1
+          fi
+
+          state=$(gh release view "$TAG" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo absent)
+          if [ "$state" = published ]; then
+            # A published asset is pinned by consumers and is never replaced.
+            gh release download "$TAG" --pattern SHA256SUMS --output "$RUNNER_TEMP/published-SHA256SUMS"
+            if cmp -s SHA256SUMS "$RUNNER_TEMP/published-SHA256SUMS"; then
+              echo "$TAG is already published with this exact artifact."
+              exit 0
+            fi
+            echo "::error::$TAG is already published with a different artifact; it was left unchanged." >&2
+            exit 1
+          fi
+          if [ "$state" = draft ]; then
+            # An interrupted earlier run; consumers never saw it.
+            gh release delete "$TAG" --yes
+          fi
+
+          {
+            echo "Commit: \`$COMMIT\`"
+            echo
+            echo "\`$name\` SHA-256: \`$SHA256\`"
+            echo
+            echo 'Verify the asset before deploying it:'
+            echo
+            echo '```sh'
+            echo "gh release download $TAG --repo bherila/auth-manager --pattern '$name' --pattern SHA256SUMS"
+            echo 'sha256sum --check SHA256SUMS'
+            echo "gh attestation verify $name --repo bherila/auth-manager"
+            echo '```'
+            echo
+            echo 'See docs/releases.md for the artifact contents and the consumer notification.'
+          } >"$RUNNER_TEMP/notes.md"
+
+          prerelease=()
+          if [[ $TAG == *-* ]]; then prerelease=(--prerelease --latest=false); fi
+
+          # Upload into a draft first so a partial upload is never visible.
+          gh release create "$TAG" --verify-tag --draft --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" "${prerelease[@]}" "$name" SHA256SUMS
+          gh release download "$TAG" --pattern SHA256SUMS --output "$RUNNER_TEMP/uploaded-SHA256SUMS"
+          cmp SHA256SUMS "$RUNNER_TEMP/uploaded-SHA256SUMS"
+          gh release edit "$TAG" --draft=false
+
+  notify:
+    name: Notify consumer repositories
+    needs: [resolve, publish]
+    runs-on: ubuntu-24.04-arm
+    permissions: {}
+
+    steps:
+      - name: Send repository_dispatch to each configured consumer
+        env:
+          RELEASE_CONSUMERS: ${{ secrets.RELEASE_CONSUMERS }}
+          RELEASE_DISPATCH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          COMMIT: ${{ needs.resolve.outputs.commit }}
+          SHA256: ${{ needs.publish.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_CONSUMERS" ] || [ -z "$RELEASE_DISPATCH_TOKEN" ]; then
+            echo 'No consumer notification is configured; skipping.'
+            exit 0
+          fi
+          if ! jq -e 'type == "array" and all(.[]; type == "string")' >/dev/null 2>&1 <<<"$RELEASE_CONSUMERS"; then
+            echo '::error::RELEASE_CONSUMERS must be a JSON array of owner/repo strings.' >&2
+            exit 1
+          fi
+
+          # Repository names are configuration, not log output: they are masked,
+          # and failures are reported by position only.
+          mapfile -t consumers < <(jq -r '.[]' <<<"$RELEASE_CONSUMERS")
+          for consumer in "${consumers[@]}"; do
+            echo "::add-mask::$consumer"
+          done
+
+          headers="$RUNNER_TEMP/dispatch-headers"
+          (umask 077 && printf 'Authorization: Bearer %s\n' "$RELEASE_DISPATCH_TOKEN" >"$headers")
+          payload=$(jq -cn --arg tag "$TAG" --arg sha256 "$SHA256" --arg commit "$COMMIT" \
+            '{event_type: "auth-manager-release", client_payload: {tag: $tag, sha256: $sha256, commit: $commit}}')
+
+          failed=0
+          for index in "${!consumers[@]}"; do
+            consumer=${consumers[$index]}
+            position=$((index + 1))
+            if ! [[ $consumer =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+              echo "::error::Consumer $position is not an owner/repo name." >&2
+              failed=1
+              continue
+            fi
+            status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              --request POST --header @"$headers" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --data "$payload" "https://api.github.com/repos/$consumer/dispatches") || status=000
+            if [ "$status" = 204 ]; then
+              echo "Notified consumer $position."
+            else
+              echo "::error::Consumer $position was not notified (HTTP $status)." >&2
+              failed=1
+            fi
+          done
+          rm -f "$headers"
+          exit "$failed"

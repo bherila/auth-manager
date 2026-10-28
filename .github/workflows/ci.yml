@@ -57,10 +57,54 @@ jobs:
           path: public/build/
           retention-days: 2
 
+  release_artifact:
+    name: Reproducible release artifact
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@12.11.2 --activate
+
+      # The release workflow publishes this exact build. Building it twice proves the
+      # checksum depends only on the commit.
+      - name: Build the release artifact twice and compare
+        run: |
+          set -euo pipefail
+          bash scripts/release/build-artifact.sh v0.0.0-ci "$RUNNER_TEMP/first"
+          bash scripts/release/build-artifact.sh v0.0.0-ci "$RUNNER_TEMP/second"
+          cmp "$RUNNER_TEMP/first/SHA256SUMS" "$RUNNER_TEMP/second/SHA256SUMS"
+          {
+            echo '### Release artifact'
+            echo
+            echo "SHA-256 \`$(cut -d' ' -f1 "$RUNNER_TEMP/first/SHA256SUMS")\` for commit \`$(git rev-parse HEAD)\`"
+          } >>"$GITHUB_STEP_SUMMARY"
+
   deploy:
     name: Deploy to web1
     needs: ci
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
+    # Deploys only from a push to main of the canonical repository, after CI passed.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: web1
     concurrency:
@@ -139,7 +183,8 @@ jobs:
   deploy_resource:
     name: Deploy resource profile to web1
     needs: ci
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
+    # Deploys only from a push to main of the canonical repository, after CI passed.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: resource-web1
     concurrency:
