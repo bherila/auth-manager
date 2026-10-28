@@ -65,14 +65,15 @@ ssh source.example.test 'cd ~/provider && php artisan identity:export --subject=
 Import reports `users created N, unchanged N`, `grants created N` and the sequence move. It:
 
 - refuses the whole document, writing nothing, when any subject already exists with different
-  details, any address belongs to a different subject, or any subject was deleted on the
-  receiving instance;
-- creates the missing people and the requested grants in one transaction, with one
-  `identity_copied_in` audit row per person;
-- then raises the users identifier sequence to `next_id_floor` (or `--next-id-at-least`, if
-  higher). On MySQL and MariaDB this is `ALTER TABLE … AUTO_INCREMENT`, which commits
-  implicitly, so it runs after the rows are committed. If it fails, the command says so and
-  exits non-zero; run it again before creating anyone on the receiving instance.
+  details, any address belongs to a different subject, any subject was deleted on the receiving
+  instance, or the receiving instance already holds any other subject (a person or a tombstone)
+  below `next_id_floor`, since that person would inherit the sender's bindings;
+- raises the users identifier sequence to `next_id_floor` (or `--next-id-at-least`, if higher)
+  **before writing anyone**, so nothing created on the receiving instance meanwhile can take a
+  subject the sender used. On MySQL and MariaDB this is `ALTER TABLE … AUTO_INCREMENT`; if it
+  fails, the command reports why and writes nothing;
+- then creates the missing people and the requested grants in one transaction, with one
+  `identity_copied_in` audit row per person.
 
 Running the same document again after a successful apply reports every person unchanged,
 creates nothing and leaves the sequence alone. Sign-in time and `updated_at` are not compared,
@@ -81,7 +82,7 @@ A person whose name, address, password, roles or disabled state changed on eithe
 the copy is reported as a conflict; settle it by hand rather than re-copying.
 
 `--grant-client` accepts only active OAuth clients on the receiving instance and grants them to
-copied people who hold the `user` or `admin` role and are not disabled.
+copied people who may sign in (the `user` or `admin` role, not disabled).
 
 ## After the copy
 
