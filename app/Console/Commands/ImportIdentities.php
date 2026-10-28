@@ -236,6 +236,17 @@ class ImportIdentities extends Command
             $unchanged++;
         }
 
+        // Every subject below the floor was issued by the sending instance. One already held here
+        // by somebody the document does not carry would inherit that subject's bindings in every
+        // relying application, so the receiving instance must not hold any.
+        $carried = array_column($document->users, 'id');
+        $occupied = DB::table('users')->where('id', '<', $document->nextIdFloor)->whereNotIn('id', $carried)->pluck('id')
+            ->merge(DB::table('identity_tombstones')->where('subject', '<', $document->nextIdFloor)->whereNotIn('subject', $carried)->pluck('subject'))
+            ->map(static fn (mixed $id): int => (int) $id)->unique()->sort()->values()->all();
+        if ($occupied !== []) {
+            $conflicts[] = 'Subjects below the floor are already used here by people this document does not carry: '.implode(', ', $occupied).'.';
+        }
+
         return ['create' => $create, 'unchanged' => $unchanged, 'conflicts' => $conflicts];
     }
 

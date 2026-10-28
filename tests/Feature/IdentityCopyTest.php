@@ -185,6 +185,26 @@ class IdentityCopyTest extends TestCase
         $this->assertDatabaseMissing('users', ['id' => 7]);
     }
 
+    public function test_a_receiver_already_holding_other_subjects_below_the_floor_is_refused(): void
+    {
+        $this->person(5, 'local@example.test');
+        $this->tombstone(6);
+        $this->writeDocument(35, [$this->entry(1, 'one@example.test')]);
+
+        $this->artisan('identity:import', ['--input' => $this->documentPath, '--apply' => true])
+            ->expectsOutputToContain('Subjects below the floor are already used here by people this document does not carry: 5, 6.')
+            ->expectsOutputToContain('Nothing was written.')
+            ->assertFailed();
+
+        $this->assertDatabaseMissing('users', ['id' => 1]);
+
+        // Someone created here after a copy holds a subject at or above the floor, which is fine.
+        $this->person(40, 'later@example.test');
+        DB::table('users')->where('id', 5)->delete();
+        DB::table('identity_tombstones')->delete();
+        $this->artisan('identity:import', ['--input' => $this->documentPath, '--apply' => true])->assertSuccessful();
+    }
+
     public function test_people_created_after_the_copy_never_receive_a_copied_or_used_subject(): void
     {
         $this->writeDocument(35, [$this->entry(1, 'one@example.test'), $this->entry(7, 'seven@example.test')]);
