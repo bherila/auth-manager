@@ -146,9 +146,9 @@ jobs:
 
   deploy:
     name: Deploy to web1
-    needs: ci
-    # Deploys only from a push to main of the canonical repository, after CI passed.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
+    needs: [ci, mariadb]
+    # Deploys only from a push to main of the canonical repository, after CI and the MariaDB engine tests passed.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' && needs.mariadb.result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: web1
     concurrency:
@@ -226,9 +226,9 @@ jobs:
 
   deploy_resource:
     name: Deploy resource profile to web1
-    needs: ci
-    # Deploys only from a push to main of the canonical repository, after CI passed.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
+    needs: [ci, mariadb]
+    # Deploys only from a push to main of the canonical repository, after CI and the MariaDB engine tests passed.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'bherila/auth-manager' && github.ref == 'refs/heads/main' && needs.ci.result == 'success' && needs.mariadb.result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: resource-web1
     concurrency:
