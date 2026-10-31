@@ -272,6 +272,16 @@ class IdentityDeployTest(unittest.TestCase):
     def test_php_preflight_accepts_isolated_database_configuration(self):
         self.assert_php_preflight({}, expected_success=True)
 
+    def test_php_preflight_compares_the_endpoint_as_laravel_configures_it(self):
+        # A stock config reads DB_PORT through env() as a string and an unset DB_SOCKET as ''.
+        endpoint = {'database': 'auth_manager_staging', 'username': 'auth_manager_staging', 'host': '127.0.0.1', 'url': None}
+        for port, socket in (('3306', ''), (3306, ''), ('3306', None)):
+            with self.subTest(port=port, socket=socket):
+                self.assert_php_preflight({'database.connections.mysql': {**endpoint, 'port': port, 'unix_socket': socket}}, expected_success=True)
+        for port, socket in (('3307', ''), ('03306', ''), ('3306 ', ''), ('', ''), (None, ''), ('3306', '/run/other.sock')):
+            with self.subTest(port=port, socket=socket):
+                self.assert_php_preflight({'database.connections.mysql': {**endpoint, 'port': port, 'unix_socket': socket}}, expected_success=False)
+
     def assert_php_preflight(self, overrides, expected_success):
         configuration = {
             'app.name': 'Example Identity', 'branding.enabled': True,

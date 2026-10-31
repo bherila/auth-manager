@@ -224,6 +224,10 @@ $app = require 'bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 $policy = json_decode($argv[4], true, flags: JSON_THROW_ON_ERROR);
 $c = config('database.connections.'.config('database.default'));
+// env() yields DB_PORT as a string and an unset DB_SOCKET as '', while the policy holds an integer
+// port and a null socket. Normalize both sides; any other difference still fails.
+$port = $c['port'] ?? null;
+$socket = $c['unix_socket'] ?? null;
 $brandingValid = true;
 foreach ($policy['branding'] as $key => $expected) {
     $brandingValid = $brandingValid && config('branding.'.$key) === $expected;
@@ -233,8 +237,9 @@ $valid = config('database.default') === 'mysql'
     && ($c['database'] ?? null) === $argv[1]
     && ($c['username'] ?? null) === $policy['database_user']
     && ($c['host'] ?? null) === $policy['database_host']
-    && ($c['port'] ?? null) === $policy['database_port']
-    && ($c['unix_socket'] ?? null) === $policy['database_socket']
+    && (is_int($port) || (is_string($port) && preg_match('/^[1-9][0-9]*$/', $port) === 1))
+    && (int) $port === $policy['database_port']
+    && ($socket === '' ? null : $socket) === $policy['database_socket']
     && rtrim(config('app.url', ''), '/') === $argv[2]
     && config('app.env') === $argv[3]
     && ($argv[3] !== 'production' || config('app.debug') === false)
