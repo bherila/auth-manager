@@ -288,7 +288,26 @@ the zip's `shasum` (SHA-1, which Composer verifies) and the exact version:
                     "url": "packages/auth-manager-source-v1.2.3.zip",
                     "shasum": "<sha1 of the zip>"
                 },
-                "require": { "php": "^8.4" }
+                "require": {
+                    "php": "^8.4",
+                    "bherila/auth-laravel": "^0.25.0",
+                    "laravel/framework": "^13.17",
+                    "laravel/passport": "^13.4",
+                    "symfony/brevo-mailer": "^8.0",
+                    "symfony/http-client": "^8.0"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "BWH\\AuthManager\\": "app/",
+                        "BWH\\AuthManager\\Database\\Factories\\": "database/factories/",
+                        "BWH\\AuthManager\\Database\\Seeders\\": "database/seeders/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": ["BWH\\AuthManager\\Providers\\EmbeddedServiceProvider"]
+                    }
+                }
             }
         }
     ]
@@ -296,7 +315,8 @@ the zip's `shasum` (SHA-1, which Composer verifies) and the exact version:
 ```
 
 A `package` repository does not read the archive's own `composer.json`, so it must
-repeat the `require` list; prefer `artifact`. Both need the host to bump the pinned file
+repeat its `require`, `autoload` and `extra.laravel` entries as above, and keep them in
+step with the release; prefer `artifact`, which reads them from the archive. Both need the host to bump the pinned file
 deliberately, which is the point. Without a release, a host can build the assets in place:
 
 ```sh
