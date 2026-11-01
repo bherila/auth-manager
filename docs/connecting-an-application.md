@@ -42,7 +42,7 @@ Weigh:
   provider administrators, who can see every person and manage every application's grants.
   Use a dedicated instance when an organisation must own its own directory and administrators,
   or must not see another organisation's people.
-- **Profile.** `AUTH_MANAGER_PROFILE` is per instance. `bherila` keeps the plain
+- **Profile.** `AUTH_MANAGER_PROFILE` is per instance. `identity` (formerly `bherila`) keeps the plain
   authorization-code behaviour; `resource` adds resource-bound OAuth, dynamic client
   registration and introspection for a protected resource server. An instance cannot offer
   both, so an application that needs a different profile needs a different instance. See

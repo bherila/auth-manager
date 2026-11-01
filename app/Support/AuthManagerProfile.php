@@ -7,16 +7,29 @@ use InvalidArgumentException;
 /** The two intentionally supported identity-provider deployments. */
 enum AuthManagerProfile: string
 {
-    case Bherila = 'bherila';
+    case Identity = 'identity';
     case ResourceServer = 'resource';
+
+    /** Former name of the default profile, still accepted so existing deployments keep working. */
+    public const LEGACY_IDENTITY_ALIAS = 'bherila';
+
+    /** Resolve a configured profile name, treating the legacy alias as `identity`. */
+    public static function fromName(mixed $name): ?self
+    {
+        if (! is_string($name)) {
+            return null;
+        }
+
+        return self::tryFrom($name === self::LEGACY_IDENTITY_ALIAS ? self::Identity->value : $name);
+    }
 
     public static function fromEnvironment(): self
     {
-        $profile = env('AUTH_MANAGER_PROFILE', self::Bherila->value);
+        $profile = env('AUTH_MANAGER_PROFILE', self::Identity->value);
 
-        if (! is_string($profile) || ($resolved = self::tryFrom($profile)) === null) {
+        if (($resolved = self::fromName($profile)) === null) {
             throw new InvalidArgumentException(sprintf(
-                'AUTH_MANAGER_PROFILE must be one of: %s.',
+                'AUTH_MANAGER_PROFILE must be one of: %s (or the legacy alias bherila).',
                 implode(', ', array_map(static fn (self $profile): string => $profile->value, self::cases())),
             ));
         }
@@ -28,7 +41,7 @@ enum AuthManagerProfile: string
     public function scopes(): array
     {
         return match ($this) {
-            self::Bherila => ['identity:read' => 'Read your account identity'],
+            self::Identity => ['identity:read' => 'Read your account identity'],
             self::ResourceServer => [
                 // A resource deployment still signs people in to its relying applications,
                 // so it needs the identity scope as well as the protected-resource ones.
@@ -50,7 +63,7 @@ enum AuthManagerProfile: string
     public function defaultIssuer(): ?string
     {
         return match ($this) {
-            self::Bherila => rtrim((string) env('APP_URL', 'https://id.bherila.net'), '/'),
+            self::Identity => rtrim((string) env('APP_URL', 'https://id.bherila.net'), '/'),
             self::ResourceServer => null,
         };
     }
@@ -58,20 +71,20 @@ enum AuthManagerProfile: string
     public function defaultResource(): ?string
     {
         return match ($this) {
-            self::Bherila => rtrim((string) $this->defaultIssuer(), '/').'/api/v1',
+            self::Identity => rtrim((string) $this->defaultIssuer(), '/').'/api/v1',
             self::ResourceServer => null,
         };
     }
 
     public function defaultThemeCookieDomain(): ?string
     {
-        return $this === self::Bherila ? '.bherila.net' : null;
+        return $this === self::Identity ? '.bherila.net' : null;
     }
 
     /** @return list<string> */
     public function defaultThemeAllowedHosts(): array
     {
-        return $this === self::Bherila ? ['bherila.net'] : [];
+        return $this === self::Identity ? ['bherila.net'] : [];
     }
 
     public static function validatedAbsoluteUrl(mixed $value, string $name): string

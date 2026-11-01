@@ -4,8 +4,13 @@
 
 | Profile | OAuth behavior | Scopes |
 | --- | --- | --- |
-| `bherila` (default) | Preserves the existing authorization-code OAuth behavior. Resource-server helpers are disabled. | `identity:read` |
+| `identity` (default) | Preserves the existing authorization-code OAuth behavior. Resource-server helpers are disabled. | `identity:read` |
 | `resource` | Enables the authorization server, S256 PKCE, RFC 8707 resource indicators, authorization-server metadata, dynamic client registration, and RFC 7662 introspection. | `mcp:use`, `offers:read` |
+
+`bherila`, the former name of the default profile, is still accepted as an alias of
+`identity`. A deployment that sets `AUTH_MANAGER_PROFILE=bherila` (or `"profile":
+"bherila"` in a deployment policy) keeps working unchanged. The booted profile, and
+`config('auth-manager.profile')`, report `identity`.
 
 An unrecognized profile prevents configuration from loading. Do not use a
 profile name as an ad-hoc feature flag.
@@ -38,7 +43,7 @@ consent: these public clients still show the explicit authorization screen and
 must satisfy PKCE, registered redirects, scope, and resource checks. The resource
 application remains responsible for resolving its own account and permissions.
 
-Static OAuth clients still require explicit per-user client grants. The `bherila`
+Static OAuth clients still require explicit per-user client grants. The `identity`
 profile retains this requirement for every client, including dynamic clients;
 the MCP onboarding policy must not widen the shared provider's other deployment.
 Disabled-account and credential-version checks apply throughout code exchange,

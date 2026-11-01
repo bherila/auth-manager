@@ -68,8 +68,11 @@ def load_policy(root):
             or policy['database_socket'] is not None and (not isinstance(policy['database_socket'], str) or not policy['database_socket'].startswith('/'))
             or not isinstance(policy['application_name'], str) or not policy['application_name'].strip()
             or len(policy['application_name']) > 100 or re.search(r'[\x00-\x1f\x7f]', policy['application_name'])
-            or policy['profile'] not in ('bherila', 'resource')):
+            or policy['profile'] not in ('identity', 'bherila', 'resource')):
         raise RuntimeError('Invalid deployment policy')
+    if policy['profile'] == 'bherila':
+        # Legacy alias of the default profile; the booted configuration reports `identity`.
+        policy['profile'] = 'identity'
     branding = policy['branding']
     if not isinstance(branding, dict) or type(branding.get('enabled')) is not bool:
         raise RuntimeError('Deployment policy must explicitly select default or custom branding')
@@ -246,7 +249,7 @@ $valid = config('database.default') === 'mysql'
     && config('app.key')
     && $app->make(Illuminate\Contracts\Encryption\Encrypter::class)
     && config('app.name') === $policy['application_name']
-    && config('auth-manager.profile') === $policy['profile']
+    && (config('auth-manager.profile') === 'bherila' ? 'identity' : config('auth-manager.profile')) === $policy['profile']
     && $brandingValid
     && config('session.driver') === 'database'
     && in_array(config('session.connection'), [null, 'mysql'], true)

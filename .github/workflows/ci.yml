@@ -166,7 +166,8 @@ jobs:
     steps:
       - name: Validate deployment profile and route
         run: |
-          test "$DEPLOY_PROFILE" = 'bherila'
+          # `bherila` is the legacy alias of `identity`; either name selects the same profile.
+          test "$DEPLOY_PROFILE" = 'identity' || test "$DEPLOY_PROFILE" = 'bherila'
           test -n "$DEPLOY_SITE_URL"
           test "${DEPLOY_SITE_URL#https://}" != "$DEPLOY_SITE_URL"
           test "${DEPLOY_SITE_URL%/}" = "$DEPLOY_SITE_URL"

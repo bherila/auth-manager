@@ -192,6 +192,16 @@ allowlist of extensions. A host can publish the files instead
 the web server serves them directly at the same URLs. The browser code reads its base
 path from `<meta name="auth-manager-base">`, so a single build serves either mode.
 
+## Accepted limits
+
+- **The host must not run Passport itself.** Passport's configuration is process-wide, so
+  embedded Auth Manager owns it for the whole application. A host that needs its own
+  Passport server cannot embed; run Auth Manager standalone instead.
+- **Host deploys must run `php artisan auth-manager:migrate --force`.** The host's
+  `php artisan migrate` does not touch the provider's tables. Run the command on every
+  deploy, before the new code is activated, or the provider and its schema drift apart.
+  The shared deploy action has no input for it yet, so add it as a host deploy step.
+
 ## Installing in a host
 
 1. `composer require bherila/auth-manager` from the release's source archive, which

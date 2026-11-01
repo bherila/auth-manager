@@ -38,12 +38,12 @@ A synthetic policy using the provider's bundled light/dark defaults:
   "database_port": 3306,
   "database_socket": null,
   "application_name": "Example Identity",
-  "profile": "bherila",
+  "profile": "identity",
   "branding": { "enabled": false }
 }
 ```
 
-The requested environment, HTTPS origin and database must exactly match the policy and instance marker. Database names/users retain the `auth_manager_` namespace, and host/port/socket are policy-bound to prevent endpoint drift. `profile` is either `bherila` or `resource` and must exactly match the booted provider profile. The PHP preflight rejects an uploaded configuration cache before migrations, compares the exact database endpoint/principal, application name/URL/environment, profile and branding settings without printing runtime configuration, initializes Laravel encryption, and rejects production debug mode. It requires MySQL without a URL override, database-backed sessions/cache/queues on the default connection, a host-only session cookie with the dedicated prefix, `secure` and `http_only` cookie flags, a configured application key and isolated OAuth signing keys. The engine always controls the fixed `auth-manager-queue.service`; it accepts no arbitrary service names or shell commands.
+The requested environment, HTTPS origin and database must exactly match the policy and instance marker. Database names/users retain the `auth_manager_` namespace, and host/port/socket are policy-bound to prevent endpoint drift. `profile` is `identity` (the legacy name `bherila` is accepted as an alias) or `resource` and must exactly match the booted provider profile. The PHP preflight rejects an uploaded configuration cache before migrations, compares the exact database endpoint/principal, application name/URL/environment, profile and branding settings without printing runtime configuration, initializes Laravel encryption, and rejects production debug mode. It requires MySQL without a URL override, database-backed sessions/cache/queues on the default connection, a host-only session cookie with the dedicated prefix, `secure` and `http_only` cookie flags, a configured application key and isolated OAuth signing keys. The engine always controls the fixed `auth-manager-queue.service`; it accepts no arbitrary service names or shell commands.
 
 Default branding is automatic: `branding.enabled=false` requires no custom files and preserves the bundled light/dark stylesheet. Custom branding is an explicit policy choice. Replace the branding object with:
 

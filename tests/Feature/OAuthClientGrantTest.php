@@ -249,7 +249,7 @@ class OAuthClientGrantTest extends TestCase
         $grants = app(OAuthClientGrantService::class);
         $subject = (string) $user->getKey();
 
-        config()->set('auth-manager.profile', 'bherila');
+        config()->set('auth-manager.profile', 'identity');
         config()->set('auth-manager.dynamic_client_registration', true);
         $this->assertFalse($grants->allows($subject, $clientId));
         config()->set('auth-manager.profile', 'resource');
