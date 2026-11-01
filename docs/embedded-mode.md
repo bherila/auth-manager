@@ -194,8 +194,8 @@ path from `<meta name="auth-manager-base">`, so a single build serves either mod
 
 ## Installing in a host
 
-1. `composer require bherila/auth-manager` from a release that includes `public/build`
-   (see [Packaging](#packaging)).
+1. `composer require bherila/auth-manager` from the release's source archive, which
+   includes `public/build` (see [Packaging](#packaging)).
 2. Set `AUTH_MANAGER_EMBEDDED_PREFIX`, if you don't want `auth`, and
    `AUTH_MANAGER_OAUTH_ISSUER=https://app.example.test/auth`. Set the profile
    variables as for standalone.
@@ -243,10 +243,61 @@ directory is #105: [copying identities](identity-copy.md) already reads the
 
 The package stays in this repository, and the app itself is installable. A
 `packages/` split would need two release lines for one codebase. Composer installs
-need the built assets, which aren't committed. The recommendation is for the release
-workflow to attach a source-plus-`public/build` archive, without `vendor/`, next to the
-existing tarball. Hosts would consume it through a Composer `package` or `artifact`
-repository. Until then, a host can build the assets in place:
+need the built assets, which aren't committed. Each release
+therefore attaches a Composer source archive, `auth-manager-source-<tag>.zip`, next to
+the deploy tarball. It holds the tracked source plus the compiled `public/build`, and no
+`vendor/` or `node_modules/`. Its `composer.json` carries `version` set from the tag
+(`v1.2.3` installs as `1.2.3`). Its checksum is in `SHA256SUMS-source`, and it has the
+same build-provenance attestation as the tarball. Verify it before use:
+
+```sh
+gh release download v1.2.3 --repo bherila/auth-manager \
+  --pattern 'auth-manager-source-v1.2.3.zip' --pattern SHA256SUMS-source
+sha256sum --check SHA256SUMS-source
+gh attestation verify auth-manager-source-v1.2.3.zip --repo bherila/auth-manager
+```
+
+A host then installs it through a Composer `artifact` repository: put the verified zip
+in a directory the host commits or restores in CI, such as `packages/`.
+
+```json
+{
+    "repositories": [
+        { "type": "artifact", "url": "packages/" }
+    ]
+}
+```
+
+```sh
+composer require bherila/auth-manager:1.2.3
+```
+
+Alternatively, a `package` repository pins one zip by URL without a directory scan. Use
+the zip's `shasum` (SHA-1, which Composer verifies) and the exact version:
+
+```json
+{
+    "repositories": [
+        {
+            "type": "package",
+            "package": {
+                "name": "bherila/auth-manager",
+                "version": "1.2.3",
+                "dist": {
+                    "type": "zip",
+                    "url": "packages/auth-manager-source-v1.2.3.zip",
+                    "shasum": "<sha1 of the zip>"
+                },
+                "require": { "php": "^8.4" }
+            }
+        }
+    ]
+}
+```
+
+A `package` repository does not read the archive's own `composer.json`, so it must
+repeat the `require` list; prefer `artifact`. Both need the host to bump the pinned file
+deliberately, which is the point. Without a release, a host can build the assets in place:
 
 ```sh
 pnpm --dir vendor/bherila/auth-manager install --frozen-lockfile
