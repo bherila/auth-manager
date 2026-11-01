@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Listeners;
+namespace BWH\AuthManager\Listeners;
 
 use Illuminate\Foundation\Events\DiagnosingHealth;
 use League\OAuth2\Server\AuthorizationServer;

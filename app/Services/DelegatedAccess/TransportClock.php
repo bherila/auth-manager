@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\DelegatedAccess;
+namespace BWH\AuthManager\Services\DelegatedAccess;
 
 /** Monotonic time: wall-clock adjustments cannot extend a response deadline. */
 class TransportClock

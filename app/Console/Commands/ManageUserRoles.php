@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Console\Commands;
+namespace BWH\AuthManager\Console\Commands;
 
-use App\Models\User;
 use BWH\Auth\Models\AuthAuditLog;
+use BWH\AuthManager\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 

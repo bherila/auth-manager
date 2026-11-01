@@ -1,8 +1,8 @@
 <?php
 
-namespace Database\Factories;
+namespace BWH\AuthManager\Database\Factories;
 
-use App\Models\User;
+use BWH\AuthManager\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;

@@ -2,12 +2,12 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\RequireOAuthClientGrant;
-use App\Models\User;
-use App\OAuth\GrantAwareAccessTokenRepository;
-use App\OAuth\GrantAwareAuthCodeRepository;
-use App\OAuth\GrantAwareRefreshTokenRepository;
-use App\Services\OAuthClientGrantService;
+use BWH\AuthManager\Http\Middleware\RequireOAuthClientGrant;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\OAuth\GrantAwareAccessTokenRepository;
+use BWH\AuthManager\OAuth\GrantAwareAuthCodeRepository;
+use BWH\AuthManager\OAuth\GrantAwareRefreshTokenRepository;
+use BWH\AuthManager\Services\OAuthClientGrantService;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;

@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Http\Middleware\AuthenticateReconciliationClient;
-use App\Models\PassportClient;
-use App\Models\User;
+use BWH\AuthManager\Http\Middleware\AuthenticateReconciliationClient;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

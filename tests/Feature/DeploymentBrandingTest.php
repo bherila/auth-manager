@@ -2,10 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Models\User;
-use App\Support\DeploymentBranding;
 use BWH\Auth\Mail\TwoFactorLoginMail;
 use BWH\Auth\Models\TwoFactorAttempt;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Support\DeploymentBranding;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Laravel\Passport\Client;

@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\IdentityTombstone;
-use App\Models\User;
+use BWH\AuthManager\Models\IdentityTombstone;
+use BWH\AuthManager\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;

@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Models\User;
-use App\Services\IdentityCopy\IdentityCopyDocument;
-use App\Services\IdentityCopy\TableSequence;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\IdentityCopy\IdentityCopyDocument;
+use BWH\AuthManager\Services\IdentityCopy\TableSequence;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;

@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Support\DelegatedAccessApplications;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use BWH\AuthManager\Support\DelegatedAccessApplications;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\Exceptions;
 use InvalidArgumentException;

@@ -2,7 +2,7 @@
 
 namespace Tests\Unit;
 
-use App\Models\User;
+use BWH\AuthManager\Models\User;
 use PHPUnit\Framework\TestCase;
 
 class UserAccountStatusTest extends TestCase

@@ -1,8 +1,8 @@
 <?php
 
-use App\Http\Controllers\IdentityReconciliationController;
-use App\Http\Controllers\IdentityStatusController;
-use App\Http\Middleware\AuthenticateReconciliationClient;
+use BWH\AuthManager\Http\Controllers\IdentityReconciliationController;
+use BWH\AuthManager\Http\Controllers\IdentityStatusController;
+use BWH\AuthManager\Http\Middleware\AuthenticateReconciliationClient;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('/api/reconciliation')

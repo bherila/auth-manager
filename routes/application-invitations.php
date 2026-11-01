@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\ApplicationInvitationController;
-use App\Http\Middleware\AuthenticateApplicationInvitationRequest;
+use BWH\AuthManager\Http\Controllers\ApplicationInvitationController;
+use BWH\AuthManager\Http\Middleware\AuthenticateApplicationInvitationRequest;
 use Illuminate\Support\Facades\Route;
 
 // Admission invitations an application requests for itself; see docs/application-invitations.md.

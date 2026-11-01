@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
 use BWH\Auth\Models\AuthAuditLog;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;

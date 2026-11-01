@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Support;
+namespace BWH\AuthManager\Support;
 
 use InvalidArgumentException;
 

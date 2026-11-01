@@ -1,19 +1,19 @@
 <?php
 
-namespace App\Providers;
+namespace BWH\AuthManager\Providers;
 
-use App\Http\Middleware\EnsureCredentialVersion;
-use App\Models\PassportClient;
-use App\Models\User;
-use App\OAuth\ApplicationInvitationScopeRepository;
-use App\OAuth\GrantAwareAccessTokenRepository;
-use App\OAuth\GrantAwareAuthCodeRepository;
-use App\OAuth\GrantAwareRefreshTokenRepository;
-use App\Services\OAuthCredentialGenerationContext;
-use App\Support\ApplicationInvitationKeys;
-use App\Support\ApplicationInvitations;
-use App\Support\DelegatedAccessApplications;
-use App\Support\DelegatedAccessKeys;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\OAuth\ApplicationInvitationScopeRepository;
+use BWH\AuthManager\OAuth\GrantAwareAccessTokenRepository;
+use BWH\AuthManager\OAuth\GrantAwareAuthCodeRepository;
+use BWH\AuthManager\OAuth\GrantAwareRefreshTokenRepository;
+use BWH\AuthManager\Services\OAuthCredentialGenerationContext;
+use BWH\AuthManager\Support\ApplicationInvitationKeys;
+use BWH\AuthManager\Support\ApplicationInvitations;
+use BWH\AuthManager\Support\DelegatedAccessApplications;
+use BWH\AuthManager\Support\DelegatedAccessKeys;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;

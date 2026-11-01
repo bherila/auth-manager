@@ -1,18 +1,18 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Http\Middleware\EnsureCredentialVersion;
-use App\Models\AccessInvitation;
-use App\Models\RegisteredApplication;
-use App\Models\User;
-use App\Services\Invitations\AccessInvitationService;
-use App\Services\Invitations\InvitationAddressVerification;
-use App\Services\Invitations\InvitationCodeRejected;
-use App\Services\Invitations\InvitationRoles;
-use App\Services\Invitations\InvitationUnavailable;
-use App\Support\ApplicationInvitations;
-use App\Support\DelegatedAccessPermissions;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\Invitations\AccessInvitationService;
+use BWH\AuthManager\Services\Invitations\InvitationAddressVerification;
+use BWH\AuthManager\Services\Invitations\InvitationCodeRejected;
+use BWH\AuthManager\Services\Invitations\InvitationRoles;
+use BWH\AuthManager\Services\Invitations\InvitationUnavailable;
+use BWH\AuthManager\Support\ApplicationInvitations;
+use BWH\AuthManager\Support\DelegatedAccessPermissions;
 use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;

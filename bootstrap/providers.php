@@ -1,6 +1,6 @@
 <?php
 
-use App\Providers\AppServiceProvider;
+use BWH\AuthManager\Providers\AppServiceProvider;
 
 return [
     AppServiceProvider::class,

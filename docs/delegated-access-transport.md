@@ -2,7 +2,7 @@
 
 This is the disabled-by-default transport foundation for application-owned access management. It adds no browser route or live consumer endpoint. The synthetic reference adapter in `tests/Fixtures/ReferenceAccessAdapter.php` demonstrates the contract; it is not a production authorization model.
 
-`App\Services\DelegatedAccess\DelegatedAccessTransport::send(Request $request, string $applicationKey, array $operation): array` obtains the actor from an active provider session, checks its credential generation, and requires an enabled registry application plus a current grant to a mapped static OAuth client. Provider administration never grants application administration. Browser controllers must enforce CSRF before calling this service.
+`BWH\AuthManager\Services\DelegatedAccess\DelegatedAccessTransport::send(Request $request, string $applicationKey, array $operation): array` obtains the actor from an active provider session, checks its credential generation, and requires an enabled registry application plus a current grant to a mapped static OAuth client. Provider administration never grants application administration. Browser controllers must enforce CSRF before calling this service.
 
 Operations are `capabilities`, `subjects`, `workspaces`, `read`, `update`, `remove` and `receipt`. Discovery accepts `cursor`, `limit` (1–50) and a search `query`; read requires `subject`; update requires `subject`, `expected_revision`, the complete `access` value and an `operation_id`. The service injects `application` and `contract_version` 3 (see [contract version 3](#contract-version-3)); callers cannot supply an actor. Subjects are bounded to 191 bytes, revisions to 128, and memberships to 100. Requests are limited to 64 KiB and streamed responses to 256 KiB.
 

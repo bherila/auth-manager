@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Support;
+namespace BWH\AuthManager\Support;
 
-use App\Models\RegisteredApplication;
+use BWH\AuthManager\Models\RegisteredApplication;
 use InvalidArgumentException;
 
 /**

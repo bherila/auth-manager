@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Console\Commands;
+namespace BWH\AuthManager\Console\Commands;
 
-use App\Http\Requests\SaveRegisteredApplicationRequest;
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Services\ApplicationRegistryService;
+use BWH\AuthManager\Http\Requests\SaveRegisteredApplicationRequest;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Services\ApplicationRegistryService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;

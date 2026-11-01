@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Support;
+namespace BWH\AuthManager\Support;
 
-use App\Models\RegisteredApplication;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use BWH\AuthManager\Models\RegisteredApplication;
 use InvalidArgumentException;
 
 /**

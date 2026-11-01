@@ -1,9 +1,9 @@
 <?php
 
-use App\Http\Middleware\AddSecurityHeaders;
-use App\Http\Middleware\ApplicationAccessResponse;
-use App\Http\Middleware\EnsureCredentialVersion;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use BWH\AuthManager\Http\Middleware\AddSecurityHeaders;
+use BWH\AuthManager\Http\Middleware\ApplicationAccessResponse;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Foundation\Configuration\Exceptions;

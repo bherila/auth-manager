@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Support;
+namespace BWH\AuthManager\Support;
 
-use App\Models\RegisteredApplication;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use BWH\Auth\OAuth\DelegatedAccess\TrustedUrl;
+use BWH\AuthManager\Models\RegisteredApplication;
 use InvalidArgumentException;
 use Throwable;
 

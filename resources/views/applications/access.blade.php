@@ -5,7 +5,7 @@
     $roleLabels = array_column($capabilities['controls']['workspace_roles'], 'label', 'id');
     $workspaceLabels = array_column($workspaces['workspaces'], 'label', 'id');
     // What the application may add: observations about accounts, and role descriptions.
-    $listedMetadata = \App\Support\DelegatedMetadata::reported($subjects['subjects']);
+    $listedMetadata = \BWH\AuthManager\Support\DelegatedMetadata::reported($subjects['subjects']);
     $describedRoles = array_values(array_filter($capabilities['controls']['workspace_roles'], fn (array $role): bool => isset($role['description'])));
 @endphp
 <main class="mx-auto max-w-3xl space-y-6 px-6 py-10">
@@ -174,7 +174,7 @@
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Current access</h2>
             <p>Account reference: {{ $subject }}</p>
-            @php($stateMetadata = \App\Support\DelegatedMetadata::reported([$state]))
+            @php($stateMetadata = \BWH\AuthManager\Support\DelegatedMetadata::reported([$state]))
             @if($stateMetadata !== [])
                 <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                     @foreach($stateMetadata as $field => $label)

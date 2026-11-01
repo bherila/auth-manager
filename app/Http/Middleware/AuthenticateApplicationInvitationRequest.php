@@ -1,16 +1,16 @@
 <?php
 
-namespace App\Http\Middleware;
+namespace BWH\AuthManager\Http\Middleware;
 
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Models\User;
-use App\Services\Invitations\ApplicationActorAssertionVerifier;
-use App\Services\Invitations\ApplicationInvitationRefused;
-use App\Services\OAuthClientGrantService;
-use App\Support\ApplicationInvitationKeys;
-use App\Support\ApplicationInvitations;
 use BWH\Auth\OAuth\DelegatedAccess\DatabaseNonceStore;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\Invitations\ApplicationActorAssertionVerifier;
+use BWH\AuthManager\Services\Invitations\ApplicationInvitationRefused;
+use BWH\AuthManager\Services\OAuthClientGrantService;
+use BWH\AuthManager\Support\ApplicationInvitationKeys;
+use BWH\AuthManager\Support\ApplicationInvitations;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

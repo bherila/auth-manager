@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Models\User;
-use App\Support\RelyingApplications;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Support\RelyingApplications;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Laravel\Passport\AccessToken;

@@ -1,19 +1,19 @@
 <?php
 
-use App\Http\Controllers\AccessInvitationController;
-use App\Http\Controllers\AccountSettingsController;
-use App\Http\Controllers\ApplicationAccessController;
-use App\Http\Controllers\ApplicationRegistryController;
-use App\Http\Controllers\ConfirmApplicationAccessController;
-use App\Http\Controllers\DirectoryAdminController;
-use App\Http\Controllers\IdentityLifecycleController;
-use App\Http\Controllers\InvitationAcceptanceController;
-use App\Http\Controllers\LoginController;
-use App\Http\Controllers\OAuthUserController;
-use App\Http\Middleware\ApplicationAccessResponse;
-use App\Http\Middleware\RequireProviderAdmin;
-use App\Services\Invitations\AccessInvitationService;
 use BWH\Auth\Http\Middleware\RequireActiveUser;
+use BWH\AuthManager\Http\Controllers\AccessInvitationController;
+use BWH\AuthManager\Http\Controllers\AccountSettingsController;
+use BWH\AuthManager\Http\Controllers\ApplicationAccessController;
+use BWH\AuthManager\Http\Controllers\ApplicationRegistryController;
+use BWH\AuthManager\Http\Controllers\ConfirmApplicationAccessController;
+use BWH\AuthManager\Http\Controllers\DirectoryAdminController;
+use BWH\AuthManager\Http\Controllers\IdentityLifecycleController;
+use BWH\AuthManager\Http\Controllers\InvitationAcceptanceController;
+use BWH\AuthManager\Http\Controllers\LoginController;
+use BWH\AuthManager\Http\Controllers\OAuthUserController;
+use BWH\AuthManager\Http\Middleware\ApplicationAccessResponse;
+use BWH\AuthManager\Http\Middleware\RequireProviderAdmin;
+use BWH\AuthManager\Services\Invitations\AccessInvitationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;

@@ -21,7 +21,7 @@
 
 @section('content')
     <main class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-10 sm:px-6">
-        @unless (app(\App\Support\DeploymentBranding::class)->enabled())
+        @unless (app(\BWH\AuthManager\Support\DeploymentBranding::class)->enabled())
             <p class="text-muted-foreground mb-3 text-center text-sm font-medium">{{ config('app.name') }}</p>
         @endunless
 

@@ -1,16 +1,16 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Http\Middleware\AuthenticateApplicationInvitationRequest;
-use App\Models\AccessInvitation;
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Models\User;
-use App\Services\Invitations\AccessInvitationService;
-use App\Services\Invitations\ApplicationInvitationRefused;
-use App\Services\Invitations\IssuedInvitation;
-use App\Services\Invitations\RequestingClient;
+use BWH\AuthManager\Http\Middleware\AuthenticateApplicationInvitationRequest;
+use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\Invitations\AccessInvitationService;
+use BWH\AuthManager\Services\Invitations\ApplicationInvitationRefused;
+use BWH\AuthManager\Services\Invitations\IssuedInvitation;
+use BWH\AuthManager\Services\Invitations\RequestingClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;

@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Http\Middleware;
+namespace BWH\AuthManager\Http\Middleware;
 
-use App\Models\PassportClient;
-use App\Services\OAuthClientGrantService;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Services\OAuthClientGrantService;
 use Closure;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;

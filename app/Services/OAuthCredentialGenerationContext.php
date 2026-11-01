@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace BWH\AuthManager\Services;
 
 class OAuthCredentialGenerationContext
 {

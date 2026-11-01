@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Support\AuthManagerProfile;
 use BWH\Auth\Http\Middleware\EnforceOAuthPkce;
 use BWH\Auth\Http\Middleware\EnforceOAuthResourceIndicator;
+use BWH\AuthManager\Support\AuthManagerProfile;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 

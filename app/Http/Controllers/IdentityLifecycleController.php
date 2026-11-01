@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Models\IdentityTombstone;
-use App\Models\IdentityTombstoneClient;
+use BWH\AuthManager\Models\IdentityTombstone;
+use BWH\AuthManager\Models\IdentityTombstoneClient;
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

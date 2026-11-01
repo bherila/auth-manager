@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Http\Middleware\EnsureCredentialVersion;
-use App\Http\Middleware\RequireRecentPasskeyAuthentication;
-use App\Models\User;
-use App\Services\DelegatedAccess\DelegatedAccessTransport;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\DelegatedAccess\DelegatedAccessTransport;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

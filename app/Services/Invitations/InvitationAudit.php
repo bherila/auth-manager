@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Services\Invitations;
+namespace BWH\AuthManager\Services\Invitations;
 
-use App\Models\AccessInvitation;
-use App\Models\User;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\Support\ClientIp;
+use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\User;
 use Illuminate\Http\Request;
 
 /**

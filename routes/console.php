@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\InvitationAcceptanceCode;
 use BWH\Auth\OAuth\DelegatedAccess\DatabaseNonceStore;
+use BWH\AuthManager\Models\InvitationAcceptanceCode;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;

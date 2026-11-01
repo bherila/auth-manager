@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Models;
+namespace BWH\AuthManager\Models;
 
-use App\Services\Invitations\InvitationAddressVerification;
+use BWH\AuthManager\Services\Invitations\InvitationAddressVerification;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 

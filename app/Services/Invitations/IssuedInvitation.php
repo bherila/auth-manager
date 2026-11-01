@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Services\Invitations;
+namespace BWH\AuthManager\Services\Invitations;
 
-use App\Models\AccessInvitation;
+use BWH\AuthManager\Models\AccessInvitation;
 
 /** An invitation just created or resent: the link is shown to the inviter this once. */
 final readonly class IssuedInvitation

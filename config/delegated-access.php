@@ -22,7 +22,7 @@ return [
     // Per-application signing keys, comma-separated application|key-id|/absolute/private/key/path.
     // A listed application is signed with its own key; the key_id/private_key_path pair above is a
     // fallback for reads only, and writes need the application's own key. Validated at use time by
-    // App\Support\DelegatedAccessKeys.
+    // BWH\AuthManager\Support\DelegatedAccessKeys.
     'keys_environment' => env('AUTH_MANAGER_DELEGATED_ACCESS_KEYS'),
     // Deployment-owned map: application key => ['endpoint' => absolute HTTPS URL,
     // 'contract_version' => 3 (required)]. Version 3 is the only one spoken; an entry naming 1 or 2
@@ -30,7 +30,7 @@ return [
     // Never derive entries from launch URLs, OAuth redirects, or browser input.
     // Normally empty: the map comes from applications_environment below. A literal map here
     // takes precedence over it. Both are validated at use time by
-    // App\Support\DelegatedAccessApplications, never while configuration loads.
+    // BWH\AuthManager\Support\DelegatedAccessApplications, never while configuration loads.
     'applications' => [],
     // Raw comma-separated key|https://endpoint|contract_version entries; empty or unset means
     // none. A malformed value disables delegated access only: every delegated call is refused

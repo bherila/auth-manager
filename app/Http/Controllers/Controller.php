@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
 abstract class Controller
 {

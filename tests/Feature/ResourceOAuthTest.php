@@ -2,12 +2,12 @@
 
 namespace Tests\Feature;
 
-use App\Models\User;
-use App\Services\OAuthClientGrantService;
 use BWH\Auth\Http\Middleware\EnforceOAuthPkce;
 use BWH\Auth\Http\Middleware\EnforceOAuthResourceIndicator;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use BWH\Auth\OAuth\Server\ResourceAccessTokenRepository;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\OAuthClientGrantService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;

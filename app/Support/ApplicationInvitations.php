@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Support;
+namespace BWH\AuthManager\Support;
 
-use App\Models\AccessInvitation;
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
+use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
 
 /**
  * Which applications may request admission invitations for themselves, and through which client.

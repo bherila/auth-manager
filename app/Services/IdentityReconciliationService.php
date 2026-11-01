@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Services;
+namespace BWH\AuthManager\Services;
 
-use App\Models\IdentityTombstone;
-use App\Models\IdentityTombstoneClient;
-use App\Models\PassportClient;
+use BWH\AuthManager\Models\IdentityTombstone;
+use BWH\AuthManager\Models\IdentityTombstoneClient;
+use BWH\AuthManager\Models\PassportClient;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;

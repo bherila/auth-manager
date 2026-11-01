@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Models;
+namespace BWH\AuthManager\Models;
 
 use BWH\Auth\OAuth\Server\ResourceClient;
 use Illuminate\Contracts\Auth\Authenticatable;

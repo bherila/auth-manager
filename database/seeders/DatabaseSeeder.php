@@ -1,8 +1,8 @@
 <?php
 
-namespace Database\Seeders;
+namespace BWH\AuthManager\Database\Seeders;
 
-use App\Models\User;
+use BWH\AuthManager\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 

@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Services;
+namespace BWH\AuthManager\Services;
 
-use App\Models\AccessInvitation;
-use App\Models\IdentityTombstone;
-use App\Models\User;
+use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\IdentityTombstone;
+use BWH\AuthManager\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\IdentityCopy;
+namespace BWH\AuthManager\Services\IdentityCopy;
 
 use Illuminate\Database\Connection;
 use RuntimeException;

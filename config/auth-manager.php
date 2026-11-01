@@ -1,6 +1,6 @@
 <?php
 
-use App\Support\AuthManagerProfile;
+use BWH\AuthManager\Support\AuthManagerProfile;
 
 $profile = AuthManagerProfile::fromEnvironment();
 $issuer = AuthManagerProfile::validatedIssuerUrl(

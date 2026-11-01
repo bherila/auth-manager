@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Support\DelegatedAccessKeys;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use BWH\AuthManager\Support\DelegatedAccessKeys;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;

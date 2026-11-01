@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\DelegatedAccess;
+namespace BWH\AuthManager\Services\DelegatedAccess;
 
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use DateTimeImmutable;

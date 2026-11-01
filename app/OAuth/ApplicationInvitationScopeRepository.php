@@ -1,8 +1,8 @@
 <?php
 
-namespace App\OAuth;
+namespace BWH\AuthManager\OAuth;
 
-use App\Support\ApplicationInvitations;
+use BWH\AuthManager\Support\ApplicationInvitations;
 use Laravel\Passport\Bridge\ScopeRepository;
 use League\OAuth2\Server\Entities\ClientEntityInterface;
 use League\OAuth2\Server\Entities\ScopeEntityInterface;

@@ -1,10 +1,11 @@
 <?php
 
-namespace App\Models;
+namespace BWH\AuthManager\Models;
 
-use Database\Factories\UserFactory;
+use BWH\AuthManager\Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Attributes\UseFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -14,6 +15,7 @@ use Laravel\Passport\HasApiTokens;
 
 #[Fillable(['name', 'email', 'password', 'user_role', 'disabled_at', 'last_login_date'])]
 #[Hidden(['password', 'remember_token'])]
+#[UseFactory(UserFactory::class)]
 class User extends Authenticatable implements OAuthenticatable
 {
     /** @use HasFactory<UserFactory> */

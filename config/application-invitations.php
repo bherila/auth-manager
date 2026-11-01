@@ -12,7 +12,7 @@ return [
     'applications' => array_values(array_filter(array_map('trim', explode(',', (string) env('AUTH_MANAGER_APPLICATION_INVITATIONS', ''))))),
     // Comma-separated application|key-id|/absolute/public/key/path entries: the RS256 public keys an
     // application's actor assertions are verified with. An application may list more than one key id
-    // while it rotates. Validated at use time by App\Support\ApplicationInvitationKeys: a malformed
+    // while it rotates. Validated at use time by BWH\AuthManager\Support\ApplicationInvitationKeys: a malformed
     // value refuses every request with invalid_configuration and reports the entry position and rule.
     'keys_environment' => env('AUTH_MANAGER_APPLICATION_INVITATION_KEYS'),
     // Connection for consumed assertion ids. Null is the default connection. It must be durable and

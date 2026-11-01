@@ -2,18 +2,18 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\EnsureCredentialVersion;
-use App\Http\Middleware\RequireRecentPasskeyAuthentication;
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Models\User;
-use App\Services\DelegatedAccess\DelegatedAccessTransport;
-use App\Services\DelegatedAccess\TransportClock;
-use App\Support\DelegatedAccessPermissions;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\ActorAssertionVerifier;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\DelegatedAccess\DelegatedAccessTransport;
+use BWH\AuthManager\Services\DelegatedAccess\TransportClock;
+use BWH\AuthManager\Support\DelegatedAccessPermissions;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Handler\CurlHandler;

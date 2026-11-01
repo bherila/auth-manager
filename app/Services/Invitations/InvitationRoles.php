@@ -1,14 +1,14 @@
 <?php
 
-namespace App\Services\Invitations;
+namespace BWH\AuthManager\Services\Invitations;
 
-use App\Models\AccessInvitation;
-use App\Models\User;
-use App\Services\DelegatedAccess\DelegatedAccessTransport;
-use App\Support\DelegatedAccessApplications;
-use App\Support\DelegatedAccessPermissions;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
+use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\DelegatedAccess\DelegatedAccessTransport;
+use BWH\AuthManager\Support\DelegatedAccessApplications;
+use BWH\AuthManager\Support\DelegatedAccessPermissions;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 

@@ -2,11 +2,11 @@
 
 namespace Tests\Feature;
 
-use App\Http\Controllers\OAuthUserController;
-use App\Http\Middleware\EnsureCredentialVersion;
-use App\Models\User;
-use App\Services\DirectoryAdminService;
 use BWH\Auth\Models\AuthAuditLog;
+use BWH\AuthManager\Http\Controllers\OAuthUserController;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\DirectoryAdminService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

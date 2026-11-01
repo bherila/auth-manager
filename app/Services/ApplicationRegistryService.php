@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Services;
+namespace BWH\AuthManager\Services;
 
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Support\StaticApplicationClients;
 use BWH\Auth\Models\AuthAuditLog;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Support\StaticApplicationClients;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
