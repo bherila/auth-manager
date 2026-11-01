@@ -79,7 +79,7 @@ class DeploymentWorkflowTest extends TestCase
         $resource = $this->job('  deploy_resource:');
 
         $this->assertStringContainsString('environment: web1', $primary);
-        $this->assertStringContainsString("test \"\$DEPLOY_PROFILE\" = 'bherila'", $primary);
+        $this->assertStringContainsString("test \"\$DEPLOY_PROFILE\" = 'identity' || test \"\$DEPLOY_PROFILE\" = 'bherila'", $primary);
         $this->assertStringContainsString('environment: resource-web1', $resource);
         $this->assertStringContainsString("test \"\$DEPLOY_PROFILE\" = 'resource'", $resource);
 

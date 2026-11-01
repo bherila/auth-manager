@@ -290,7 +290,7 @@ class IdentityDeployTest(unittest.TestCase):
             'database.default': 'mysql',
             'database.connections.mysql': {'database': 'auth_manager_staging', 'username': 'auth_manager_staging', 'host': '127.0.0.1', 'port': 3306, 'unix_socket': None, 'url': None},
             'app.url': self.url, 'app.env': 'staging', 'app.debug': False, 'app.key': 'synthetic-key',
-            'auth-manager.profile': 'bherila',
+            'auth-manager.profile': 'identity',
             'session.driver': 'database', 'session.connection': None,
             'session.domain': None, 'session.cookie': 'auth_manager_staging_session',
             'session.secure': True, 'session.http_only': True,

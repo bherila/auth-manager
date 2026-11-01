@@ -723,7 +723,7 @@ The account page says so ("may keep working for up to five minutes").
   **excluded from RFC 9068 issuance**, JWKS publication, consent records and the other
   per-API features until the operator replaces it with an explicit catalog; the move to RFC 9068
   tokens is then an ordinary release with a reconnect.
-- The `bherila` profile without a catalog is unchanged: sign-in only, per-client grants.
+- The `identity` profile without a catalog is unchanged: sign-in only, per-client grants.
 - Once no instance relies on the synthesis, the `resource` profile is removed and profiles
   carry only theme and issuer defaults. That closes the question #68 asked.
 

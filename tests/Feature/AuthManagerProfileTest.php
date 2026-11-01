@@ -10,9 +10,9 @@ use Tests\TestCase;
 
 class AuthManagerProfileTest extends TestCase
 {
-    public function test_bherila_is_the_default_profile_and_preserves_legacy_oauth_routes(): void
+    public function test_identity_is_the_default_profile_and_preserves_legacy_oauth_routes(): void
     {
-        $this->assertSame('bherila', config('auth-manager.profile'));
+        $this->assertSame('identity', config('auth-manager.profile'));
         $this->assertFalse(config('auth-manager.oauth_server'));
         $this->assertTrue(config('bherila-auth.routes.enabled'));
         $this->assertFalse(config('bherila-auth.oauth_server.enabled'));
@@ -32,8 +32,8 @@ class AuthManagerProfileTest extends TestCase
 
     public function test_profiles_share_the_identity_scope_but_not_resource_policy(): void
     {
-        $this->assertSame(['identity:read'], array_keys(AuthManagerProfile::Bherila->scopes()));
-        $this->assertSame([], AuthManagerProfile::Bherila->resourceRequiredScopes());
+        $this->assertSame(['identity:read'], array_keys(AuthManagerProfile::Identity->scopes()));
+        $this->assertSame([], AuthManagerProfile::Identity->resourceRequiredScopes());
         $this->assertSame(
             ['identity:read', 'mcp:use', 'offers:read'],
             array_keys(AuthManagerProfile::ResourceServer->scopes()),
@@ -45,6 +45,26 @@ class AuthManagerProfileTest extends TestCase
         $this->assertNotContains('identity:read', AuthManagerProfile::ResourceServer->resourceRequiredScopes());
         $this->assertNull(AuthManagerProfile::ResourceServer->defaultIssuer());
         $this->assertNull(AuthManagerProfile::ResourceServer->defaultResource());
+    }
+
+    public function test_legacy_bherila_name_is_an_alias_of_the_identity_profile(): void
+    {
+        $this->assertSame(AuthManagerProfile::Identity, AuthManagerProfile::fromName('bherila'));
+        $this->assertSame(AuthManagerProfile::Identity, AuthManagerProfile::fromName('identity'));
+        $this->assertSame(AuthManagerProfile::ResourceServer, AuthManagerProfile::fromName('resource'));
+        $this->assertNull(AuthManagerProfile::fromName('Bherila'));
+        $this->assertNull(AuthManagerProfile::fromName(null));
+
+        $previous = getenv('AUTH_MANAGER_PROFILE');
+        try {
+            putenv('AUTH_MANAGER_PROFILE=bherila');
+            $this->assertSame(AuthManagerProfile::Identity, AuthManagerProfile::fromEnvironment());
+            putenv('AUTH_MANAGER_PROFILE=unknown');
+            $this->expectException(\InvalidArgumentException::class);
+            AuthManagerProfile::fromEnvironment();
+        } finally {
+            $previous === false ? putenv('AUTH_MANAGER_PROFILE') : putenv('AUTH_MANAGER_PROFILE='.$previous);
+        }
     }
 
     public function test_theme_configuration_is_safe_for_embedding(): void
