@@ -2,6 +2,7 @@
 
 namespace BWH\AuthManager\Http\Middleware;
 
+use BWH\AuthManager\Support\Mount;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,11 +45,10 @@ final class RequireRecentPasskeyAuthentication
     private function protects(Request $request): bool
     {
         if ($request->isMethod('POST')) {
-            return $request->is('api/passkeys/register/options')
-                || $request->is('api/passkeys/register');
+            return Mount::is($request, 'api/passkeys/register/options', 'api/passkeys/register');
         }
 
-        return $request->isMethod('DELETE') && $request->is('api/passkeys/*');
+        return $request->isMethod('DELETE') && Mount::is($request, 'api/passkeys/*');
     }
 
     public static function recordCredentialVerification(Request $request): void
@@ -103,7 +103,7 @@ final class RequireRecentPasskeyAuthentication
             return false;
         }
 
-        if (! in_array($request->path(), ['api/auth/two-factor/verify', 'api/passkeys/auth'], true)) {
+        if (! in_array(Mount::relativePath($request), ['api/auth/two-factor/verify', 'api/passkeys/auth'], true)) {
             return false;
         }
 

@@ -423,7 +423,7 @@ final class AccessInvitationService
 
     public function link(#[SensitiveParameter] string $token): string
     {
-        return route('invitations.show', ['token' => $token]);
+        return route('auth-manager.invitations.show', ['token' => $token]);
     }
 
     public function expiresAfterDays(): int

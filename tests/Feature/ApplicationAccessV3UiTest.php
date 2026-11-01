@@ -217,7 +217,7 @@ class ApplicationAccessV3UiTest extends TestCase
         $this->assertSame('example', $this->lastSent('subjects')['query']);
         $this->assertSame((string) $this->actor->id, $this->claims($this->lastSentRequest('subjects'))['sub']);
         // The person's review link keeps the search, so the list stays as it was.
-        $page->assertSee(e(route('applications.access', ['application' => 'example-app', 'subject' => 'subject-1', 'subject_query' => 'example'])), false);
+        $page->assertSee(e(route('auth-manager.applications.access', ['application' => 'example-app', 'subject' => 'subject-1', 'subject_query' => 'example'])), false);
 
         // The next page asks for the same search with its cursor.
         $this->browse(['subject_query' => 'example', 'subject_cursor' => 'q:example|2'])->assertOk()

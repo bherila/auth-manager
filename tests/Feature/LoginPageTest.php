@@ -104,7 +104,7 @@ final class LoginPageTest extends TestCase
     {
         $this->withoutVite()->get('/')
             ->assertOk()
-            ->assertSee('href="'.route('login').'"', false)
+            ->assertSee('href="'.route('auth-manager.login').'"', false)
             ->assertSee('Sign in');
     }
 
@@ -115,6 +115,6 @@ final class LoginPageTest extends TestCase
         $this->withoutVite()->get('/login')
             ->assertOk()
             ->assertSee('Development only')
-            ->assertSee('action="'.route('login.dev.by-id').'"', false);
+            ->assertSee('action="'.route('auth-manager.login.dev.by-id').'"', false);
     }
 }

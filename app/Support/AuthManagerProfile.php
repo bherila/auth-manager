@@ -103,12 +103,20 @@ enum AuthManagerProfile: string
         return $value;
     }
 
-    public static function validatedIssuerUrl(mixed $value, string $name): string
+    /**
+     * An issuer is an origin, or, for a provider embedded under a prefix, that origin and
+     * exactly the prefix path (RFC 8414 section 3 derives the metadata URL from it).
+     */
+    public static function validatedIssuerUrl(mixed $value, string $name, ?string $mountPath = null): string
     {
         $issuer = self::validatedAbsoluteUrl($value, $name);
-        $path = parse_url($issuer, PHP_URL_PATH);
+        $path = rtrim((string) parse_url($issuer, PHP_URL_PATH), '/');
 
-        if ($path !== null && $path !== '' && $path !== '/') {
+        if ($mountPath !== null && $mountPath !== '/') {
+            if ($path !== rtrim($mountPath, '/')) {
+                throw new InvalidArgumentException("{$name} must end in the embedded prefix {$mountPath}.");
+            }
+        } elseif ($path !== '') {
             throw new InvalidArgumentException("{$name} must not contain a path.");
         }
 

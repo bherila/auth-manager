@@ -13,11 +13,12 @@ import {
   startPasskeyAutofill,
 } from './passkey-autofill';
 import { getCsrfToken } from './shared-components';
+import { appPath, authEndpoints } from '@/lib/app-path';
 
 const ERROR_ID = 'passkey-error';
 
 function go(redirectUrl: string): void {
-  window.location.assign(redirectUrl || '/');
+  window.location.assign(redirectUrl || appPath('/'));
 }
 
 /**
@@ -52,7 +53,7 @@ export function PasskeyLogin(): React.JSX.Element {
     setVerifying(true);
     abortPasskeyAutofill();
     try {
-      const { redirectUrl } = await authenticateWithPasskey({ endpoints: { csrfToken: getCsrfToken() } });
+      const { redirectUrl } = await authenticateWithPasskey({ endpoints: authEndpoints(getCsrfToken()) });
       go(redirectUrl);
     } catch (caught) {
       if (!isPasskeyCancellation(caught)) {

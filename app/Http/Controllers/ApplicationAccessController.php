@@ -63,7 +63,7 @@ class ApplicationAccessController extends Controller
 
     public function browse(Request $request, string $application): RedirectResponse
     {
-        return redirect()->route('applications.access', ['application' => $application, ...$this->browseInput($request)]);
+        return redirect()->route('auth-manager.applications.access', ['application' => $application, ...$this->browseInput($request)]);
     }
 
     private function browseInput(Request $request): array
@@ -123,7 +123,7 @@ class ApplicationAccessController extends Controller
             'expected_revision' => ['required', 'string', 'max:128'],
             'confirm_removal' => ['accepted'],
         ], ['confirm_removal.accepted' => 'Confirm that you understand what removing this account\'s access does.']);
-        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
+        $back = route('auth-manager.applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
         $operationId = $this->operationId($request, $back);
 
         $this->transport->authorizeWrite($request, $application);
@@ -166,7 +166,7 @@ class ApplicationAccessController extends Controller
             'new_role' => ['nullable', 'string', 'max:64', 'required_with:new_workspace'],
             'confirm_effects' => ['nullable', 'boolean'],
         ]);
-        $back = route('applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
+        $back = route('auth-manager.applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
         $operationId = $this->operationId($request, $back);
 
         $workspaces = [];
@@ -233,8 +233,8 @@ class ApplicationAccessController extends Controller
             ]),
         ]);
         $back = $byEmail
-            ? route('applications.access', ['application' => $application, ...self::keptSearches($request)])
-            : route('applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
+            ? route('auth-manager.applications.access', ['application' => $application, ...self::keptSearches($request)])
+            : route('auth-manager.applications.access', ['application' => $application, 'subject' => $input['subject'], ...self::keptSearches($request)]);
         $quietly = fn (): RedirectResponse => redirect()->to($back)->with('access_notice', self::EMAIL_PROVISION_NOTICE);
         // Checked before anybody is looked up: a stale form is refused alike whoever it names.
         $operationId = $this->operationId($request, $back);

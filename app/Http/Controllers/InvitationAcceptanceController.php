@@ -71,7 +71,7 @@ class InvitationAcceptanceController extends Controller
         if ($invitation === null) {
             return $this->unavailable();
         }
-        $back = redirect()->route('invitations.show', ['token' => $token]);
+        $back = redirect()->route('auth-manager.invitations.show', ['token' => $token]);
         if (! $invitation->requestedByApplication() || $this->state($request, $invitation, $this->account($invitation)) !== 'create') {
             return $back;
         }
@@ -94,7 +94,7 @@ class InvitationAcceptanceController extends Controller
         }
         $state = $this->state($request, $invitation, $this->account($invitation));
         if (! in_array($state, ['accept', 'create'], true)) {
-            return redirect()->route('invitations.show', ['token' => $token]);
+            return redirect()->route('auth-manager.invitations.show', ['token' => $token]);
         }
 
         $newAccount = $state === 'create' ? $request->validate([
@@ -112,14 +112,14 @@ class InvitationAcceptanceController extends Controller
             [$person, $created] = $this->invitations->accept($request, $invitation, AccessInvitation::hashToken($token), $state === 'accept' ? $request->user() : null,
                 $newAccount === null ? null : ['name' => $newAccount['name'], 'password' => $newAccount['password'], 'code' => $newAccount['code'] ?? null]);
         } catch (InvitationCodeRejected $rejected) {
-            return redirect()->route('invitations.show', ['token' => $token])->withInput($request->only('name'))->withErrors(['code' => match ($rejected->reason) {
+            return redirect()->route('auth-manager.invitations.show', ['token' => $token])->withInput($request->only('name'))->withErrors(['code' => match ($rejected->reason) {
                 'incorrect' => 'That code is not right. Check the most recent email and try again.',
                 'expired' => 'That code has expired. Send a new one.',
                 'exhausted' => 'Too many incorrect codes. Send a new one.',
                 default => 'Send a code to your email address first, then enter it here.',
             }]);
         } catch (InvitationUnavailable) {
-            return redirect()->route('invitations.show', ['token' => $token])
+            return redirect()->route('auth-manager.invitations.show', ['token' => $token])
                 ->with('invitation_error', 'The invitation could not be accepted as it was. Review it and try again.');
         }
         if ($created) {
@@ -132,7 +132,7 @@ class InvitationAcceptanceController extends Controller
         $roles = $invitation->requestedByApplication() ? AccessInvitation::ROLES_APPLIED : $this->roles->apply($invitation->fresh(), $person);
         $registration = RegisteredApplication::query()->where('key', $invitation->application)->first();
 
-        return redirect()->route('invitations.accepted')->with('invitation_result', [
+        return redirect()->route('auth-manager.invitations.accepted')->with('invitation_result', [
             'application' => $this->applicationName($invitation),
             'launch_url' => $registration?->launch_url,
             'roles_applied' => $roles === AccessInvitation::ROLES_APPLIED,
@@ -143,7 +143,7 @@ class InvitationAcceptanceController extends Controller
     {
         $result = $request->session()->get('invitation_result');
         if (! is_array($result)) {
-            return redirect('/');
+            return redirect()->route('auth-manager.home');
         }
 
         return view('invitations.accepted', ['result' => $result]);
@@ -152,9 +152,9 @@ class InvitationAcceptanceController extends Controller
     /** Come back to the invitation after signing in. */
     public function signIn(Request $request, #[SensitiveParameter] string $token): RedirectResponse
     {
-        $request->session()->put('url.intended', route('invitations.show', ['token' => $token]));
+        $request->session()->put('url.intended', route('auth-manager.invitations.show', ['token' => $token]));
 
-        return redirect()->route('login');
+        return redirect()->route('auth-manager.login');
     }
 
     public function signOut(Request $request, #[SensitiveParameter] string $token): RedirectResponse
@@ -163,7 +163,7 @@ class InvitationAcceptanceController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('invitations.show', ['token' => $token]);
+        return redirect()->route('auth-manager.invitations.show', ['token' => $token]);
     }
 
     /**

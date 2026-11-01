@@ -2,6 +2,7 @@
 
 namespace BWH\AuthManager\Http\Middleware;
 
+use BWH\AuthManager\Support\Mount;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -75,14 +76,12 @@ class ThrottleTwoFactorVerify
     private function isConfirmSubmission(Request $request): bool
     {
         return $request->isMethod('post')
-            && Str::is('api/auth/two-factor/confirm/*', $request->path());
+            && Str::is('api/auth/two-factor/confirm/*', Mount::relativePath($request));
     }
 
     private function shouldThrottle(Request $request): bool
     {
-        return $request->is('api/auth/two-factor/verify')
-            || $request->is('api/auth/two-factor/resend')
-            || $request->is('api/finance/tax-years/*/efile-credentials/confirmation');
+        return Mount::is($request, 'api/auth/two-factor/verify', 'api/auth/two-factor/resend', 'api/finance/tax-years/*/efile-credentials/confirmation');
     }
 
     private function recordFailure(string $cacheKey): void

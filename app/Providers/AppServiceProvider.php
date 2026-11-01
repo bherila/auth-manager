@@ -2,6 +2,7 @@
 
 namespace BWH\AuthManager\Providers;
 
+use BWH\Auth\OAuth\Server\ResourceAccessToken;
 use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
 use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\User;
@@ -14,6 +15,7 @@ use BWH\AuthManager\Support\ApplicationInvitationKeys;
 use BWH\AuthManager\Support\ApplicationInvitations;
 use BWH\AuthManager\Support\DelegatedAccessApplications;
 use BWH\AuthManager\Support\DelegatedAccessKeys;
+use BWH\AuthManager\Support\Mount;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -58,7 +60,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        RateLimiter::for('email-code', static function (Request $request): array {
+        RateLimiter::for('auth-manager.email-code', static function (Request $request): array {
             $blocked = static fn (Request $request, array $headers) => response()->json([
                 'success' => false,
                 'message' => 'Too many sign-in code requests. Please try again later.',
@@ -77,17 +79,20 @@ class AppServiceProvider extends ServiceProvider
 
         // Brevo's API transport (Symfony bridge), so MAIL_MAILER=brevo or =hybrid works. An unset
         // DSN fails when the mailer is built, `hybrid` included, rather than silently degrading.
-        $this->app['mail.manager']->extend('brevo', function (array $config): TransportInterface {
-            $dsn = (string) $this->app->make('config')->get('services.brevo.dsn');
-            if ($dsn === '') {
-                throw new RuntimeException('MAILER_DSN is not set; the brevo mailer cannot be built.');
-            }
+        // Standalone only: embedded, the provider sends through the host's mailers.
+        if (! Mount::embedded()) {
+            $this->app['mail.manager']->extend('brevo', function (array $config): TransportInterface {
+                $dsn = (string) $this->app->make('config')->get('services.brevo.dsn');
+                if ($dsn === '') {
+                    throw new RuntimeException('MAILER_DSN is not set; the brevo mailer cannot be built.');
+                }
 
-            return (new BrevoTransportFactory)->create(Dsn::fromString($dsn));
-        });
+                return (new BrevoTransportFactory)->create(Dsn::fromString($dsn));
+            });
+        }
 
         // Invitation links, per client IP: opening one, accepting one, signing in or out from one.
-        RateLimiter::for('invitations', static fn (Request $request): Limit => Limit::perMinute(30)->by('invitations:'.$request->ip()));
+        RateLimiter::for('auth-manager.invitations', static fn (Request $request): Limit => Limit::perMinute(30)->by('invitations:'.$request->ip()));
 
         Event::listen(Login::class, static function (Login $event): void {
             if ($event->user instanceof User && request()->hasSession()) {
@@ -101,8 +106,16 @@ class AppServiceProvider extends ServiceProvider
 
         // Keys live under the private storage root, which the deploy excludes from its
         // --delete transfer so they survive every release. Passport's default location is
-        // inside the transferred tree and would be wiped on the next deploy.
-        Passport::loadKeysFrom(storage_path('app/private/oauth'));
+        // inside the transferred tree and would be wiped on the next deploy. Embedded, they
+        // are the provider's own, apart from anything the host keeps there.
+        Passport::loadKeysFrom(Mount::embedded()
+            ? (string) config('auth-manager-embedded.keys_path')
+            : storage_path('app/private/oauth'));
+        // auth-laravel does this when the application's own oauth_server flag is on; embedded,
+        // that flag is the host's, so the provider sets it from its own profile.
+        if (config('auth-manager.oauth_server')) {
+            Passport::useAccessTokenEntity(ResourceAccessToken::class);
+        }
 
         Passport::useClientModel(PassportClient::class);
         Passport::authorizationView(config('auth-manager.oauth_server')

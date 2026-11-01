@@ -4,12 +4,12 @@ use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\AuthManager\Http\Middleware\AddSecurityHeaders;
 use BWH\AuthManager\Http\Middleware\ApplicationAccessResponse;
 use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Routing\ProviderRoutes;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
 
 /** @return list<string>|string|null */
 $resolveTrustedProxies = static function (mixed $setting, array $cloudflare): array|string|null {
@@ -35,14 +35,9 @@ $resolveTrustedProxies = static function (mixed $setting, array $cloudflare): ar
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
-        web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
-        then: function (): void {
-            Route::group([], base_path('routes/oauth.php'));
-            Route::group([], base_path('routes/reconciliation.php'));
-            Route::group([], base_path('routes/application-invitations.php'));
-        },
+        then: ProviderRoutes::register(...),
     )
     ->withMiddleware(function (Middleware $middleware) use ($resolveTrustedProxies): void {
         // Rate limits, login throttling and audit rows key on the client IP. Behind
@@ -60,6 +55,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Provider subjects are opaque identifiers, not text fields to normalize.
         $middleware->trimStrings(except: [fn (Request $request): bool => $request->is('api/reconciliation/identity-status')]);
         $middleware->appendToGroup('web', EnsureCredentialVersion::class);
+        $middleware->redirectGuestsTo(static fn (): string => route('auth-manager.login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // One-time codes are credentials: a refused form must not keep one in the session.

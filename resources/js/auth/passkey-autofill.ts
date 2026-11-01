@@ -1,6 +1,7 @@
 import { authenticateWithPasskey, isAbortError, isConditionalMediationAvailable } from 'bwh-auth';
 
 import { getCsrfToken } from './shared-components';
+import { appPath, authEndpoints } from '@/lib/app-path';
 
 interface AutofillHandlers {
   onSuccess: (redirectUrl: string) => void;
@@ -39,11 +40,11 @@ export async function startPasskeyAutofill(handlers: AutofillHandlers): Promise<
 
   try {
     const { redirectUrl } = await authenticateWithPasskey({
-      endpoints: { csrfToken: getCsrfToken() },
+      endpoints: authEndpoints(getCsrfToken()),
       mediation: 'conditional',
       signal: own.signal,
     });
-    handlers.onSuccess(redirectUrl || '/');
+    handlers.onSuccess(redirectUrl || appPath('/'));
   } catch (error) {
     // A background request must never surprise the person with an error;
     // the button and the form remain available.

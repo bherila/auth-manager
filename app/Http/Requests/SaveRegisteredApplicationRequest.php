@@ -30,7 +30,7 @@ class SaveRegisteredApplicationRequest extends FormRequest
         // The registry form posts to an /api/* URL, which the exception handler always
         // renders as JSON. A browser submission needs the redirect the page repopulates from.
         if (! $this->expectsJson()) {
-            throw new HttpResponseException(redirect()->route('admin.applications')
+            throw new HttpResponseException(redirect()->route('auth-manager.admin.applications')
                 ->withErrors($validator)->withInput($this->except('_token')));
         }
 

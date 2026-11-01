@@ -12,19 +12,21 @@ use BWH\AuthManager\Http\Controllers\InvitationAcceptanceController;
 use BWH\AuthManager\Http\Controllers\LoginController;
 use BWH\AuthManager\Http\Controllers\OAuthUserController;
 use BWH\AuthManager\Http\Middleware\ApplicationAccessResponse;
+use BWH\AuthManager\Http\Middleware\Authenticate;
 use BWH\AuthManager\Http\Middleware\RequireProviderAdmin;
 use BWH\AuthManager\Services\Invitations\AccessInvitationService;
+use BWH\AuthManager\Support\Mount;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return view('welcome');
-});
+})->name('home');
 
 Route::get('/login', fn () => view('login'))->name('login');
 Route::post('/login', [LoginController::class, 'login']);
-Route::post('/login/email-code', [LoginController::class, 'requestEmailCode'])->middleware('throttle:email-code')->name('login.email-code');
+Route::post('/login/email-code', [LoginController::class, 'requestEmailCode'])->middleware('throttle:auth-manager.email-code')->name('login.email-code');
 Route::post('/login/dev', [LoginController::class, 'devLogin'])->name('login.dev');
 Route::post('/login/dev-by-id', [LoginController::class, 'devLoginById'])->name('login.dev.by-id');
 
@@ -33,19 +35,19 @@ Route::post('/logout', function (Request $request) {
     $request->session()->invalidate();
     $request->session()->regenerateToken();
 
-    return redirect('/');
+    return redirect()->route('auth-manager.home');
 })->name('logout');
 
-Route::middleware(['auth', RequireActiveUser::class])->group(function (): void {
+Route::middleware([Authenticate::class, RequireActiveUser::class])->group(function (): void {
     Route::get('/settings', [AccountSettingsController::class, 'show'])->name('settings.account');
     Route::put('/settings/password', [AccountSettingsController::class, 'changePassword'])->middleware('throttle:5,1')->name('settings.password');
 });
 
 Route::view('/settings/passkeys', 'settings.passkeys')
-    ->middleware(['auth', RequireActiveUser::class])
+    ->middleware([Authenticate::class, RequireActiveUser::class])
     ->name('settings.passkeys');
 
-Route::middleware(['auth', RequireProviderAdmin::class])->group(function (): void {
+Route::middleware([Authenticate::class, RequireProviderAdmin::class])->group(function (): void {
     Route::view('/admin/users', 'admin.users')->name('admin.users');
     Route::get('/admin/applications', [ApplicationRegistryController::class, 'page'])->name('admin.applications');
     Route::get('/admin/identity-lifecycle', [IdentityLifecycleController::class, 'page'])->name('admin.identity-lifecycle');
@@ -70,15 +72,15 @@ Route::middleware(['auth', RequireProviderAdmin::class])->group(function (): voi
 // The identity claim relying applications read after exchanging their code.
 // Bound to the token's subject, never to a client-supplied identifier.
 Route::get('/api/oauth/user', OAuthUserController::class)
-    ->middleware('auth:api')
+    ->middleware('auth:'.Mount::apiGuard())
     ->name('oauth.user');
 
 // Application administration is decided by the delegated API, not provider-admin status.
 Route::get('/applications/manage', [ApplicationAccessController::class, 'directory'])
-    ->middleware(['auth', RequireActiveUser::class, ApplicationAccessResponse::class])
+    ->middleware([Authenticate::class, RequireActiveUser::class, ApplicationAccessResponse::class])
     ->name('applications.manage');
 
-Route::middleware(['auth', RequireActiveUser::class, ApplicationAccessResponse::class])
+Route::middleware([Authenticate::class, RequireActiveUser::class, ApplicationAccessResponse::class])
     ->prefix('/applications/{application}/access')->group(function (): void {
         Route::get('/', [ApplicationAccessController::class, 'index'])->name('applications.access');
         Route::post('/browse', [ApplicationAccessController::class, 'browse'])->name('applications.access.browse');
@@ -98,7 +100,7 @@ Route::middleware(['auth', RequireActiveUser::class, ApplicationAccessResponse::
     });
 
 // An invitation link, for its recipient: signed in or not.
-Route::middleware([ApplicationAccessResponse::class, 'throttle:invitations'])->prefix('/invitations')->group(function (): void {
+Route::middleware([ApplicationAccessResponse::class, 'throttle:auth-manager.invitations'])->prefix('/invitations')->group(function (): void {
     Route::get('/accepted', [InvitationAcceptanceController::class, 'accepted'])->name('invitations.accepted');
     Route::prefix('/{token}')->where(['token' => AccessInvitationService::TOKEN_PATTERN])->group(function (): void {
         Route::get('/', [InvitationAcceptanceController::class, 'show'])->name('invitations.show');

@@ -53,7 +53,7 @@ class EndSessionController extends Controller
      */
     private function validatedDestination(mixed $clientId, mixed $requested): string
     {
-        $fallback = url('/');
+        $fallback = route('auth-manager.home');
 
         if (! is_string($clientId) || ! is_string($requested) || $requested === '') {
             return $fallback;

@@ -8,7 +8,7 @@
 
 @section('content')
     <main class="mx-auto max-w-4xl space-y-6 px-6 py-10">
-        <a href="{{ route('admin.users') }}" class="text-sm underline">Directory administration</a>
+        <a href="{{ route('auth-manager.admin.users') }}" class="text-sm underline">Directory administration</a>
         <div>
             <h1 class="text-2xl font-semibold">Identity lifecycle</h1>
             <p class="text-muted-foreground mt-2 text-sm">Provider deletion and application reconciliation are separate steps. Provider purge or an expired retention window never means an application acknowledged completion.</p>

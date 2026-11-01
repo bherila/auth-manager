@@ -26,7 +26,7 @@ class EnsureOAuthSessionIsFullyAuthenticated
         abort_if($request->session()->has($pendingUserKey), 403, 'Two-factor authentication is not complete.');
 
         if ($request->user() === null) {
-            throw new AuthenticationException(guards: ['web']);
+            throw new AuthenticationException(guards: [config('auth.defaults.guard')], redirectTo: route('auth-manager.login'));
         }
 
         return $next($request);

@@ -57,7 +57,7 @@
                     </div>
                 @endif
 
-                <form id="password-login-form" method="POST" action="/login" class="space-y-4">
+                <form id="password-login-form" method="POST" action="{{ route('auth-manager.login') }}" class="space-y-4">
                     @csrf
 
                     <div class="space-y-2">
@@ -139,7 +139,7 @@
                     <h2 id="dev-login-heading" class="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
                         Development only
                     </h2>
-                    <form method="POST" action="{{ route('login.dev.by-id') }}" class="mt-2">
+                    <form method="POST" action="{{ route('auth-manager.login.dev.by-id') }}" class="mt-2">
                         @csrf
                         <input type="hidden" name="user_id" value="1" />
                         <x-ui.button type="submit" variant="secondary" class="w-full">Sign in as user #1 (dev)</x-ui.button>

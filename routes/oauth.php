@@ -11,6 +11,7 @@ use BWH\AuthManager\Http\Controllers\EndSessionController;
 use BWH\AuthManager\Http\Middleware\AuditOAuthAuthorization;
 use BWH\AuthManager\Http\Middleware\EnsureOAuthSessionIsFullyAuthenticated;
 use BWH\AuthManager\Http\Middleware\RequireOAuthClientGrant;
+use BWH\AuthManager\Support\Mount;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passport\Http\Controllers\AccessTokenController;
 use Laravel\Passport\Http\Controllers\ApproveAuthorizationController;
@@ -35,12 +36,12 @@ Route::prefix(config('passport.path', 'oauth'))
         // Relying-party initiated logout. On the `web` middleware so it can reach — and
         // destroy — the session cookie this service owns.
         Route::get('/end-session', EndSessionController::class)
-            ->middleware('web')
+            ->middleware(Mount::webMiddleware())
             ->name('end-session');
 
         $authorizationMiddleware = [
             ...$oauthServerMiddleware,
-            'web',
+            Mount::webMiddleware(),
             EnsureOAuthSessionIsFullyAuthenticated::class,
             RequireActiveUser::class,
             RequireOAuthClientGrant::class,

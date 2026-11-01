@@ -9,7 +9,7 @@ final class DeploymentBranding
         return config('branding.enabled') === true;
     }
 
-    /** Only deployment-owned root-relative files, never browser or client input. */
+    /** Only deployment-owned root-relative files below the mount, never browser or client input. */
     public function asset(string $key): ?string
     {
         $extensions = match ($key) {
@@ -20,7 +20,7 @@ final class DeploymentBranding
         };
         $path = config('branding.'.$key);
         if (! $this->enabled() || ! is_string($path)
-            || ! preg_match('~\A/branding/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\.[a-z]+\z~D', $path)
+            || ! preg_match('~\A'.preg_quote(Mount::path('/branding'), '~').'/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\.[a-z]+\z~D', $path)
             || ! in_array(pathinfo($path, PATHINFO_EXTENSION), $extensions, true)) {
             return null;
         }
