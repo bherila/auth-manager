@@ -11,6 +11,7 @@ use BWH\AuthManager\Services\Invitations\ApplicationInvitationRefused;
 use BWH\AuthManager\Services\OAuthClientGrantService;
 use BWH\AuthManager\Support\ApplicationInvitationKeys;
 use BWH\AuthManager\Support\ApplicationInvitations;
+use BWH\AuthManager\Support\Mount;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -144,10 +145,10 @@ class AuthenticateApplicationInvitationRequest
         }
     }
 
-    /** The exact URL the assertion must name: this provider's issuer and the request path. */
+    /** The exact URL the assertion must name: this provider's issuer and the request path below it. */
     private function audience(Request $request): string
     {
-        return rtrim((string) config('auth-manager.issuer'), '/').'/'.$request->path();
+        return rtrim((string) config('auth-manager.issuer'), '/').'/'.Mount::relativePath($request);
     }
 
     private function verifier(): ApplicationActorAssertionVerifier

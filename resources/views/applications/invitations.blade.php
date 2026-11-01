@@ -23,7 +23,7 @@
         </div>
     @endif
     @if($invitations['form'])
-        <form method="post" action="{{ route('applications.access.invitations.store', $application->key) }}" class="space-y-4">
+        <form method="post" action="{{ route('auth-manager.applications.access.invitations.store', $application->key) }}" class="space-y-4">
             @csrf
             <p>Invite someone by email. They accept by signing in with that address, or by creating an account with it, and then the application applies the access you choose, as though you made the change at that moment.</p>
             <label class="block">Email <input type="email" name="email" required maxlength="255" autocomplete="off" class="rounded border bg-background p-2"></label>
@@ -102,12 +102,12 @@
                     </p>
                     @if($invitations['can_invite'] && in_array($status, ['pending', 'expired'], true))
                         <div class="flex flex-wrap gap-3">
-                            <form method="post" action="{{ route('applications.access.invitations.resend', [$application->key, $invitation->id]) }}">
+                            <form method="post" action="{{ route('auth-manager.applications.access.invitations.resend', [$application->key, $invitation->id]) }}">
                                 @csrf
                                 <button class="underline">Send again with a new link</button>
                             </form>
                             @if($status === 'pending')
-                                <form method="post" action="{{ route('applications.access.invitations.revoke', [$application->key, $invitation->id]) }}">
+                                <form method="post" action="{{ route('auth-manager.applications.access.invitations.revoke', [$application->key, $invitation->id]) }}">
                                     @csrf
                                     <button class="underline">Revoke</button>
                                 </form>

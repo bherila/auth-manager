@@ -12,7 +12,7 @@
     @endif
     @switch($state)
         @case('accept')
-            <form method="post" action="{{ route('invitations.accept', $token) }}" class="space-y-3">
+            <form method="post" action="{{ route('auth-manager.invitations.accept', $token) }}" class="space-y-3">
                 @csrf
                 <p>You're signed in as {{ $invitation->email }}. Accepting lets this account sign in to {{ $applicationName }}.</p>
                 <button class="rounded border px-4 py-2">Accept invitation</button>
@@ -20,11 +20,11 @@
             @break
         @case('sign_in')
             <p>An account with this address already exists. Sign in to it to accept.</p>
-            <a class="inline-block rounded border px-4 py-2" href="{{ route('invitations.sign-in', $token) }}">Sign in as {{ $invitation->email }}</a>
+            <a class="inline-block rounded border px-4 py-2" href="{{ route('auth-manager.invitations.sign-in', $token) }}">Sign in as {{ $invitation->email }}</a>
             @break
         @case('wrong_account')
             <p role="alert">You're signed in as a different account. Only the account for {{ $invitation->email }} can accept this invitation.</p>
-            <form method="post" action="{{ route('invitations.sign-out', $token) }}">
+            <form method="post" action="{{ route('auth-manager.invitations.sign-out', $token) }}">
                 @csrf
                 <button class="rounded border px-4 py-2">Sign out and continue</button>
             </form>
@@ -37,7 +37,7 @@
             @break
         @default
             @if($needsCode && ! $codeLive)
-                <form method="post" action="{{ route('invitations.code', $token) }}" class="space-y-3">
+                <form method="post" action="{{ route('auth-manager.invitations.code', $token) }}" class="space-y-3">
                     @csrf
                     <p>Create your account to accept. First, confirm this email address is yours: we'll email a 6-digit code to <strong>{{ $invitation->email }}</strong>.</p>
                     <button class="rounded border px-4 py-2">Email me a code</button>
@@ -47,7 +47,7 @@
             @if($needsCode && session('invitation_code_sent'))
                 <p role="status" class="rounded border p-3">We emailed a code to {{ $invitation->email }}. It expires in {{ $codeMinutes }} minutes.</p>
             @endif
-            <form method="post" action="{{ route('invitations.accept', $token) }}" class="space-y-4">
+            <form method="post" action="{{ route('auth-manager.invitations.accept', $token) }}" class="space-y-4">
                 @csrf
                 <p>Create your account to accept. You'll sign in with this email address.</p>
                 @if($needsCode)
@@ -61,7 +61,7 @@
                 <button class="rounded border px-4 py-2">Create account and accept</button>
             </form>
             @if($needsCode)
-                <form method="post" action="{{ route('invitations.code', $token) }}">
+                <form method="post" action="{{ route('auth-manager.invitations.code', $token) }}">
                     @csrf
                     <button class="rounded border px-4 py-2">Send a new code</button>
                 </form>

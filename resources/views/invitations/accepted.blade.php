@@ -10,6 +10,6 @@
     @if(is_string($result['launch_url']) && str_starts_with($result['launch_url'], 'https://'))
         <a class="inline-block rounded border px-4 py-2" href="{{ $result['launch_url'] }}">Open {{ $result['application'] }}</a>
     @endif
-    <a class="underline" href="/">Go to your account</a>
+    <a class="underline" href="{{ route('auth-manager.home') }}">Go to your account</a>
 </main>
 @endsection

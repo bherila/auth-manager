@@ -18,7 +18,7 @@
         <p>The account and its history stay in {{ $application->name }}. Nothing is deleted, and you can give access again later.</p>
     @endif
     @include('applications.removal-notice')
-    <form method="post" action="{{ route('applications.access.remove', $application->key) }}" class="space-y-3">
+    <form method="post" action="{{ route('auth-manager.applications.access.remove', $application->key) }}" class="space-y-3">
         @csrf
         @include('applications.operation-id')
         @include('applications.search-fields')

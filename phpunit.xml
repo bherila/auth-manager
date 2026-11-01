@@ -11,6 +11,10 @@
         <testsuite name="Feature">
             <directory>tests/Feature</directory>
         </testsuite>
+        <!-- A minimal host application (Orchestra Testbench) with the provider embedded. -->
+        <testsuite name="Embedded">
+            <directory>tests/Embedded</directory>
+        </testsuite>
     </testsuites>
     <!-- Engine-specific tests run only in phpunit.mariadb.xml, against a throwaway server. -->
     <groups>

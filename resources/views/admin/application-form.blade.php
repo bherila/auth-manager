@@ -5,7 +5,7 @@
     $availableIds = $clients->modelKeys();
     $unavailableMappings = $application?->clients->filter(fn ($client) => ! in_array($client->id, $availableIds, true)) ?? collect();
 @endphp
-<form method="POST" action="{{ $application ? route('admin.applications.update', $application) : route('admin.applications.store') }}" class="border-border bg-card space-y-4 rounded-xl border p-5">
+<form method="POST" action="{{ $application ? route('auth-manager.admin.applications.update', $application) : route('auth-manager.admin.applications.store') }}" class="border-border bg-card space-y-4 rounded-xl border p-5">
     @csrf
     <input type="hidden" name="_application_form" value="{{ $formId }}" />
     @if ($application) @method('PUT') @endif

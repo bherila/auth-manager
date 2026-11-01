@@ -29,7 +29,7 @@ class ConfirmApplicationAccessController extends Controller
             RequireRecentPasskeyAuthentication::recordCredentialVerification($request);
         });
 
-        return redirect()->route('applications.access', ['application' => $application])
+        return redirect()->route('auth-manager.applications.access', ['application' => $application])
             ->with('status', 'Identity confirmed. Select the account to review its current access.');
     }
 }

@@ -40,7 +40,7 @@ class AccessInvitationController extends Controller
     public function store(Request $request, string $application): RedirectResponse
     {
         $this->authorizeInvite($request, $application);
-        $back = route('applications.access', ['application' => $application]);
+        $back = route('auth-manager.applications.access', ['application' => $application]);
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
         if (($capabilities['controls']['provisioning'] ?? false) !== true) {
             throw ValidationException::withMessages(['invitation' => 'The application does not accept new accounts from this provider, so it cannot be offered in an invitation.'])->redirectTo($back);
@@ -96,7 +96,7 @@ class AccessInvitationController extends Controller
         $this->authorizeInvite($request, $application);
         // A new link must still be one the application would accept now: provisioning and every
         // stored role still advertised, checked before the token is replaced.
-        $back = route('applications.access', ['application' => $application]);
+        $back = route('auth-manager.applications.access', ['application' => $application]);
         $capabilities = $this->transport->send($request, $application, ['operation' => 'capabilities']);
         abort_unless($invitation->isVisibleTo($request->user(), $capabilities), 404);
         if (($capabilities['controls']['provisioning'] ?? false) !== true) {
@@ -109,7 +109,7 @@ class AccessInvitationController extends Controller
         }
         $registration = RegisteredApplication::query()->where('key', $application)->where('enabled', true)->firstOrFail();
 
-        return $this->issued(route('applications.access', ['application' => $application]),
+        return $this->issued(route('auth-manager.applications.access', ['application' => $application]),
             $this->invitations->resend($request, $request->user(), $invitation, $registration));
     }
 
@@ -124,7 +124,7 @@ class AccessInvitationController extends Controller
         abort_unless($invitation->isVisibleTo($request->user(), $capabilities), 404);
         $this->invitations->revoke($request, $request->user(), $invitation);
 
-        return redirect()->route('applications.access', ['application' => $application])
+        return redirect()->route('auth-manager.applications.access', ['application' => $application])
             ->with('invitation_notice', 'Invitation revoked. Its link no longer works.');
     }
 
@@ -144,7 +144,7 @@ class AccessInvitationController extends Controller
         $this->transport->authorizeWrite($request, $application);
         if (! AccessInvitationService::mailDelivers()) {
             throw ValidationException::withMessages(['invitation' => self::MAIL_UNCONFIGURED])
-                ->redirectTo(route('applications.access', ['application' => $application]));
+                ->redirectTo(route('auth-manager.applications.access', ['application' => $application]));
         }
     }
 

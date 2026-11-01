@@ -46,6 +46,6 @@ class EnsureCredentialVersion
             return new JsonResponse(['message' => 'The authenticated session is no longer valid.'], 401);
         }
 
-        return new RedirectResponse(route('login'));
+        return new RedirectResponse(route('auth-manager.login'));
     }
 }

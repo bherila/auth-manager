@@ -69,6 +69,12 @@ introspection configuration.
 relying applications' APIs: per-API audiences and scope catalogs, provider-side
 consent, and locally validated JWT access tokens.
 
+## Embedded mode
+
+The same code can also run inside another Laravel application, installed with Composer and
+mounted under a path prefix (`/auth` by default). The host keeps its own routes, users and
+session, and still signs people in over OAuth. See [`docs/embedded-mode.md`](docs/embedded-mode.md).
+
 ## Connecting an application
 
 [`docs/connecting-an-application.md`](docs/connecting-an-application.md) is the

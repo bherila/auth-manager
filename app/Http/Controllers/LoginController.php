@@ -51,7 +51,7 @@ class LoginController extends Controller
             RequireRecentPasskeyAuthentication::recordCredentialVerification($request);
             $this->auditLoginSucceeded($request, $user, 'password');
 
-            return redirect()->intended('/');
+            return redirect()->intended(route('auth-manager.home'));
         }
 
         $this->auditLoginFailed($request, null, $email, 'Invalid credentials', 'password');
@@ -130,7 +130,7 @@ class LoginController extends Controller
         $user->update(['last_login_date' => now()]);
         $this->auditLoginSucceeded($request, $user, 'dev');
 
-        return redirect()->intended('/');
+        return redirect()->intended(route('auth-manager.home'));
     }
 
     /**
@@ -162,7 +162,7 @@ class LoginController extends Controller
         $user->update(['last_login_date' => now()]);
         $this->auditLoginSucceeded($request, $user, 'dev');
 
-        return redirect()->intended('/');
+        return redirect()->intended(route('auth-manager.home'));
     }
 
     /**

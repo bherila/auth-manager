@@ -68,7 +68,7 @@ class EndSessionTest extends TestCase
         $this->endSession(['client_id' => $this->clientId, 'post_logout_redirect_uri' => 'https://pf.example.test/']);
 
         $this->assertGuest();
-        $this->get('/oauth/authorize')->assertRedirect(route('login'));
+        $this->get('/oauth/authorize')->assertRedirect(route('auth-manager.login'));
     }
 
     public function test_an_unregistered_destination_is_refused(): void

@@ -9,6 +9,7 @@ import { fetchWrapper } from '@/fetchWrapper';
 import { LOGIN_DOM, loginEl } from './login-dom';
 import { CODE_LOCKED_MESSAGE, mapCodeError } from './login-errors';
 import { abortPasskeyAutofill, restartPasskeyAutofill } from './passkey-autofill';
+import { appPath } from '@/lib/app-path';
 
 interface EmailCodeResponse {
   success?: boolean;
@@ -27,7 +28,7 @@ const RESEND_COOLDOWN_SECONDS = 30;
 
 /** Request a code for `email`. The server always answers 200 so unknown addresses are indistinguishable. */
 async function requestSignInCode(email: string, remember: boolean): Promise<string> {
-  const result = (await fetchWrapper.post('/login/email-code', { email, remember })) as EmailCodeResponse;
+  const result = (await fetchWrapper.post(appPath('/login/email-code'), { email, remember })) as EmailCodeResponse;
   return result.attempt_token ?? '';
 }
 
@@ -137,12 +138,12 @@ export function EmailCodeLogin(): React.JSX.Element {
     setVerifying(true);
     const session = codeSessionRef.current;
     try {
-      const result = (await fetchWrapper.post('/api/auth/two-factor/verify', {
+      const result = (await fetchWrapper.post(appPath('/api/auth/two-factor/verify'), {
         attempt_token: attemptToken,
         code,
       })) as VerifyResponse;
       if (session !== codeSessionRef.current) return;
-      window.location.assign(result.redirect || '/');
+      window.location.assign(result.redirect || appPath('/'));
     } catch (caught) {
       if (session !== codeSessionRef.current) return;
       const message = mapCodeError(caught);

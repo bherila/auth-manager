@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { getAuthComponents, getCsrfToken } from '@/auth/shared-components';
+import { authEndpoints } from '@/lib/app-path';
 
 function PasskeyManagement(): React.JSX.Element {
   const [message, setMessage] = useState('');
@@ -14,7 +15,7 @@ function PasskeyManagement(): React.JSX.Element {
       {error ? <p className="text-destructive text-sm" role="alert">{error}</p> : null}
       <PasskeySection
         components={getAuthComponents()}
-        endpoints={{ csrfToken: getCsrfToken() }}
+        endpoints={authEndpoints(getCsrfToken())}
         onSuccess={(nextMessage) => {
           setError('');
           setMessage(nextMessage);

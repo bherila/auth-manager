@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { fetchWrapper } from '@/fetchWrapper';
+import { appPath } from '@/lib/app-path';
 
 interface OAuthClient {
   id: string;
@@ -67,7 +68,7 @@ function UserCard({
   async function updateName(event: FormEvent): Promise<void> {
     event.preventDefault();
     await run(
-      () => fetchWrapper.patch(`/api/admin/users/${user.id}/name`, { name }),
+      () => fetchWrapper.patch(appPath(`/api/admin/users/${user.id}/name`), { name }),
       'Provider display name was updated.',
     );
   }
@@ -75,7 +76,7 @@ function UserCard({
   async function updateEmail(event: FormEvent): Promise<void> {
     event.preventDefault();
     await run(
-      () => fetchWrapper.patch(`/api/admin/users/${user.id}/email`, { email }),
+      () => fetchWrapper.patch(appPath(`/api/admin/users/${user.id}/email`), { email }),
       `${user.name}'s email address was updated.`,
     );
   }
@@ -83,7 +84,7 @@ function UserCard({
   async function resetPassword(event: FormEvent): Promise<void> {
     event.preventDefault();
     await run(
-      () => fetchWrapper.put(`/api/admin/users/${user.id}/password`, {
+      () => fetchWrapper.put(appPath(`/api/admin/users/${user.id}/password`), {
         password,
         password_confirmation: passwordConfirmation,
       }),
@@ -96,8 +97,8 @@ function UserCard({
   async function toggleClient(client: OAuthClient, granted: boolean): Promise<void> {
     await run(
       () => granted
-        ? fetchWrapper.delete(`/api/admin/users/${user.id}/clients/${client.id}`, {})
-        : fetchWrapper.put(`/api/admin/users/${user.id}/clients/${client.id}`, {}),
+        ? fetchWrapper.delete(appPath(`/api/admin/users/${user.id}/clients/${client.id}`), {})
+        : fetchWrapper.put(appPath(`/api/admin/users/${user.id}/clients/${client.id}`), {}),
       `${client.name} OAuth grant was ${granted ? 'removed' : 'added'}. Application permissions are managed separately.`,
     );
   }
@@ -112,7 +113,7 @@ function UserCard({
     }
 
     await run(
-      () => fetchWrapper.delete(`/api/admin/users/${user.id}`, {}),
+      () => fetchWrapper.delete(appPath(`/api/admin/users/${user.id}`), {}),
       `${user.name} was deleted at the provider and queued for application reconciliation.`,
     );
   }
@@ -237,7 +238,7 @@ function UserCard({
               variant="destructive"
               disabled={busy}
               onClick={() => void run(
-                () => fetchWrapper.post(`/api/admin/users/${user.id}/disable`, {}),
+                () => fetchWrapper.post(appPath(`/api/admin/users/${user.id}/disable`), {}),
                 `${user.name} was disabled and existing sessions and tokens were revoked.`,
               )}
             >
@@ -248,7 +249,7 @@ function UserCard({
               type="button"
               disabled={busy}
               onClick={() => void run(
-                () => fetchWrapper.post(`/api/admin/users/${user.id}/enable`, {}),
+                () => fetchWrapper.post(appPath(`/api/admin/users/${user.id}/enable`), {}),
                 `${user.name} was re-enabled.`,
               )}
             >
@@ -283,7 +284,7 @@ function DirectoryAdminPage() {
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
-    const response = await fetchWrapper.get('/api/admin/users') as DirectoryResponse;
+    const response = await fetchWrapper.get(appPath('/api/admin/users')) as DirectoryResponse;
     setData(response);
   }, []);
 
@@ -310,7 +311,7 @@ function DirectoryAdminPage() {
     setMessage(null);
 
     try {
-      await fetchWrapper.post('/api/admin/users', {
+      await fetchWrapper.post(appPath('/api/admin/users'), {
         name,
         email,
         password,

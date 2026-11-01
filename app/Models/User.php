@@ -22,6 +22,17 @@ class User extends Authenticatable implements OAuthenticatable
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     /**
+     * Where auth-laravel's passkey and two-factor sign-ins return the person: the page they
+     * asked for, or this provider's home, which is below the prefix when embedded.
+     */
+    public function getLoginRedirectUrl(): string
+    {
+        $intended = session()->pull('url.intended');
+
+        return is_string($intended) && $intended !== '' ? $intended : route('auth-manager.home', absolute: false);
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

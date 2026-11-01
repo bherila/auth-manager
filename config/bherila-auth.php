@@ -3,6 +3,7 @@
 use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
 use BWH\AuthManager\Http\Middleware\ThrottleTwoFactorVerify;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Support\Mount;
 
 $issuer = (string) config('auth-manager.issuer');
 $resource = (string) config('auth-manager.resource');
@@ -13,6 +14,10 @@ $introspectionClientId = env('AUTH_MANAGER_INTROSPECTION_CLIENT_ID');
 $introspectionSecretHash = env('AUTH_MANAGER_INTROSPECTION_SECRET_HASH');
 $passportPath = trim((string) config('passport.path', 'oauth'), '/');
 $oauthEndpointBase = rtrim($issuer, '/').($passportPath === '' ? '' : '/'.$passportPath);
+// Embedded, the host's own auth-laravel settings may use the same variables for its
+// URLs and users; the provider's are fixed below its prefix instead.
+$embedded = Mount::embedded();
+$appName = $embedded ? (string) (config('auth-manager-embedded.name') ?: config('app.name')) : env('APP_NAME', 'App');
 
 return [
     'routes' => [
@@ -21,7 +26,7 @@ return [
         // independently below.
         'enabled' => true,
         'prefix' => 'api',
-        'middleware' => ['web', ThrottleTwoFactorVerify::class, RequireRecentPasskeyAuthentication::class],
+        'middleware' => [Mount::webMiddleware(), ThrottleTwoFactorVerify::class, RequireRecentPasskeyAuthentication::class],
         'passkeys' => true,
         'password_resets' => false,
         'change_password' => false,
@@ -51,9 +56,11 @@ return [
     ],
 
     'password_resets' => [
-        'reset_url' => env('BHERILA_AUTH_PASSWORD_RESET_URL', env('APP_URL', '').'/reset-password/{token}?email={email}'),
-        'request_url' => env('BHERILA_AUTH_PASSWORD_REQUEST_URL', '/forgot-password'),
-        'redirect_after_reset' => env('BHERILA_AUTH_PASSWORD_RESET_REDIRECT', '/'),
+        'reset_url' => $embedded
+            ? rtrim((string) config('app.url'), '/').Mount::path('/reset-password/{token}').'?email={email}'
+            : env('BHERILA_AUTH_PASSWORD_RESET_URL', env('APP_URL', '').'/reset-password/{token}?email={email}'),
+        'request_url' => $embedded ? Mount::path('/forgot-password') : env('BHERILA_AUTH_PASSWORD_REQUEST_URL', '/forgot-password'),
+        'redirect_after_reset' => $embedded ? Mount::path('/') : env('BHERILA_AUTH_PASSWORD_RESET_REDIRECT', '/'),
         'mail_subject' => env('BHERILA_AUTH_PASSWORD_RESET_MAIL_SUBJECT', 'Reset your :app password'),
         'notice_subject' => env('BHERILA_AUTH_PASSWORD_NOTICE_MAIL_SUBJECT', 'Your :app password was changed'),
         'verify_email_on_reset' => false,
@@ -66,14 +73,14 @@ return [
         'test_code_environments' => ['local', 'testing'],
         'test_code' => '999999',
         'mail_subject' => env('BHERILA_AUTH_TWO_FACTOR_MAIL_SUBJECT', 'Verify your login - :app'),
-        'login_url' => env('BHERILA_AUTH_LOGIN_URL', '/login'),
+        'login_url' => $embedded ? Mount::path('/login') : env('BHERILA_AUTH_LOGIN_URL', '/login'),
         'session_user_key' => 'bherila_auth_2fa_user_id',
         'session_remember_key' => 'bherila_auth_2fa_remember',
     ],
 
     'passkeys' => [
         'table' => 'webauthn_credentials',
-        'rp_name' => env('WEBAUTHN_RP_NAME', env('APP_NAME', 'App')),
+        'rp_name' => env('WEBAUTHN_RP_NAME', $appName),
         // Must be declared here, not only in the package default: mergeConfigFrom is a
         // shallow merge, so this file's `passkeys` array replaces the package's entirely.
         // A key present only upstream silently resolves to null.
@@ -146,7 +153,7 @@ return [
             'ttl_seconds' => null,
         ],
         'consent' => [
-            'app_name' => env('APP_NAME', 'Application'),
+            'app_name' => $embedded ? $appName : env('APP_NAME', 'Application'),
             'heading' => 'Connect :client to :app?',
             'intro' => 'This application is requesting access to your :app account.',
             'identity' => true,
@@ -173,7 +180,7 @@ return [
     ],
 
     'users' => [
-        'model' => config('auth.providers.users.model', User::class),
+        'model' => $embedded ? User::class : config('auth.providers.users.model', User::class),
         'name_attribute' => 'name',
         'email_attribute' => 'email',
         'force_change_password_attribute' => null,

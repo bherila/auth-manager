@@ -8,7 +8,7 @@
 
 @section('content')
     <main class="mx-auto max-w-4xl space-y-6 px-6 py-10">
-        <a href="{{ route('admin.users') }}" class="text-sm underline">Directory administration</a>
+        <a href="{{ route('auth-manager.admin.users') }}" class="text-sm underline">Directory administration</a>
         <div>
             <h1 class="text-2xl font-semibold">Application registry</h1>
             <p class="text-muted-foreground mt-2 text-sm">Register trusted applications for this identity provider. Registration does not create OAuth clients, grant sign-in, or change application permissions.</p>

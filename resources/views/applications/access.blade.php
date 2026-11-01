@@ -9,7 +9,7 @@
     $describedRoles = array_values(array_filter($capabilities['controls']['workspace_roles'], fn (array $role): bool => isset($role['description'])));
 @endphp
 <main class="mx-auto max-w-3xl space-y-6 px-6 py-10">
-    <a class="underline" href="/">Back to your account</a>
+    <a class="underline" href="{{ route('auth-manager.home') }}">Back to your account</a>
     <h1 class="text-2xl font-semibold">{{ $application->name }} access</h1>
     <p>The application decides which accounts{{ $accountOnly ? '' : ' and workspaces' }} you can manage. Provider administration does not grant application permissions.</p>
     @if(session('status'))<p role="status">{{ session('status') }}</p>@endif
@@ -23,7 +23,7 @@
     @endif
     <section class="space-y-3 rounded border p-4">
         <h2 class="text-lg font-semibold">Choose an account</h2>
-        <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap items-end gap-3" role="search">
+        <form method="post" action="{{ route('auth-manager.applications.access.browse', $application->key) }}" class="flex flex-wrap items-end gap-3" role="search">
             @csrf
             @if($subject !== null)<input type="hidden" name="subject" value="{{ $subject }}">@endif
             @include('applications.search-fields', ['except' => 'subject_query'])
@@ -32,7 +32,7 @@
             </label>
             <button class="rounded border px-3 py-2">Search</button>
             @isset($searches['subject_query'])
-                <a class="underline" href="{{ route('applications.access', array_filter(['application' => $application->key, 'subject' => $subject, ...array_diff_key($searches, ['subject_query' => true])], fn ($value) => $value !== null)) }}">Clear search</a>
+                <a class="underline" href="{{ route('auth-manager.applications.access', array_filter(['application' => $application->key, 'subject' => $subject, ...array_diff_key($searches, ['subject_query' => true])], fn ($value) => $value !== null)) }}">Clear search</a>
             @endisset
         </form>
         <p class="text-sm">Matches names and email addresses the application holds, among the accounts it lets you see.</p>
@@ -54,14 +54,14 @@
                             @foreach($listedMetadata as $field => $label)
                                 <td class="p-2">@include('applications.metadata-value', ['value' => $candidate[$field] ?? null])</td>
                             @endforeach
-                            <td class="p-2"><a class="underline" href="{{ route('applications.access', ['application' => $application->key, 'subject' => $candidate['subject'], ...$searches]) }}">Review access</a></td>
+                            <td class="p-2"><a class="underline" href="{{ route('auth-manager.applications.access', ['application' => $application->key, 'subject' => $candidate['subject'], ...$searches]) }}">Review access</a></td>
                         </tr>
                     @endforeach
                 </tbody>
             </table>
         @endif
         @if($subjects['next_cursor'])
-            <form method="post" action="{{ route('applications.access.browse', $application->key) }}">
+            <form method="post" action="{{ route('auth-manager.applications.access.browse', $application->key) }}">
                 @csrf
                 @include('applications.search-fields')
                 <input type="hidden" name="subject_cursor" value="{{ $subjects['next_cursor'] }}">
@@ -72,7 +72,7 @@
     @if(!$accountOnly)
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Find a workspace</h2>
-            <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap items-end gap-3" role="search">
+            <form method="post" action="{{ route('auth-manager.applications.access.browse', $application->key) }}" class="flex flex-wrap items-end gap-3" role="search">
                 @csrf
                 @if($subject !== null)<input type="hidden" name="subject" value="{{ $subject }}">@endif
                 @include('applications.search-fields', ['except' => 'workspace_query'])
@@ -81,7 +81,7 @@
                 </label>
                 <button class="rounded border px-3 py-2">Search</button>
                 @isset($searches['workspace_query'])
-                    <a class="underline" href="{{ route('applications.access', array_filter(['application' => $application->key, 'subject' => $subject, ...array_diff_key($searches, ['workspace_query' => true])], fn ($value) => $value !== null)) }}">Clear search</a>
+                    <a class="underline" href="{{ route('auth-manager.applications.access', array_filter(['application' => $application->key, 'subject' => $subject, ...array_diff_key($searches, ['workspace_query' => true])], fn ($value) => $value !== null)) }}">Clear search</a>
                 @endisset
             </form>
             <p class="text-sm">{{ isset($searches['workspace_query']) ? 'Workspace choices on this page list only workspaces matching this search.' : 'Narrow the workspace choices on this page by name.' }}</p>
@@ -101,7 +101,7 @@
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Give access to someone new</h2>
             <p>Enter the exact email address the person signs in with. If they can sign in to {{ $application->name }} and have no account there yet, the application creates it with the {{ $accountOnly ? 'administrator setting' : 'workspace and role' }} you choose.</p>
-            <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
+            <form method="post" action="{{ route('auth-manager.applications.access.provision', $application->key) }}" class="space-y-4">
                 @csrf
                 @include('applications.operation-id')
                 @include('applications.search-fields')
@@ -138,13 +138,13 @@
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Give access to someone new</h2>
             <p>People who can sign in to {{ $application->name }} through this account service. Choosing one reviews their access in the application, which decides whether you may create their account.</p>
-            <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap gap-3">
+            <form method="post" action="{{ route('auth-manager.applications.access.browse', $application->key) }}" class="flex flex-wrap gap-3">
                 @csrf
                 <label>Search people <input type="search" name="directory_search" value="{{ $directorySearch }}" maxlength="100" class="rounded border bg-background p-2"></label>
                 <button class="rounded border px-3 py-2">Search</button>
             </form>
             @if(count($directory['people']))
-                <form method="post" action="{{ route('applications.access.browse', $application->key) }}" class="flex flex-wrap gap-3">
+                <form method="post" action="{{ route('auth-manager.applications.access.browse', $application->key) }}" class="flex flex-wrap gap-3">
                     @csrf
                     <input type="hidden" name="directory_search" value="{{ $directorySearch }}">
                     <label>Person
@@ -161,7 +161,7 @@
                 <p>No one who can sign in to this application matches.</p>
             @endif
             @if($directory['next_page'])
-                <form method="post" action="{{ route('applications.access.browse', $application->key) }}">
+                <form method="post" action="{{ route('auth-manager.applications.access.browse', $application->key) }}">
                     @csrf
                     <input type="hidden" name="directory_search" value="{{ $directorySearch }}">
                     <input type="hidden" name="directory_page" value="{{ $directory['next_page'] }}">
@@ -186,7 +186,7 @@
             @if(!$state['provisioned'])
                 <p>This account has not been provisioned in the application. A sign-in grant does not create an application account.</p>
                 @if($state['allowed_edits']['provision'] && $writes && $directory !== null)
-                    <form method="post" action="{{ route('applications.access.provision', $application->key) }}" class="space-y-4">
+                    <form method="post" action="{{ route('auth-manager.applications.access.provision', $application->key) }}" class="space-y-4">
                         @csrf
                         @include('applications.operation-id')
                         @include('applications.search-fields')
@@ -217,7 +217,7 @@
                         @endif
                     </form>
                     @if($workspaces['next_cursor'])
-                        <form method="post" action="{{ route('applications.access.browse', $application->key) }}">
+                        <form method="post" action="{{ route('auth-manager.applications.access.browse', $application->key) }}">
                             @csrf
                             @include('applications.search-fields')
                             <input type="hidden" name="subject" value="{{ $subject }}">
@@ -227,7 +227,7 @@
                     @endif
                 @endif
             @else
-                <form method="post" action="{{ route('applications.access.update', $application->key) }}" class="space-y-4">
+                <form method="post" action="{{ route('auth-manager.applications.access.update', $application->key) }}" class="space-y-4">
                     @csrf
                     @include('applications.operation-id')
                     @include('applications.search-fields')
@@ -323,7 +323,7 @@
                     @endif
                 </form>
                 @if($workspaces['next_cursor'] && $state['allowed_edits']['workspaces'])
-                    <form method="post" action="{{ route('applications.access.browse', $application->key) }}">
+                    <form method="post" action="{{ route('auth-manager.applications.access.browse', $application->key) }}">
                         @csrf
                         @include('applications.search-fields')
                         <input type="hidden" name="subject" value="{{ $subject }}">
@@ -340,7 +340,7 @@
     @if($writes)
         <section class="space-y-3 rounded border p-4">
             <h2 class="text-lg font-semibold">Confirm your identity before editing</h2>
-            <form method="post" action="{{ route('applications.access.confirm', $application->key) }}" class="flex flex-wrap gap-3">
+            <form method="post" action="{{ route('auth-manager.applications.access.confirm', $application->key) }}" class="flex flex-wrap gap-3">
                 @csrf
                 <label>Current password <input type="password" name="password" required autocomplete="current-password" class="rounded border bg-background p-2"></label>
                 <button class="rounded border px-3 py-2">Confirm password</button>

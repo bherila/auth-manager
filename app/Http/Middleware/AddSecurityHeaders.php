@@ -2,6 +2,7 @@
 
 namespace BWH\AuthManager\Http\Middleware;
 
+use BWH\AuthManager\Support\Mount;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -15,7 +16,7 @@ final class AddSecurityHeaders
     {
         $response = $next($request);
 
-        if ($request->is('api/reconciliation/*', 'api/oauth/user')) {
+        if (Mount::is($request, 'api/reconciliation/*', 'api/oauth/user')) {
             $response->headers->set('Cache-Control', 'private, no-store');
         }
 

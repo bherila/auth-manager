@@ -3,10 +3,11 @@
 use BWH\AuthManager\Http\Controllers\IdentityReconciliationController;
 use BWH\AuthManager\Http\Controllers\IdentityStatusController;
 use BWH\AuthManager\Http\Middleware\AuthenticateReconciliationClient;
+use BWH\AuthManager\Support\Mount;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('/api/reconciliation')
-    ->middleware(['api', 'throttle:60,1', AuthenticateReconciliationClient::class])
+    ->middleware([Mount::apiMiddleware(), 'throttle:60,1', AuthenticateReconciliationClient::class])
     ->group(function (): void {
         Route::post('/identity-status', IdentityStatusController::class)->name('reconciliation.identity-status');
         Route::get('/identity-tombstones', [IdentityReconciliationController::class, 'index'])

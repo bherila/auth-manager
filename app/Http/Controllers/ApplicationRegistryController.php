@@ -35,7 +35,7 @@ class ApplicationRegistryController extends Controller
     private function saved(SaveRegisteredApplicationRequest $request, RegisteredApplication $application, int $status): JsonResponse|RedirectResponse
     {
         if (! $request->expectsJson()) {
-            return redirect()->route('admin.applications')->with('status', 'Application registration saved. OAuth grants and application permissions were not changed.');
+            return redirect()->route('auth-manager.admin.applications')->with('status', 'Application registration saved. OAuth grants and application permissions were not changed.');
         }
 
         return response()->json(['application' => [
