@@ -249,7 +249,7 @@ $valid = config('database.default') === 'mysql'
     && config('app.key')
     && $app->make(Illuminate\Contracts\Encryption\Encrypter::class)
     && config('app.name') === $policy['application_name']
-    && config('auth-manager.profile') === $policy['profile']
+    && (config('auth-manager.profile') === 'bherila' ? 'identity' : config('auth-manager.profile')) === $policy['profile']
     && $brandingValid
     && config('session.driver') === 'database'
     && in_array(config('session.connection'), [null, 'mysql'], true)

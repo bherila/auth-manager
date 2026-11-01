@@ -269,6 +269,10 @@ class IdentityDeployTest(unittest.TestCase):
         for overrides in ({'branding.enabled': False}, {'app.name': 'Other'}, {'branding.logo_light': 'https://example.test/logo.svg'}):
             self.assert_php_preflight(overrides, expected_success=False)
 
+    def test_php_preflight_accepts_the_legacy_profile_name_from_a_pre_rename_release(self):
+        # The policy says `bherila` (normalized to `identity`); an older application still boots `bherila`.
+        self.assert_php_preflight({'auth-manager.profile': 'bherila'}, expected_success=True)
+
     def test_php_preflight_accepts_isolated_database_configuration(self):
         self.assert_php_preflight({}, expected_success=True)
 
