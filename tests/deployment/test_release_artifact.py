@@ -176,3 +176,44 @@ class ReleaseArtifactTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+SOURCE_SCRIPT = SCRIPT.with_name('build-source-archive.sh')
+
+
+@unittest.skipUnless(gnu_tar_available(), 'GNU tar is required')
+class SourceArchiveTest(ReleaseArtifactTest):
+    """Reuses the synthetic repository of the deploy-tree tests."""
+
+    def build_source(self, output, tag='v1.2.3'):
+        environment = {**os.environ, 'PATH': f'{self.tools}{os.pathsep}{os.environ["PATH"]}'}
+        return subprocess.run(['bash', str(SOURCE_SCRIPT), tag, str(output)], cwd=self.repository,
+                              capture_output=True, text=True, env=environment)
+
+    def test_the_source_archive_is_installable_and_has_no_dependencies(self):
+        import json
+        import zipfile
+
+        result = self.build_source(self.root / 'src')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        archive = self.root / 'src/auth-manager-source-v1.2.3.zip'
+        with zipfile.ZipFile(archive) as bundle:
+            names = set(bundle.namelist())
+            manifest = json.loads(bundle.read('composer.json'))
+
+        self.assertEqual(manifest['version'], '1.2.3')
+        for expected in ('composer.json', 'artisan', 'app/Example.php', 'public/build/manifest.json',
+                         'public/deployment-revision.txt', 'tests/ExampleTest.php'):
+            self.assertIn(expected, names)
+        for name in names:
+            self.assertFalse(name.startswith(('vendor', 'node_modules', 'storage', '.github', 'public/branding', '/')), name)
+            self.assertNotEqual(Path(name).name, '.env', name)
+
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        self.assertEqual((self.root / 'src/SHA256SUMS-source').read_text(),
+                         f'{digest}  auth-manager-source-v1.2.3.zip\n')
+
+    def test_the_source_archive_is_reproducible(self):
+        self.assertEqual(self.build_source(self.root / 'a').returncode, 0)
+        self.assertEqual(self.build_source(self.root / 'b').returncode, 0)
+        self.assertEqual((self.root / 'a/SHA256SUMS-source').read_text(), (self.root / 'b/SHA256SUMS-source').read_text())

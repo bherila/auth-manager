@@ -154,10 +154,18 @@ jobs:
           COMMIT: ${{ needs.resolve.outputs.commit }}
         run: bash scripts/release/build-artifact.sh "$TAG" "$RUNNER_TEMP/release" "$COMMIT"
 
+      - name: Build the Composer source archive
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+          COMMIT: ${{ needs.resolve.outputs.commit }}
+        run: bash scripts/release/build-source-archive.sh "$TAG" "$RUNNER_TEMP/release" "$COMMIT"
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: ${{ runner.temp }}/release/auth-manager-${{ needs.resolve.outputs.tag }}.tar.gz
+          subject-path: |
+            ${{ runner.temp }}/release/auth-manager-${{ needs.resolve.outputs.tag }}.tar.gz
+            ${{ runner.temp }}/release/auth-manager-source-${{ needs.resolve.outputs.tag }}.zip
 
       - name: Upload the release files
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -195,6 +203,10 @@ jobs:
           sha256sum --check --strict SHA256SUMS
           sha256=$(awk -v name="$name" '$2 == name { print $1 }' SHA256SUMS)
           [[ $sha256 =~ ^[0-9a-f]{64}$ ]]
+          source_name="auth-manager-source-$TAG.zip"
+          test "$(wc -l <SHA256SUMS-source)" -eq 1
+          sha256sum --check --strict SHA256SUMS-source
+          awk -v name="$source_name" '$2 == name { found = 1 } END { exit !found }' SHA256SUMS-source
           echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
 
       - name: Publish the release
@@ -208,6 +220,7 @@ jobs:
         run: |
           set -euo pipefail
           name="auth-manager-$TAG.tar.gz"
+          source_name="auth-manager-source-$TAG.zip"
 
           # The tag must still name the commit that was tested and built.
           ref=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG")
@@ -224,7 +237,8 @@ jobs:
           if [ "$state" = published ]; then
             # A published asset is pinned by consumers and is never replaced.
             gh release download "$TAG" --pattern SHA256SUMS --output "$RUNNER_TEMP/published-SHA256SUMS"
-            if cmp -s SHA256SUMS "$RUNNER_TEMP/published-SHA256SUMS"; then
+            gh release download "$TAG" --pattern SHA256SUMS-source --output "$RUNNER_TEMP/published-SHA256SUMS-source" || true
+            if cmp -s SHA256SUMS "$RUNNER_TEMP/published-SHA256SUMS" && cmp -s SHA256SUMS-source "$RUNNER_TEMP/published-SHA256SUMS-source"; then
               echo "$TAG is already published with this exact artifact."
               exit 0
             fi
@@ -249,6 +263,8 @@ jobs:
             echo "gh attestation verify $name --repo bherila/auth-manager"
             echo '```'
             echo
+            echo "\`$source_name\` is the Composer source archive for embedded mode; its checksum is in \`SHA256SUMS-source\` and it carries the same attestation."
+            echo
             echo 'See docs/releases.md for the artifact contents and the consumer notification.'
           } >"$RUNNER_TEMP/notes.md"
 
@@ -257,9 +273,11 @@ jobs:
 
           # Upload into a draft first so a partial upload is never visible.
           gh release create "$TAG" --verify-tag --draft --title "$TAG" \
-            --notes-file "$RUNNER_TEMP/notes.md" "${prerelease[@]}" "$name" SHA256SUMS
+            --notes-file "$RUNNER_TEMP/notes.md" "${prerelease[@]}" "$name" SHA256SUMS "$source_name" SHA256SUMS-source
           gh release download "$TAG" --pattern SHA256SUMS --output "$RUNNER_TEMP/uploaded-SHA256SUMS"
           cmp SHA256SUMS "$RUNNER_TEMP/uploaded-SHA256SUMS"
+          gh release download "$TAG" --pattern SHA256SUMS-source --output "$RUNNER_TEMP/uploaded-SHA256SUMS-source"
+          cmp SHA256SUMS-source "$RUNNER_TEMP/uploaded-SHA256SUMS-source"
           gh release edit "$TAG" --draft=false
 
   notify:

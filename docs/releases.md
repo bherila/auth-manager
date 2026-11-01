@@ -55,6 +55,8 @@ starts a release.
 | --- | --- |
 | `auth-manager-<tag>.tar.gz` | The deployable provider tree for the tagged commit |
 | `SHA256SUMS` | One line, `<sha256>  auth-manager-<tag>.tar.gz` |
+| `auth-manager-source-<tag>.zip` | Source plus compiled `public/build`, without `vendor/` or `node_modules/`, for a Composer `artifact` or `package` repository; see [embedded mode](embedded-mode.md#packaging) |
+| `SHA256SUMS-source` | One line, `<sha256>  auth-manager-source-<tag>.zip` |
 
 The tree is built by
 [`scripts/release/build-artifact.sh`](../scripts/release/build-artifact.sh) the

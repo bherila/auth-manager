@@ -138,6 +138,9 @@ jobs:
           bash scripts/release/build-artifact.sh v0.0.0-ci "$RUNNER_TEMP/first"
           bash scripts/release/build-artifact.sh v0.0.0-ci "$RUNNER_TEMP/second"
           cmp "$RUNNER_TEMP/first/SHA256SUMS" "$RUNNER_TEMP/second/SHA256SUMS"
+          bash scripts/release/build-source-archive.sh v0.0.0-ci "$RUNNER_TEMP/first"
+          bash scripts/release/build-source-archive.sh v0.0.0-ci "$RUNNER_TEMP/second"
+          cmp "$RUNNER_TEMP/first/SHA256SUMS-source" "$RUNNER_TEMP/second/SHA256SUMS-source"
           {
             echo '### Release artifact'
             echo

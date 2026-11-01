@@ -97,8 +97,20 @@ class ReleaseWorkflowTest extends TestCase
             $this->job('build'),
         );
         $this->assertStringContainsString(
-            'subject-path: ${{ runner.temp }}/release/auth-manager-${{ needs.resolve.outputs.tag }}.tar.gz',
+            '${{ runner.temp }}/release/auth-manager-${{ needs.resolve.outputs.tag }}.tar.gz',
             $this->job('build'),
+        );
+        $this->assertStringContainsString(
+            '${{ runner.temp }}/release/auth-manager-source-${{ needs.resolve.outputs.tag }}.zip',
+            $this->job('build'),
+        );
+        $this->assertStringContainsString(
+            'run: bash scripts/release/build-source-archive.sh "$TAG" "$RUNNER_TEMP/release" "$COMMIT"',
+            $this->job('build'),
+        );
+        $this->assertStringContainsString(
+            '"$name" SHA256SUMS "$source_name" SHA256SUMS-source',
+            $this->job('publish'),
         );
     }
 
@@ -188,6 +200,19 @@ class ReleaseWorkflowTest extends TestCase
 
         $this->assertStringContainsString('bash scripts/release/build-artifact.sh v0.0.0-ci "$RUNNER_TEMP/first"', $ci);
         $this->assertStringContainsString('cmp "$RUNNER_TEMP/first/SHA256SUMS" "$RUNNER_TEMP/second/SHA256SUMS"', $ci);
+    }
+
+    public function test_the_source_archive_excludes_dependencies_and_is_built_reproducibly(): void
+    {
+        $script = $this->read('scripts/release/build-source-archive.sh');
+        $ci = $this->read('.github/workflows/ci.yml');
+
+        $this->assertStringContainsString('pnpm run build', $script);
+        $this->assertStringNotContainsString('composer install', $script);
+        $this->assertStringContainsString("skipped_directories = {'vendor', 'node_modules', '.git', '.github', 'storage'}", $script);
+        $this->assertStringContainsString("manifest['version'] = tag[1:]", $script);
+        $this->assertStringContainsString('bash scripts/release/build-source-archive.sh v0.0.0-ci "$RUNNER_TEMP/first"', $ci);
+        $this->assertStringContainsString('cmp "$RUNNER_TEMP/first/SHA256SUMS-source" "$RUNNER_TEMP/second/SHA256SUMS-source"', $ci);
     }
 
     /**
