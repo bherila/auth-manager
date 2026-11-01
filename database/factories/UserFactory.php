@@ -13,6 +13,14 @@ use Illuminate\Support\Str;
 class UserFactory extends Factory
 {
     /**
+     * Named explicitly: the model guess assumes the application's own namespace, which is
+     * a host's when this provider is installed as a package.
+     *
+     * @var class-string<User>
+     */
+    protected $model = User::class;
+
+    /**
      * The current password being used by the factory.
      */
     protected static ?string $password;
