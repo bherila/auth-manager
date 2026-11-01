@@ -55,8 +55,8 @@
                 @endif
                 <label class="block">Email <input type="email" value="{{ $invitation->email }}" readonly class="rounded border bg-background p-2"></label>
                 <label class="block">Name <input type="text" name="name" required maxlength="255" autocomplete="name" value="{{ old('name') }}" class="rounded border bg-background p-2"></label>
-                <label class="block">Password <input type="password" name="password" required minlength="12" autocomplete="new-password" class="rounded border bg-background p-2"></label>
-                <label class="block">Confirm password <input type="password" name="password_confirmation" required minlength="12" autocomplete="new-password" class="rounded border bg-background p-2"></label>
+                <label class="block">Password <input type="password" name="password" required minlength="{{ config('auth-manager.password_min_length') }}" autocomplete="new-password" class="rounded border bg-background p-2"></label>
+                <label class="block">Confirm password <input type="password" name="password_confirmation" required minlength="{{ config('auth-manager.password_min_length') }}" autocomplete="new-password" class="rounded border bg-background p-2"></label>
                 <p class="text-sm">At least 12 characters.</p>
                 <button class="rounded border px-4 py-2">Create account and accept</button>
             </form>

@@ -21,7 +21,7 @@ final class AccountSettingsController extends Controller
     {
         $data = $request->validate([
             'current_password' => ['required', 'string', 'max:1024'],
-            'password' => ['required', 'string', 'min:12', 'max:72', static function (string $attribute, mixed $value, Closure $fail): void {
+            'password' => ['required', 'string', 'min:'.config('auth-manager.password_min_length'), 'max:72', static function (string $attribute, mixed $value, Closure $fail): void {
                 if (is_string($value) && strlen($value) > 72) {
                     $fail('The password must use at most 72 UTF-8 bytes.');
                 }

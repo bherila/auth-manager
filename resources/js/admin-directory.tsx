@@ -8,6 +8,8 @@ import { Label } from '@/components/ui/label';
 import { fetchWrapper } from '@/fetchWrapper';
 import { appPath } from '@/lib/app-path';
 
+const passwordMinLength = Number(document.getElementById('directory-admin-mount')?.dataset.passwordMinLength);
+
 interface OAuthClient {
   id: string;
   name: string;
@@ -206,7 +208,7 @@ function UserCard({
             <Input
               id={`password-${user.id}`}
               type="password"
-              minLength={12}
+              minLength={passwordMinLength}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required
@@ -217,13 +219,13 @@ function UserCard({
             <Input
               id={`password-confirmation-${user.id}`}
               type="password"
-              minLength={12}
+              minLength={passwordMinLength}
               value={passwordConfirmation}
               onChange={(event) => setPasswordConfirmation(event.target.value)}
               required
             />
           </div>
-          <Button type="submit" variant="outline" disabled={busy || password.length < 12}>
+          <Button type="submit" variant="outline" disabled={busy || password.length < passwordMinLength}>
             Reset password
           </Button>
         </form>
@@ -372,7 +374,7 @@ function DirectoryAdminPage() {
                 <Input
                   id="new-password"
                   type="password"
-                  minLength={12}
+                  minLength={passwordMinLength}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   required
@@ -383,7 +385,7 @@ function DirectoryAdminPage() {
                 <Input
                   id="new-password-confirmation"
                   type="password"
-                  minLength={12}
+                  minLength={passwordMinLength}
                   value={passwordConfirmation}
                   onChange={(event) => setPasswordConfirmation(event.target.value)}
                   required
@@ -411,7 +413,7 @@ function DirectoryAdminPage() {
                 ))}
               </div>
             </fieldset>
-            <Button type="submit" disabled={creating || password.length < 12}>
+            <Button type="submit" disabled={creating || password.length < passwordMinLength}>
               {creating ? 'Creating…' : 'Create provider account'}
             </Button>
           </form>

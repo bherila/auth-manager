@@ -7,7 +7,7 @@
 @section('title', 'Directory administration')
 
 @section('content')
-    <div id="directory-admin-mount">
+    <div id="directory-admin-mount" data-password-min-length="{{ config('auth-manager.password_min_length') }}">
         <main class="mx-auto max-w-6xl px-4 py-10">
             <p class="sr-only">
                 A selected grant permits OAuth, but never creates a record inside a connected application.

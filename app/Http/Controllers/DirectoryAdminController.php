@@ -45,7 +45,7 @@ class DirectoryAdminController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'confirmed', 'max:255', Password::min(12)],
+            'password' => ['required', 'confirmed', 'max:255', Password::min(config('auth-manager.password_min_length'))],
             'enabled' => ['required', 'boolean'],
             'client_ids' => ['present', 'array', 'max:100'],
             'client_ids.*' => ['string', 'uuid', 'distinct'],
@@ -116,7 +116,7 @@ class DirectoryAdminController extends Controller
     public function resetPassword(Request $request, User $user): JsonResponse
     {
         $validated = $request->validate([
-            'password' => ['required', 'confirmed', 'max:255', Password::min(12)],
+            'password' => ['required', 'confirmed', 'max:255', Password::min(config('auth-manager.password_min_length'))],
         ]);
 
         $updated = $this->directory->resetPassword(
