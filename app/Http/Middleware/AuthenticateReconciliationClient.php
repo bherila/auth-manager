@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Http\Middleware;
+namespace BWH\AuthManager\Http\Middleware;
 
-use App\Models\PassportClient;
-use App\Support\ReconciliationClientRegistry;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Support\ReconciliationClientRegistry;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

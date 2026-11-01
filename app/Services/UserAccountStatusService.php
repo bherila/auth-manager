@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Services;
+namespace BWH\AuthManager\Services;
 
-use App\Models\User;
+use BWH\AuthManager\Models\User;
 
 class UserAccountStatusService
 {

@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Console\Commands;
+namespace BWH\AuthManager\Console\Commands;
 
-use App\Models\User;
-use App\Services\IdentityCopy\IdentityCopyDocument;
-use App\Services\IdentityCopy\TableSequence;
-use App\Services\OAuthClientGrantService;
 use BWH\Auth\Models\AuthAuditLog;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\IdentityCopy\IdentityCopyDocument;
+use BWH\AuthManager\Services\IdentityCopy\TableSequence;
+use BWH\AuthManager\Services\OAuthClientGrantService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;

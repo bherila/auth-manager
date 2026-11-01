@@ -1,15 +1,15 @@
 <?php
 
-namespace App\Services\Invitations;
+namespace BWH\AuthManager\Services\Invitations;
 
-use App\Mail\AccessInvitationMail;
-use App\Models\AccessInvitation;
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Models\User;
-use App\Services\OAuthClientGrantService;
-use App\Support\ApplicationInvitations;
-use App\Support\StaticApplicationClients;
+use BWH\AuthManager\Mail\AccessInvitationMail;
+use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\OAuthClientGrantService;
+use BWH\AuthManager\Support\ApplicationInvitations;
+use BWH\AuthManager\Support\StaticApplicationClients;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;

@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Http\Requests;
+namespace BWH\AuthManager\Http\Requests;
 
-use App\Models\RegisteredApplication;
-use App\Support\AuthManagerProfile;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Support\AuthManagerProfile;
 use Closure;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;

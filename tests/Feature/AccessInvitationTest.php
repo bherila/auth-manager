@@ -2,23 +2,23 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\EnsureCredentialVersion;
-use App\Mail\AccessInvitationMail;
-use App\Models\AccessInvitation;
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Models\User;
-use App\Services\DelegatedAccess\DelegatedAccessTransport;
-use App\Services\DirectoryAdminService;
-use App\Services\IdentityTombstonePurger;
-use App\Services\Invitations\AccessInvitationService;
-use App\Services\Invitations\InvitationAudit;
-use App\Services\Invitations\InvitationRoles;
-use App\Services\Invitations\InvitationUnavailable;
-use App\Support\DelegatedAccessPermissions;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Mail\AccessInvitationMail;
+use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\DelegatedAccess\DelegatedAccessTransport;
+use BWH\AuthManager\Services\DirectoryAdminService;
+use BWH\AuthManager\Services\IdentityTombstonePurger;
+use BWH\AuthManager\Services\Invitations\AccessInvitationService;
+use BWH\AuthManager\Services\Invitations\InvitationAudit;
+use BWH\AuthManager\Services\Invitations\InvitationRoles;
+use BWH\AuthManager\Services\Invitations\InvitationUnavailable;
+use BWH\AuthManager\Support\DelegatedAccessPermissions;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;

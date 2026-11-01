@@ -1,13 +1,13 @@
 <?php
 
-namespace App\OAuth;
+namespace BWH\AuthManager\OAuth;
 
-use App\Http\Middleware\EnsureCredentialVersion;
-use App\Models\User;
-use App\Services\OAuthClientGrantService;
-use App\Services\OAuthCredentialGenerationContext;
-use App\Services\UserAccountStatusService;
 use BWH\Auth\OAuth\Server\ResourceAuthCodeRepository;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\OAuthClientGrantService;
+use BWH\AuthManager\Services\OAuthCredentialGenerationContext;
+use BWH\AuthManager\Services\UserAccountStatusService;
 use Illuminate\Support\Facades\DB;
 use Laravel\Passport\Passport;
 use League\OAuth2\Server\Entities\AuthCodeEntityInterface;

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\Invitations;
+namespace BWH\AuthManager\Services\Invitations;
 
 use Illuminate\Http\JsonResponse;
 use RuntimeException;

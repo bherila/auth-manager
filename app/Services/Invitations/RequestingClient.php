@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\Invitations;
+namespace BWH\AuthManager\Services\Invitations;
 
 /**
  * The application client an invitation is requested through, with the actor's provider subject as

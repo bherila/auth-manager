@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Console\Commands;
+namespace BWH\AuthManager\Console\Commands;
 
-use App\Services\IdentityTombstonePurger;
+use BWH\AuthManager\Services\IdentityTombstonePurger;
 use Illuminate\Console\Command;
 
 class PurgeIdentityTombstones extends Command

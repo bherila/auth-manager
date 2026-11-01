@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\RequireRecentPasskeyAuthentication;
-use App\Models\User;
 use BWH\Auth\Models\TwoFactorAttempt;
+use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
+use BWH\AuthManager\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;

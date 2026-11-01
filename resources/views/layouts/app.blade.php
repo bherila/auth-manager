@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @php
-        $branding = app(\App\Support\DeploymentBranding::class);
+        $branding = app(\BWH\AuthManager\Support\DeploymentBranding::class);
         // yieldContent() already HTML-escapes both the section and the default, so this
         // is safe to output raw; escaping again would render "&amp;amp;" for an ampersand.
         $pageTitle = trim($__env->yieldContent('title', config('app.name')));

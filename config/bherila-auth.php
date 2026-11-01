@@ -1,8 +1,8 @@
 <?php
 
-use App\Http\Middleware\RequireRecentPasskeyAuthentication;
-use App\Http\Middleware\ThrottleTwoFactorVerify;
-use App\Models\User;
+use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
+use BWH\AuthManager\Http\Middleware\ThrottleTwoFactorVerify;
+use BWH\AuthManager\Models\User;
 
 $issuer = (string) config('auth-manager.issuer');
 $resource = (string) config('auth-manager.resource');

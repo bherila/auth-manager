@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Support;
+namespace BWH\AuthManager\Support;
 
-use App\Models\PassportClient;
+use BWH\AuthManager\Models\PassportClient;
 
 class StaticApplicationClients
 {

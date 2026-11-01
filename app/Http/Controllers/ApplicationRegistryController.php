@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Http\Requests\SaveRegisteredApplicationRequest;
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Services\ApplicationRegistryService;
-use App\Support\StaticApplicationClients;
+use BWH\AuthManager\Http\Requests\SaveRegisteredApplicationRequest;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Services\ApplicationRegistryService;
+use BWH\AuthManager\Support\StaticApplicationClients;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Response;

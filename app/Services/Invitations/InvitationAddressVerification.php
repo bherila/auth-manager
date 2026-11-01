@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Services\Invitations;
+namespace BWH\AuthManager\Services\Invitations;
 
-use App\Mail\InvitationCodeMail;
-use App\Models\AccessInvitation;
-use App\Models\InvitationAcceptanceCode;
+use BWH\AuthManager\Mail\InvitationCodeMail;
+use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\InvitationAcceptanceCode;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;

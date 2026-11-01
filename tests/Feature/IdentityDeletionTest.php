@@ -2,13 +2,13 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\EnsureCredentialVersion;
-use App\Models\IdentityTombstone;
-use App\Models\PassportClient;
-use App\Models\User;
-use App\Services\DirectoryAdminService;
-use App\Services\IdentityTombstonePurger;
-use App\Services\UserAccountStatusService;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Models\IdentityTombstone;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\DirectoryAdminService;
+use BWH\AuthManager\Services\IdentityTombstonePurger;
+use BWH\AuthManager\Services\UserAccountStatusService;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;

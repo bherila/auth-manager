@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\EnsureOAuthSessionIsFullyAuthenticated;
+use BWH\AuthManager\Http\Middleware\EnsureOAuthSessionIsFullyAuthenticated;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\Request;
 use Illuminate\Session\ArraySessionHandler;

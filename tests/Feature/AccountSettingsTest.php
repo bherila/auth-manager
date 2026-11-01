@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\EnsureCredentialVersion;
-use App\Models\User;
 use BWH\Auth\Models\AuthAuditLog;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;

@@ -1,9 +1,5 @@
 <?php
 
-use App\Http\Controllers\EndSessionController;
-use App\Http\Middleware\AuditOAuthAuthorization;
-use App\Http\Middleware\EnsureOAuthSessionIsFullyAuthenticated;
-use App\Http\Middleware\RequireOAuthClientGrant;
 use BWH\Auth\Http\Controllers\OAuthDynamicClientRegistrationController;
 use BWH\Auth\Http\Controllers\OAuthMetadataController;
 use BWH\Auth\Http\Controllers\OAuthTokenIntrospectionController;
@@ -11,6 +7,10 @@ use BWH\Auth\Http\Middleware\EnforceOAuthPkce;
 use BWH\Auth\Http\Middleware\EnforceOAuthResourceIndicator;
 use BWH\Auth\Http\Middleware\EnsureOAuthServerEnabled;
 use BWH\Auth\Http\Middleware\RequireActiveUser;
+use BWH\AuthManager\Http\Controllers\EndSessionController;
+use BWH\AuthManager\Http\Middleware\AuditOAuthAuthorization;
+use BWH\AuthManager\Http\Middleware\EnsureOAuthSessionIsFullyAuthenticated;
+use BWH\AuthManager\Http\Middleware\RequireOAuthClientGrant;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passport\Http\Controllers\AccessTokenController;
 use Laravel\Passport\Http\Controllers\ApproveAuthorizationController;

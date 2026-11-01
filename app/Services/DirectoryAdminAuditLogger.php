@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Services;
+namespace BWH\AuthManager\Services;
 
-use App\Models\User;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\Support\ClientIp;
+use BWH\AuthManager\Models\User;
 use Illuminate\Http\Request;
 
 class DirectoryAdminAuditLogger

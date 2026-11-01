@@ -1,16 +1,16 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Models\AccessInvitation;
-use App\Models\RegisteredApplication;
-use App\Services\DelegatedAccess\DelegatedAccessTransport;
-use App\Services\Invitations\AccessInvitationService;
-use App\Services\Invitations\IssuedInvitation;
-use App\Support\DelegatedAccessApplications;
-use App\Support\DelegatedAccessPermissions;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
+use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Services\DelegatedAccess\DelegatedAccessTransport;
+use BWH\AuthManager\Services\Invitations\AccessInvitationService;
+use BWH\AuthManager\Services\Invitations\IssuedInvitation;
+use BWH\AuthManager\Support\DelegatedAccessApplications;
+use BWH\AuthManager\Support\DelegatedAccessPermissions;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;

@@ -1,13 +1,13 @@
 <?php
 
-namespace App\Console\Commands;
+namespace BWH\AuthManager\Console\Commands;
 
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Support\ApplicationInvitationKeys;
-use App\Support\ApplicationInvitations;
-use App\Support\StaticApplicationClients;
 use BWH\Auth\Models\AuthAuditLog;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Support\ApplicationInvitationKeys;
+use BWH\AuthManager\Support\ApplicationInvitations;
+use BWH\AuthManager\Support\StaticApplicationClients;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace BWH\AuthManager\Services;
 
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;

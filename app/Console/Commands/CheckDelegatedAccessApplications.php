@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Console\Commands;
+namespace BWH\AuthManager\Console\Commands;
 
-use App\Support\DelegatedAccessApplications;
-use App\Support\DelegatedAccessKeys;
+use BWH\AuthManager\Support\DelegatedAccessApplications;
+use BWH\AuthManager\Support\DelegatedAccessKeys;
 use Dotenv\Dotenv;
 use Illuminate\Console\Command;
 use InvalidArgumentException;

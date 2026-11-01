@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * One-time codes that prove the invited address before an application's own invitation creates an
- * account (see App\Services\Invitations\InvitationAddressVerification).
+ * account (see BWH\AuthManager\Services\Invitations\InvitationAddressVerification).
  *
  * A row per code sent, so a second send never replaces a code already in the person's inbox. Only a
  * keyed hash of each code is stored, bound to the invitation, its current link and its address; the

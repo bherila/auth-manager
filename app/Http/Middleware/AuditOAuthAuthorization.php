@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Middleware;
+namespace BWH\AuthManager\Http\Middleware;
 
 use BWH\Auth\Contracts\AuthAuditLogger;
 use Closure;

@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Http\Controllers\OAuthUserController;
-use App\Models\User;
-use App\Support\RelyingApplications;
+use BWH\AuthManager\Http\Controllers\OAuthUserController;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Support\RelyingApplications;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

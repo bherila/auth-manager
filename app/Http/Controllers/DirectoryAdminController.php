@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Models\PassportClient;
-use App\Models\User;
-use App\Services\DirectoryAdminService;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\DirectoryAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

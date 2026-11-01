@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Http\Middleware\RequireRecentPasskeyAuthentication;
-use App\Models\User;
 use BWH\Auth\Concerns\LogsAuthEvents;
 use BWH\Auth\Contracts\LoginThrottle;
 use BWH\Auth\Services\TwoFactorService;
+use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
+use BWH\AuthManager\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;

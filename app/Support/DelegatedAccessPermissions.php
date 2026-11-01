@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Support;
+namespace BWH\AuthManager\Support;
 
-use App\Models\User;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use BWH\AuthManager\Models\User;
 
 /**
  * Who may use delegated administration here, per application and operation.

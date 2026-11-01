@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Http\Middleware;
+namespace BWH\AuthManager\Http\Middleware;
 
-use App\Http\Controllers\ApplicationAccessController;
-use App\Services\DelegatedAccess\DelegatedAccessTransport;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
+use BWH\AuthManager\Http\Controllers\ApplicationAccessController;
+use BWH\AuthManager\Services\DelegatedAccess\DelegatedAccessTransport;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;

@@ -2,11 +2,11 @@
 
 namespace Tests\Feature;
 
-use App\Services\DelegatedAccess\ActorAssertion;
 use BWH\Auth\OAuth\DelegatedAccess\ActorAssertionVerifier;
 use BWH\Auth\OAuth\DelegatedAccess\DatabaseNonceStore;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\NonceStore;
+use BWH\AuthManager\Services\DelegatedAccess\ActorAssertion;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;

@@ -1,5 +1,5 @@
 @php
-    $branding = app(\App\Support\DeploymentBranding::class);
+    $branding = app(\BWH\AuthManager\Support\DeploymentBranding::class);
     $lightLogo = $branding->asset('logo_light');
     $darkLogo = $branding->asset('logo_dark') ?? $lightLogo;
 @endphp

@@ -1,12 +1,12 @@
 <?php
 
-namespace App\OAuth;
+namespace BWH\AuthManager\OAuth;
 
-use App\Models\User;
-use App\Services\OAuthClientGrantService;
-use App\Services\OAuthCredentialGenerationContext;
-use App\Services\UserAccountStatusService;
 use BWH\Auth\OAuth\Server\ResourceAccessTokenRepository;
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\OAuthClientGrantService;
+use BWH\AuthManager\Services\OAuthCredentialGenerationContext;
+use BWH\AuthManager\Services\UserAccountStatusService;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Laravel\Passport\Passport;

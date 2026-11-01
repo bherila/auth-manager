@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Services;
+namespace BWH\AuthManager\Services;
 
-use App\Models\PassportClient;
-use App\Models\User;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\User;
 use Illuminate\Support\Facades\DB;
 
 class OAuthClientGrantService

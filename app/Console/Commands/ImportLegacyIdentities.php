@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Console\Commands;
+namespace BWH\AuthManager\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Database\ConnectionInterface;

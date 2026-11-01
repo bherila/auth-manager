@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace BWH\AuthManager\Http\Controllers;
 
-use App\Http\Middleware\AuthenticateReconciliationClient;
-use App\Models\IdentityTombstone;
-use App\Models\IdentityTombstoneClient;
-use App\Models\PassportClient;
-use App\Services\IdentityReconciliationService;
+use BWH\AuthManager\Http\Middleware\AuthenticateReconciliationClient;
+use BWH\AuthManager\Models\IdentityTombstone;
+use BWH\AuthManager\Models\IdentityTombstoneClient;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Services\IdentityReconciliationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

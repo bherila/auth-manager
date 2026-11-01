@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Support;
+namespace BWH\AuthManager\Support;
 
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Models\User;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 
 /**

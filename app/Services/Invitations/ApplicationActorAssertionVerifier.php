@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\Invitations;
+namespace BWH\AuthManager\Services\Invitations;
 
 use BWH\Auth\OAuth\DelegatedAccess\NonceStore;
 use Lcobucci\JWT\Encoding\JoseEncoder;

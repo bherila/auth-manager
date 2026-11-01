@@ -2,12 +2,12 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\EnsureCredentialVersion;
-use App\Http\Middleware\RequireRecentPasskeyAuthentication;
-use App\Models\PassportClient;
-use App\Models\RegisteredApplication;
-use App\Models\User;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
+use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
+use BWH\AuthManager\Models\PassportClient;
+use BWH\AuthManager\Models\RegisteredApplication;
+use BWH\AuthManager\Models\User;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\DB;

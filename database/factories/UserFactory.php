@@ -1,8 +1,8 @@
 <?php
 
-namespace Database\Factories;
+namespace BWH\AuthManager\Database\Factories;
 
-use App\Models\User;
+use BWH\AuthManager\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -12,6 +12,14 @@ use Illuminate\Support\Str;
  */
 class UserFactory extends Factory
 {
+    /**
+     * Named explicitly: the model guess assumes the application's own namespace, which is
+     * a host's when this provider is installed as a package.
+     *
+     * @var class-string<User>
+     */
+    protected $model = User::class;
+
     /**
      * The current password being used by the factory.
      */
