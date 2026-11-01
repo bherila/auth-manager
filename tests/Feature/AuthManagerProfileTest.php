@@ -55,15 +55,17 @@ class AuthManagerProfileTest extends TestCase
         $this->assertNull(AuthManagerProfile::fromName('Bherila'));
         $this->assertNull(AuthManagerProfile::fromName(null));
 
-        $previous = getenv('AUTH_MANAGER_PROFILE');
         try {
-            putenv('AUTH_MANAGER_PROFILE=bherila');
-            $this->assertSame(AuthManagerProfile::Identity, AuthManagerProfile::fromEnvironment());
-            putenv('AUTH_MANAGER_PROFILE=unknown');
+            foreach (['bherila' => AuthManagerProfile::Identity, 'identity' => AuthManagerProfile::Identity, 'resource' => AuthManagerProfile::ResourceServer] as $name => $expected) {
+                $_ENV['AUTH_MANAGER_PROFILE'] = $_SERVER['AUTH_MANAGER_PROFILE'] = $name;
+                $this->assertSame($expected, AuthManagerProfile::fromEnvironment(), $name);
+            }
+
+            $_ENV['AUTH_MANAGER_PROFILE'] = $_SERVER['AUTH_MANAGER_PROFILE'] = 'unknown';
             $this->expectException(\InvalidArgumentException::class);
             AuthManagerProfile::fromEnvironment();
         } finally {
-            $previous === false ? putenv('AUTH_MANAGER_PROFILE') : putenv('AUTH_MANAGER_PROFILE='.$previous);
+            unset($_ENV['AUTH_MANAGER_PROFILE'], $_SERVER['AUTH_MANAGER_PROFILE']);
         }
     }
 
