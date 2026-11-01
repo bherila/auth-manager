@@ -98,6 +98,17 @@ version's CLI, policy and status contract; do not silently mix incompatible
 versions. The engine guide accompanies versions that include the isolated-release
 tooling. Older versions require their documented deployment process.
 
+## Password length policy
+
+`AUTH_MANAGER_PASSWORD_MIN_LENGTH` sets the minimum length for new passwords in
+this instance. It defaults to 12 and accepts integers from 8 to 72. Set it in the
+instance's persistent runtime environment and rebuild the configuration cache.
+The same value controls administrator creation/reset, account settings and
+invitation acceptance, including their browser inputs. Existing passwords still
+work, and current-password checks do not impose the new-password minimum.
+Confirmation, credential invalidation and existing upper storage limits remain
+in effect. Other instances retain their own settings.
+
 ## Build, activate and verify
 
 1. Verify the environment opt-in, target policy, application/tooling revisions and

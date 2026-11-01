@@ -450,6 +450,25 @@ class ApplicationInvitationTest extends TestCase
         $this->get('/invitations/accepted')->assertOk()->assertDontSee('could not be set up yet');
     }
 
+    public function test_invitation_password_uses_instance_minimum_without_bypassing_email_verification(): void
+    {
+        config(['auth-manager.password_min_length' => 8]);
+        $created = $this->create('person@example.test')->json('invitation');
+        $link = $this->path($created['link']);
+        $password = ['password' => '12345678', 'password_confirmation' => '12345678'];
+        $this->post($link.'/accept', array_replace($this->newPerson(), $password))
+            ->assertSessionHasErrors('code')->assertSessionDoesntHaveErrors('password');
+        $code = $this->requestCode($link);
+        $this->assertNotNull($code);
+        $this->get($link)->assertOk()->assertSee('minlength="8"', false)->assertSee('At least 8 characters.')->assertDontSee('At least 12 characters.');
+        $this->post($link.'/accept', array_replace($this->newPerson($code), ['password' => '1234567', 'password_confirmation' => '1234567']))
+            ->assertSessionHasErrors('password');
+        $this->post($link.'/accept', array_replace($this->newPerson($code), $password))->assertRedirect('/invitations/accepted');
+        $person = User::where('email', 'person@example.test')->sole();
+        $this->assertNotNull($person->email_verified_at);
+        $this->assertTrue(Hash::check('12345678', $person->password));
+    }
+
     public function test_an_existing_account_signs_in_and_accepts(): void
     {
         $person = User::factory()->create(['email' => 'person@example.test', 'password' => Hash::make('person-password-example')]);

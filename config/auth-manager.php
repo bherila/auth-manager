@@ -28,7 +28,15 @@ $themeHosts = AuthManagerProfile::validatedThemeAllowedHosts(array_values(array_
     explode(',', (string) env('AUTH_MANAGER_THEME_ALLOWED_HOSTS', $embedded ? '' : implode(',', $profile->defaultThemeAllowedHosts()))),
 ), static fn (string $host): bool => $host !== '')), $themeCookieDomain);
 
+$passwordMinLength = filter_var(env('AUTH_MANAGER_PASSWORD_MIN_LENGTH', 12), FILTER_VALIDATE_INT, [
+    'options' => ['min_range' => 8, 'max_range' => 72],
+]);
+if ($passwordMinLength === false) {
+    throw new InvalidArgumentException('AUTH_MANAGER_PASSWORD_MIN_LENGTH must be an integer from 8 to 72.');
+}
+
 return [
+    'password_min_length' => $passwordMinLength,
     'profile' => $profile->value,
     'issuer' => $issuer,
     'resource' => $resource,

@@ -21,7 +21,7 @@
         <section aria-labelledby="password-heading" class="rounded-xl border border-border bg-card p-6">
             <h2 id="password-heading" class="text-lg font-semibold">Change password</h2>
             <p class="text-muted-foreground mt-2 text-sm">Confirm your current password. Changing it signs you out of provider sessions and revokes connected application tokens. Applications may keep their own session until they next check with this provider.</p>
-            <div id="account-settings-mount" data-password-url="{{ route('auth-manager.settings.password') }}" data-login-url="{{ route('auth-manager.login') }}"></div>
+            <div id="account-settings-mount" data-password-min-length="{{ config('auth-manager.password_min_length') }}" data-password-url="{{ route('auth-manager.settings.password') }}" data-login-url="{{ route('auth-manager.login') }}"></div>
             <noscript><p class="mt-4">Enable JavaScript to change your password.</p></noscript>
         </section>
         <section aria-labelledby="passkeys-heading" class="rounded-xl border border-border bg-card p-6">
