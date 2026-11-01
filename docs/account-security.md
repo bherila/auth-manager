@@ -4,7 +4,7 @@ Signed-in, active people manage their provider credentials at `/settings`. This 
 
 ## Passwords and recovery
 
-`PUT /settings/password` accepts `current_password`, `password`, and `password_confirmation` for the authenticated subject only. There is no target-user parameter. Every change verifies the current password under a database row lock, rechecks account status, requires a different password of at least 12 characters, and requires matching confirmation. Five attempts per minute are allowed. The endpoint retains the web session and CSRF protections; it does not enable the shared package's password routes.
+`PUT /settings/password` accepts `current_password`, `password`, and `password_confirmation` for the authenticated subject only. There is no target-user parameter. Every change verifies the current password under a database row lock, rechecks account status, requires a different password meeting the instance minimum (`AUTH_MANAGER_PASSWORD_MIN_LENGTH`, default 12), and requires matching confirmation. Five attempts per minute are allowed. The endpoint retains the web session and CSRF protections; it does not enable the shared package's password routes.
 
 Successful changes increment the credential version, rotate the remembered-login token, revoke existing OAuth credentials, remove persisted provider sessions, and sign out the requesting browser. A stale provider session is refused on its next request even when the session driver is not the database. Connected applications may retain their own sessions until they next consult the provider. The page confirms success and asks the person to sign in again. The audit event is `self_password_changed`, with the subject and actor set to the same person and no password values in metadata.
 

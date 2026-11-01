@@ -460,7 +460,7 @@ class ApplicationInvitationTest extends TestCase
             ->assertSessionHasErrors('code')->assertSessionDoesntHaveErrors('password');
         $code = $this->requestCode($link);
         $this->assertNotNull($code);
-        $this->get($link)->assertOk()->assertSee('minlength="8"', false);
+        $this->get($link)->assertOk()->assertSee('minlength="8"', false)->assertSee('At least 8 characters.')->assertDontSee('At least 12 characters.');
         $this->post($link.'/accept', array_replace($this->newPerson($code), ['password' => '1234567', 'password_confirmation' => '1234567']))
             ->assertSessionHasErrors('password');
         $this->post($link.'/accept', array_replace($this->newPerson($code), $password))->assertRedirect('/invitations/accepted');
