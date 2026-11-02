@@ -5,9 +5,12 @@ namespace BWH\AuthManager\Http\Controllers;
 use BWH\Auth\Concerns\LogsAuthEvents;
 use BWH\Auth\Contracts\LoginThrottle;
 use BWH\Auth\Models\TwoFactorAttempt;
+use BWH\Auth\OAuth\AuthenticationRequirement;
 use BWH\Auth\Services\TwoFactorService;
+use BWH\AuthManager\Http\Middleware\EnforceAuthenticationRequest;
 use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\AuthenticationContext;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -20,7 +23,7 @@ class LoginController extends Controller
 {
     use LogsAuthEvents;
 
-    private const PASSWORD_CHALLENGE_SESSION_KEY = 'auth_manager_password_challenge';
+    public const PASSWORD_CHALLENGE_SESSION_KEY = 'auth_manager_password_challenge';
 
     /** Codes one address can be sent through the password flow in the window below. */
     private const PASSWORD_CHALLENGE_MAIL_LIMIT = 5;
@@ -31,7 +34,16 @@ class LoginController extends Controller
     {
         $attempt = $this->livePasswordChallenge($request);
 
+        $reauthentication = $request->session()->get(EnforceAuthenticationRequest::SESSION_KEY);
+        // Left behind by an abandoned request, it must not keep narrowing this page.
+        if (is_array($reauthentication) && (int) ($reauthentication['requested_at'] ?? 0) < now()->subMinutes(15)->getTimestamp()) {
+            $request->session()->forget(EnforceAuthenticationRequest::SESSION_KEY);
+            $reauthentication = null;
+        }
+
         return view('login', [
+            'reauthenticating' => is_array($reauthentication),
+            'offeredMethods' => is_array($reauthentication) ? ($reauthentication['methods'] ?? null) : null,
             'passwordChallenge' => $attempt === null ? null : [
                 'attempt_token' => (string) $attempt->getAttribute('token'),
                 'email' => (string) $request->session()->get(self::PASSWORD_CHALLENGE_SESSION_KEY.'.email'),
@@ -75,6 +87,7 @@ class LoginController extends Controller
 
             $request->session()->regenerate();
             RequireRecentPasskeyAuthentication::recordCredentialVerification($request);
+            AuthenticationContext::record($request, $user, ['pwd'], AuthenticationRequirement::ACR_SINGLE);
             $this->auditLoginSucceeded($request, $user, 'password');
 
             return redirect()->intended(route('auth-manager.home'));

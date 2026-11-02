@@ -356,7 +356,7 @@ lineage carry the values unchanged.
 | Emailed sign-in code | `otp` |
 | Device-bound passkey (backup-eligible flag clear when enrolled) | `hwk` |
 | Synced passkey (backup-eligible flag set when enrolled) | `swk` |
-| Password then a second factor (roadmap) | `pwd`, the factor's value, `mfa` |
+| Password then an emailed code | `pwd`, `otp`, `mfa` |
 
 Passkey details:
 
@@ -370,13 +370,15 @@ Passkey details:
   user-presence test, which every passkey assertion includes, so emitting it for verification
   would misstate what it means. Verification shows up only through the `acr` rung.
 
-**`acr`.** A small instance vocabulary, ordered:
+**`acr`.** A small instance vocabulary. `single` is met by any authentication. A verified passkey
+also satisfies a request for `mfa` (owner, 2026-11-02). A request for `phishing-resistant` is met
+only by a verified passkey, because a password and an emailed code can still be phished.
 
 | `acr` | Satisfied by |
 | --- | --- |
 | `urn:auth-manager:acr:single` | Any one method |
 | `urn:auth-manager:acr:phishing-resistant` | A passkey (synced or device-bound) with user verification |
-| `urn:auth-manager:acr:mfa` | Reserved until a second factor exists (appendix) |
+| `urn:auth-manager:acr:mfa` | A password then an emailed code, on an instance that requires the code |
 
 **Method sets, not only the ladder.** Some step-ups ask "did this person just prove control of
 their email or a passkey?" That is neither multi-factor nor phishing-resistant (an emailed code
@@ -411,11 +413,13 @@ that lets one stand in for the other.
 - `acr_values`: re-authenticate with a method that satisfies one of the values, offering only
   those methods on the sign-in screen (a request for `amr:otp amr:hwk amr:swk` shows no
   password form); refuse with `access_denied`/`unmet_authentication_requirements` when the person has no
-  such method (for example, no passkey enrolled).
+  such method (for example, no passkey enrolled), or when the sign-in still doesn't meet the request.
+  A value this instance can't satisfy is refused with `invalid_request` rather than ignored.
 - `prompt=none` remains refused, as today.
 
 Re-authentication during authorization reuses the existing sign-in screens and must reach the
-same subject; a different person signing in cancels the flow.
+same subject; a different person signing in cancels the flow. The person keeps their session
+while re-authenticating, so a link carrying `prompt=login` can't sign anyone out.
 
 **Catalog-declared freshness.** MCP clients generally ignore step-up challenges and send no
 `max_age`. A resource may therefore declare `requires_recent_authentication`, for example

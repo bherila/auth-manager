@@ -128,6 +128,11 @@ both factors for everyone who doesn't use a passkey.
 With code-only sign-in off and password reset off, there's no self-service
 recovery. An administrator can reset a password.
 
+`acr_values` on an authorization
+request is limited by these settings: `urn:auth-manager:acr:mfa` takes only a passkey unless the
+code after the password is on, `urn:auth-manager:amr:pwd` is refused while that code is required, and
+`urn:auth-manager:amr:otp` needs one of the two code settings.
+
 A completed reset creates no session, so the person signs in afterward, including
 any code the instance requires. It also ends every earlier session, remember-me
 cookie and OAuth credential for that account. Links expire after 60 minutes and

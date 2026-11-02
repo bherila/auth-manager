@@ -3,6 +3,7 @@
 namespace BWH\AuthManager\OAuth;
 
 use BWH\Auth\OAuth\Server\ResourceRefreshTokenRepository;
+use BWH\AuthManager\Services\OAuthAuthenticationContextCarrier;
 use BWH\AuthManager\Services\OAuthClientGrantService;
 use BWH\AuthManager\Services\OAuthCredentialGenerationContext;
 use BWH\AuthManager\Services\UserAccountStatusService;
@@ -29,6 +30,9 @@ class GrantAwareRefreshTokenRepository extends ResourceRefreshTokenRepository
                 'access_tokens.user_id',
                 'access_tokens.client_id',
                 'access_tokens.credential_version',
+                'access_tokens.auth_time',
+                'access_tokens.amr',
+                'access_tokens.acr',
             ])
             ->first();
 
@@ -46,6 +50,11 @@ class GrantAwareRefreshTokenRepository extends ResourceRefreshTokenRepository
         }
 
         $this->credentialGeneration->expect($subject, $currentVersion);
+        app(OAuthAuthenticationContextCarrier::class)->carry($subject, [
+            'auth_time' => $token->auth_time,
+            'amr' => $token->amr,
+            'acr' => $token->acr,
+        ]);
 
         return false;
     }

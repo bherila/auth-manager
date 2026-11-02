@@ -4,6 +4,7 @@ namespace BWH\AuthManager\Http\Controllers;
 
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Support\RelyingApplications;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Laravel\Passport\AccessToken;
@@ -41,6 +42,25 @@ class OAuthUserController extends Controller
             // session it is already establishing, and never has to call back here to render
             // a page. Older clients ignore the key.
             'apps' => $this->applications->forSubject($subject),
+            // How the person authenticated when this token's grant began. Absent when unknown.
+            ...$this->authenticationContext($token),
         ])->header('Cache-Control', 'private, no-store');
+    }
+
+    /** @return array{auth_time?: int, amr?: list<string>, acr?: string} */
+    private function authenticationContext(Model $token): array
+    {
+        $authTime = $token->getAttribute('auth_time');
+        if ($authTime === null) {
+            return [];
+        }
+
+        $amr = json_decode((string) $token->getAttribute('amr'), true);
+
+        return [
+            'auth_time' => (int) $authTime,
+            'amr' => is_array($amr) ? array_values(array_filter($amr, 'is_string')) : [],
+            'acr' => (string) $token->getAttribute('acr'),
+        ];
     }
 }

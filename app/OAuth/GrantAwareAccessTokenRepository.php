@@ -4,6 +4,7 @@ namespace BWH\AuthManager\OAuth;
 
 use BWH\Auth\OAuth\Server\ResourceAccessTokenRepository;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\OAuthAuthenticationContextCarrier;
 use BWH\AuthManager\Services\OAuthClientGrantService;
 use BWH\AuthManager\Services\OAuthCredentialGenerationContext;
 use BWH\AuthManager\Services\UserAccountStatusService;
@@ -103,7 +104,11 @@ class GrantAwareAccessTokenRepository extends ResourceAccessTokenRepository
             $persist();
             DB::table('oauth_access_tokens')
                 ->where('id', $accessTokenEntity->getIdentifier())
-                ->update(['credential_version' => $expectedVersion]);
+                ->update([
+                    'credential_version' => $expectedVersion,
+                    // Carried unchanged: a refresh doesn't authenticate anyone.
+                    ...app(OAuthAuthenticationContextCarrier::class)->columnsFor((string) $subject),
+                ]);
         });
     }
 }

@@ -1,5 +1,6 @@
 <?php
 
+use BWH\AuthManager\Http\Middleware\EnforceAuthenticationRequest;
 use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
 use BWH\AuthManager\Http\Middleware\ThrottleTwoFactorVerify;
 use BWH\AuthManager\Models\User;
@@ -94,6 +95,10 @@ return [
     // OAuth issuance is profile-aware. Legacy identity credentials remain
     // unbound; resource-profile credentials are pinned to its configured API.
     'oauth_server' => [
+        'authentication_context' => [
+            'acr_values_supported' => EnforceAuthenticationRequest::supportedValues(),
+            'prompt_values_supported' => ['login'],
+        ],
         // Opt in after migrating Passport's connection (auth-laravel docs/oauth-credential-revocation.md).
         'revocation' => ['enabled' => false],
         'enabled' => $oauthServerEnabled,
