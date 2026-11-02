@@ -94,6 +94,8 @@ return [
     // OAuth issuance is profile-aware. Legacy identity credentials remain
     // unbound; resource-profile credentials are pinned to its configured API.
     'oauth_server' => [
+        // Opt in after migrating Passport's connection (auth-laravel docs/oauth-credential-revocation.md).
+        'revocation' => ['enabled' => false],
         'enabled' => $oauthServerEnabled,
         'issuer' => $issuer,
         'resource' => $resource,
@@ -162,6 +164,8 @@ return [
             'policy_notice' => 'Your current permissions still apply to every request.',
             'approve_label' => 'Authorize',
             'deny_label' => 'Cancel',
+            'ungrouped_label' => 'Other permissions',
+            'sensitive_notice' => 'These permissions allow sensitive actions. Only approve them if you need them.',
         ],
         'introspection' => [
             'enabled' => $introspectionEnabled,
