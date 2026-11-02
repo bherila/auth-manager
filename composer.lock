@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "40b35be5b50b08c277072cf42b007224",
+    "content-hash": "63b27e7e29e46b3656d2f56ed04606f4",
     "packages": [
         {
             "name": "bherila/auth-laravel",
-            "version": "v0.25.0",
+            "version": "v0.28.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/auth-laravel.git",
-                "reference": "ee168e72ab9fb3a2e40bc8b3058018ecf43cad04"
+                "reference": "d74e32767c7b7d64659f603ffb31009d308464f1"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/auth-laravel/zipball/ee168e72ab9fb3a2e40bc8b3058018ecf43cad04",
-                "reference": "ee168e72ab9fb3a2e40bc8b3058018ecf43cad04",
+                "url": "https://api.github.com/repos/bherila/auth-laravel/zipball/d74e32767c7b7d64659f603ffb31009d308464f1",
+                "reference": "d74e32767c7b7d64659f603ffb31009d308464f1",
                 "shasum": ""
             },
             "require": {
@@ -67,7 +67,7 @@
                 "issues": "https://github.com/bherila/auth-laravel/issues",
                 "source": "https://github.com/bherila/auth-laravel"
             },
-            "time": "2026-10-12T19:56:59+00:00"
+            "time": "2026-11-01T00:30:15+00:00"
         },
         {
             "name": "brick/math",
@@ -5820,16 +5820,16 @@
         },
         {
             "name": "symfony/mime",
-            "version": "v8.1.7",
+            "version": "v8.1.10",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/mime.git",
-                "reference": "773ac57f20e2795bdadb65b5b1b5f4850d498283"
+                "reference": "8d1232052c9cdef170ed9608b3147bca4f61ff69"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/mime/zipball/773ac57f20e2795bdadb65b5b1b5f4850d498283",
-                "reference": "773ac57f20e2795bdadb65b5b1b5f4850d498283",
+                "url": "https://api.github.com/repos/symfony/mime/zipball/8d1232052c9cdef170ed9608b3147bca4f61ff69",
+                "reference": "8d1232052c9cdef170ed9608b3147bca4f61ff69",
                 "shasum": ""
             },
             "require": {
@@ -5882,7 +5882,7 @@
                 "mime-type"
             ],
             "support": {
-                "source": "https://github.com/symfony/mime/tree/v8.1.7"
+                "source": "https://github.com/symfony/mime/tree/v8.1.10"
             },
             "funding": [
                 {
@@ -5902,7 +5902,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-09-04T11:02:17+00:00"
+            "time": "2026-10-28T17:58:38+00:00"
         },
         {
             "name": "symfony/polyfill-ctype",

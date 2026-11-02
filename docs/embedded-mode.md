@@ -300,7 +300,7 @@ the zip's `shasum` (SHA-1, which Composer verifies) and the exact version:
                 },
                 "require": {
                     "php": "^8.4",
-                    "bherila/auth-laravel": "^0.25.0",
+                    "bherila/auth-laravel": "^0.28.2",
                     "laravel/framework": "^13.17",
                     "laravel/passport": "^13.4",
                     "symfony/brevo-mailer": "^8.0",
