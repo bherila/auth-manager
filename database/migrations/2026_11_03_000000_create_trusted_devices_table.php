@@ -24,8 +24,10 @@ return new class extends Migration
             $table->char('token_hash', 64)->unique();
             $table->unsignedBigInteger('credential_version');
             $table->string('user_agent', 512)->nullable();
-            $table->timestamp('last_used_at')->nullable();
-            $table->timestamp('expires_at')->index();
+            // DATETIME: MariaDB can give the first TIMESTAMP column ON UPDATE CURRENT_TIMESTAMP,
+            // and recording a use must not extend the expiry.
+            $table->dateTime('last_used_at')->nullable();
+            $table->dateTime('expires_at')->index();
             $table->timestamps();
         });
     }
