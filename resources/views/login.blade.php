@@ -13,7 +13,8 @@
        password-login-form  native POST /login form; submitting aborts passkey autofill
        email / password / remember   the inputs every sign-in method reads
        password-toggle      show/hide password button, hidden until JS runs
-       forgot-password      "Forgot password?" button, hidden until JS runs
+       forgot-password      "Forgot password?" button, hidden until JS runs. Replaced by a plain
+                            link to the reset page on an instance that allows self-service reset
        login-error          server-side error block referenced by aria-describedby
        passkey-login-mount / email-code-login-mount   React roots
 
@@ -94,6 +95,12 @@
             @endphp
 
             <div id="password-login">
+                @if (session('status'))
+                    <div role="status" class="border-border bg-muted mb-4 rounded-md border px-3 py-2 text-sm">
+                        {{ session('status') }}
+                    </div>
+                @endif
+
                 @if ($hasError)
                     <div
                         id="login-error"
@@ -128,9 +135,13 @@
                     <div class="space-y-2">
                         <div class="flex items-center justify-between gap-2">
                             <x-ui.label for="password">Password</x-ui.label>
-                            <x-ui.button id="forgot-password" variant="link" size="sm" class="h-auto px-0" hidden>
-                                Forgot password?
-                            </x-ui.button>
+                            @if (config('auth-manager.sign_in.password_reset'))
+                                <a href="{{ route('auth-manager.password.request') }}" class="text-sm underline">Forgot password?</a>
+                            @else
+                                <x-ui.button id="forgot-password" variant="link" size="sm" class="h-auto px-0" hidden>
+                                    Forgot password?
+                                </x-ui.button>
+                            @endif
                         </div>
                         <div class="relative">
                             <x-ui.input

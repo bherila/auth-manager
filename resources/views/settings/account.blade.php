@@ -31,7 +31,7 @@
         </section>
         <section aria-labelledby="recovery-heading">
             <h2 id="recovery-heading" class="text-lg font-semibold">Trouble signing in?</h2>
-            <p class="text-muted-foreground mt-2 text-sm">Use an emailed sign-in code from the sign-in page if you can access your account email. If you forgot your password, an administrator must reset it. If you cannot access your email, contact an administrator. Name and email changes are administrator-managed.</p>
+            <p class="text-muted-foreground mt-2 text-sm">@if (config('auth-manager.sign_in.password_reset'))If you forgot your password, you can reset it from the sign-in page using your account email.@else Use an emailed sign-in code from the sign-in page if you can access your account email. If you forgot your password, an administrator must reset it.@endif If you cannot access your email, contact an administrator. Name and email changes are administrator-managed.</p>
             <a href="{{ route('auth-manager.login') }}" class="mt-3 inline-block text-sm underline">Go to sign in</a>
         </section>
     </main>

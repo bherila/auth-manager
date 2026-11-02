@@ -119,13 +119,20 @@ or false stops the configuration from loading.
 | --- | --- | --- |
 | `AUTH_MANAGER_REQUIRE_CODE_AFTER_PASSWORD` | `false` | When `true`, a correct password emails a 6-digit code, and sign-in finishes only once the code is verified. |
 | `AUTH_MANAGER_ALLOW_CODE_ONLY_SIGN_IN` | `true` | When `false`, `POST /login/email-code` answers 404 for every address, and the login page stops offering it. |
+| `AUTH_MANAGER_ALLOW_PASSWORD_RESET` | `false` | When `true`, the login page links to `/forgot-password`, and a person can set a new password from an emailed link. When `false`, the reset pages answer 404. |
 
 If only the first setting is on, an emailed code alone still signs someone in, so
 holding the mailbox remains enough. Turn code-only sign-in off as well to require
 both factors for everyone who doesn't use a passkey.
 
-With code-only sign-in off, there's no self-service recovery until self-service
-password reset ships. An administrator can reset a password.
+With code-only sign-in off and password reset off, there's no self-service
+recovery. An administrator can reset a password.
+
+A completed reset creates no session, so the person signs in afterward, including
+any code the instance requires. It also ends every earlier session, remember-me
+cookie and OAuth credential for that account. Links expire after 60 minutes and
+use `BHERILA_AUTH_PASSWORD_RESET_URL`, which defaults to `APP_URL`, so check that
+`APP_URL` is this instance's public address before turning this on.
 
 ## Build, activate and verify
 

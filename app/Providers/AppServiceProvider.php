@@ -77,6 +77,25 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Self-service password reset. The address budgets apply whether or not an account
+        // exists, so being throttled reveals nothing about the address.
+        $resetBlocked = static fn (Request $request, array $headers) => back()
+            ->withErrors(['email' => 'Too many password reset attempts. Please try again later.'])
+            ->withHeaders($headers);
+        $resetAddress = static function (Request $request): string {
+            $input = $request->input('email');
+
+            return hash('sha256', mb_strtolower(trim(is_string($input) ? $input : '')));
+        };
+        RateLimiter::for('auth-manager.password-reset-request', static fn (Request $request): array => [
+            Limit::perMinute(10)->by('password-reset-request-ip:'.$request->ip())->response($resetBlocked),
+            Limit::perMinutes(5, 3)->by('password-reset-request-address:'.$resetAddress($request))->response($resetBlocked),
+        ]);
+        RateLimiter::for('auth-manager.password-reset', static fn (Request $request): array => [
+            Limit::perMinute(10)->by('password-reset-ip:'.$request->ip())->response($resetBlocked),
+            Limit::perMinutes(5, 10)->by('password-reset-address:'.$resetAddress($request))->response($resetBlocked),
+        ]);
+
         // Brevo's API transport (Symfony bridge), so MAIL_MAILER=brevo or =hybrid works. An unset
         // DSN fails when the mailer is built, `hybrid` included, rather than silently degrading.
         // Standalone only: embedded, the provider sends through the host's mailers.
