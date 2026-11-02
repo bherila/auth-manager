@@ -5,6 +5,8 @@ namespace BWH\AuthManager\OAuth;
 use BWH\Auth\OAuth\Server\ResourceAuthCodeRepository;
 use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\AuthenticationContext;
+use BWH\AuthManager\Services\OAuthAuthenticationContextCarrier;
 use BWH\AuthManager\Services\OAuthClientGrantService;
 use BWH\AuthManager\Services\OAuthCredentialGenerationContext;
 use BWH\AuthManager\Services\UserAccountStatusService;
@@ -55,7 +57,7 @@ class GrantAwareAuthCodeRepository extends ResourceAuthCodeRepository
             parent::persistResourceAuthCode($authCodeEntity, $resource, $hasResourceColumn, $scopeIdentifiers);
             DB::table('oauth_auth_codes')
                 ->where('id', $authCodeEntity->getIdentifier())
-                ->update(['credential_version' => $sessionVersion]);
+                ->update(['credential_version' => $sessionVersion, ...$this->sessionAuthenticationColumns($user)]);
         });
     }
 
@@ -77,7 +79,24 @@ class GrantAwareAuthCodeRepository extends ResourceAuthCodeRepository
         }
 
         $this->credentialGeneration->expect($subject, $currentVersion);
+        app(OAuthAuthenticationContextCarrier::class)->carry($subject, [
+            'auth_time' => $code->getAttribute('auth_time'),
+            'amr' => $code->getAttribute('amr'),
+            'acr' => $code->getAttribute('acr'),
+        ]);
 
         return false;
+    }
+
+    /** @return array{auth_time: int|null, amr: string|null, acr: string|null} */
+    private function sessionAuthenticationColumns(User $user): array
+    {
+        $context = AuthenticationContext::for(request(), $user);
+
+        return [
+            'auth_time' => $context['auth_time'] ?? null,
+            'amr' => $context === null ? null : json_encode($context['amr'], JSON_THROW_ON_ERROR),
+            'acr' => $context['acr'] ?? null,
+        ];
     }
 }

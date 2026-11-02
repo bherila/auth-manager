@@ -22,6 +22,9 @@
      shows only the code step: email-code-login-mount carries data-attempt-token and
      data-email, and <noscript> offers the same step as a plain form.
 
+     During a re-authentication that names methods, only those are rendered, so any of
+     these ids can be absent.
+
      The password form must keep working with JavaScript disabled. --}}
 
 @section('content')
@@ -32,6 +35,10 @@
 
         <div class="bg-card text-card-foreground border-border rounded-xl border p-6 shadow-sm sm:p-8">
             <h1 class="text-2xl font-semibold tracking-tight">Sign in</h1>
+
+            @if ($reauthenticating ?? false)
+                <p class="text-muted-foreground mt-2 text-sm">Sign in again to continue.</p>
+            @endif
 
             @isset($passwordChallenge)
                 <div
@@ -79,22 +86,31 @@
 
             {{-- Passkey (React island). The placeholder matches the mounted button's
                  height so the card does not jump when the bundle hydrates. --}}
+            @php
+                $offers = static fn (string $method): bool => ($offeredMethods ?? null) === null || in_array($method, $offeredMethods, true);
+            @endphp
+
+            @if ($offers('passkey'))
             <div id="passkey-login-mount" class="mt-6">
                 <div class="bg-muted h-10 w-full rounded-md motion-safe:animate-pulse" aria-hidden="true"></div>
             </div>
+            @endif
 
+            @if ($offers('passkey') && ($offers('password') || $offers('code')))
             <div class="my-6 flex items-center gap-3" aria-hidden="true">
                 <hr class="border-border flex-1" />
                 <span class="text-muted-foreground text-xs font-medium tracking-wide uppercase">or</span>
                 <hr class="border-border flex-1" />
             </div>
+            @endif
 
             @php
                 $hasError = $errors->has('email');
                 $emailPrefilled = old('email', '') !== '';
             @endphp
 
-            <div id="password-login">
+            @if ($offers('password') || $offers('code'))
+            <div id="password-login" @class(["mt-6" => ! $offers("passkey")])>
                 @if (session('status'))
                     <div role="status" class="border-border bg-muted mb-4 rounded-md border px-3 py-2 text-sm">
                         {{ session('status') }}
@@ -132,6 +148,7 @@
                         />
                     </div>
 
+                    @if ($offers('password'))
                     <div class="space-y-2">
                         <div class="flex items-center justify-between gap-2">
                             <x-ui.label for="password">Password</x-ui.label>
@@ -183,12 +200,14 @@
                     </label>
 
                     <x-ui.button type="submit" size="lg" class="w-full">Sign in</x-ui.button>
+                    @endif
                 </form>
             </div>
+            @endif
 
             {{-- Emailed sign-in code (React island). Mounted outside #password-login so it
                  stays visible while that section is hidden during the code step. --}}
-            @if (config('auth-manager.sign_in.code_only'))
+            @if (config('auth-manager.sign_in.code_only') && $offers('code'))
                 <div id="email-code-login-mount" class="mt-3">
                     <div class="bg-muted h-10 w-full rounded-md motion-safe:animate-pulse" aria-hidden="true"></div>
                 </div>

@@ -2,7 +2,11 @@
 
 namespace BWH\AuthManager\Providers;
 
+use BWH\Auth\Events\PasskeyLoginSucceeded;
+use BWH\Auth\Events\TwoFactorLoginSucceeded;
+use BWH\Auth\OAuth\AuthenticationRequirement;
 use BWH\Auth\OAuth\Server\ResourceAccessToken;
+use BWH\AuthManager\Http\Controllers\LoginController;
 use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
 use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\User;
@@ -10,6 +14,8 @@ use BWH\AuthManager\OAuth\ApplicationInvitationScopeRepository;
 use BWH\AuthManager\OAuth\GrantAwareAccessTokenRepository;
 use BWH\AuthManager\OAuth\GrantAwareAuthCodeRepository;
 use BWH\AuthManager\OAuth\GrantAwareRefreshTokenRepository;
+use BWH\AuthManager\Services\AuthenticationContext;
+use BWH\AuthManager\Services\OAuthAuthenticationContextCarrier;
 use BWH\AuthManager\Services\OAuthCredentialGenerationContext;
 use BWH\AuthManager\Support\ApplicationInvitationKeys;
 use BWH\AuthManager\Support\ApplicationInvitations;
@@ -49,6 +55,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(RefreshTokenRepository::class, GrantAwareRefreshTokenRepository::class);
         $this->app->bind(ScopeRepository::class, ApplicationInvitationScopeRepository::class);
         $this->app->scoped(OAuthCredentialGenerationContext::class);
+        $this->app->scoped(OAuthAuthenticationContextCarrier::class);
         // Resolved and, when malformed, reported once per request.
         $this->app->scoped(DelegatedAccessApplications::class);
         $this->app->scoped(DelegatedAccessKeys::class);
@@ -121,6 +128,27 @@ class AppServiceProvider extends ServiceProvider
                 );
 
             }
+        });
+
+        // Only presenting a credential records how the person authenticated. Login events
+        // don't, because restoring a remember-me cookie fires them too.
+        Event::listen(PasskeyLoginSucceeded::class, static function (PasskeyLoginSucceeded $event): void {
+            if ($event->user instanceof User && request()->hasSession()) {
+                AuthenticationContext::recordPasskey(request(), $event->user, $event->credential, $event->userVerified);
+            }
+        });
+        Event::listen(TwoFactorLoginSucceeded::class, static function (TwoFactorLoginSucceeded $event): void {
+            if (! $event->user instanceof User || ! request()->hasSession()) {
+                return;
+            }
+
+            $afterPassword = request()->session()->get(LoginController::PASSWORD_CHALLENGE_SESSION_KEY.'.token') === (string) $event->attempt->getAttribute('token');
+            AuthenticationContext::record(
+                request(),
+                $event->user,
+                $afterPassword ? ['pwd', 'otp', 'mfa'] : ['otp'],
+                $afterPassword ? AuthenticationRequirement::ACR_MFA : AuthenticationRequirement::ACR_SINGLE,
+            );
         });
 
         // Keys live under the private storage root, which the deploy excludes from its

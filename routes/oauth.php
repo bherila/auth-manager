@@ -9,6 +9,7 @@ use BWH\Auth\Http\Middleware\EnsureOAuthServerEnabled;
 use BWH\Auth\Http\Middleware\RequireActiveUser;
 use BWH\AuthManager\Http\Controllers\EndSessionController;
 use BWH\AuthManager\Http\Middleware\AuditOAuthAuthorization;
+use BWH\AuthManager\Http\Middleware\EnforceAuthenticationRequest;
 use BWH\AuthManager\Http\Middleware\EnsureOAuthSessionIsFullyAuthenticated;
 use BWH\AuthManager\Http\Middleware\RequireOAuthClientGrant;
 use BWH\AuthManager\Support\Mount;
@@ -42,6 +43,7 @@ Route::prefix(config('passport.path', 'oauth'))
         $authorizationMiddleware = [
             ...$oauthServerMiddleware,
             Mount::webMiddleware(),
+            EnforceAuthenticationRequest::class,
             EnsureOAuthSessionIsFullyAuthenticated::class,
             RequireActiveUser::class,
             RequireOAuthClientGrant::class,
