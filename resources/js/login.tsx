@@ -13,7 +13,10 @@ if (passkeyMount) {
 
 const emailCodeMount = loginEl(LOGIN_DOM.emailCodeMount);
 if (emailCodeMount) {
-  createRoot(emailCodeMount).render(<EmailCodeLogin />);
+  const { attemptToken, email } = emailCodeMount.dataset;
+  createRoot(emailCodeMount).render(
+    <EmailCodeLogin passwordChallenge={attemptToken && email ? { attemptToken, email } : undefined} />,
+  );
 }
 
 enhancePasswordToggle();

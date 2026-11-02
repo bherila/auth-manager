@@ -24,8 +24,10 @@ Route::get('/', function () {
     return view('welcome');
 })->name('home');
 
-Route::get('/login', fn () => view('login'))->name('login');
+Route::get('/login', [LoginController::class, 'show'])->name('login');
 Route::post('/login', [LoginController::class, 'login']);
+Route::post('/login/challenge/resend', [LoginController::class, 'resendPasswordChallenge'])->middleware('throttle:10,1')->name('login.challenge.resend');
+Route::post('/login/challenge/cancel', [LoginController::class, 'cancelPasswordChallenge'])->name('login.challenge.cancel');
 Route::post('/login/email-code', [LoginController::class, 'requestEmailCode'])->middleware('throttle:auth-manager.email-code')->name('login.email-code');
 Route::post('/login/dev', [LoginController::class, 'devLogin'])->name('login.dev');
 Route::post('/login/dev-by-id', [LoginController::class, 'devLoginById'])->name('login.dev.by-id');

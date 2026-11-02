@@ -17,6 +17,10 @@
        login-error          server-side error block referenced by aria-describedby
        passkey-login-mount / email-code-login-mount   React roots
 
+     After a password is accepted on an instance that requires a code, this page
+     shows only the code step: email-code-login-mount carries data-attempt-token and
+     data-email, and <noscript> offers the same step as a plain form.
+
      The password form must keep working with JavaScript disabled. --}}
 
 @section('content')
@@ -27,6 +31,49 @@
 
         <div class="bg-card text-card-foreground border-border rounded-xl border p-6 shadow-sm sm:p-8">
             <h1 class="text-2xl font-semibold tracking-tight">Sign in</h1>
+
+            @isset($passwordChallenge)
+                <div
+                    id="email-code-login-mount"
+                    class="mt-6"
+                    data-attempt-token="{{ $passwordChallenge['attempt_token'] }}"
+                    data-email="{{ $passwordChallenge['email'] }}"
+                ></div>
+
+                <noscript>
+                    <div class="mt-6 space-y-4">
+                        <p class="text-muted-foreground text-sm">
+                            We sent {{ $passwordChallenge['email'] }} a 6-digit code. It expires in 15 minutes.
+                        </p>
+                        @error('code')
+                            <div role="alert" class="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-sm">
+                                {{ $message }}
+                            </div>
+                        @enderror
+                        <form method="POST" action="{{ \BWH\AuthManager\Support\Mount::path('/api/auth/two-factor/verify') }}" class="space-y-4">
+                            @csrf
+                            <input type="hidden" name="attempt_token" value="{{ $passwordChallenge['attempt_token'] }}" />
+                            <div class="space-y-2">
+                                <x-ui.label for="noscript-code">Verification code</x-ui.label>
+                                <x-ui.input
+                                    id="noscript-code"
+                                    name="code"
+                                    inputmode="numeric"
+                                    pattern="[0-9]{6}"
+                                    maxlength="6"
+                                    autocomplete="one-time-code"
+                                    required
+                                />
+                            </div>
+                            <x-ui.button type="submit" size="lg" class="w-full">Verify and sign in</x-ui.button>
+                        </form>
+                        <form method="POST" action="{{ route('auth-manager.login.challenge.cancel') }}">
+                            @csrf
+                            <x-ui.button type="submit" variant="link">Start over</x-ui.button>
+                        </form>
+                    </div>
+                </noscript>
+            @else
             <p class="text-muted-foreground mt-1 text-sm">Use a passkey, or your email and password.</p>
 
             {{-- Passkey (React island). The placeholder matches the mounted button's
@@ -130,9 +177,12 @@
 
             {{-- Emailed sign-in code (React island). Mounted outside #password-login so it
                  stays visible while that section is hidden during the code step. --}}
-            <div id="email-code-login-mount" class="mt-3">
-                <div class="bg-muted h-10 w-full rounded-md motion-safe:animate-pulse" aria-hidden="true"></div>
-            </div>
+            @if (config('auth-manager.sign_in.code_only'))
+                <div id="email-code-login-mount" class="mt-3">
+                    <div class="bg-muted h-10 w-full rounded-md motion-safe:animate-pulse" aria-hidden="true"></div>
+                </div>
+            @endif
+            @endisset
 
             @if (app()->environment('local'))
                 <section aria-labelledby="dev-login-heading" class="border-border mt-6 border-t pt-4">
