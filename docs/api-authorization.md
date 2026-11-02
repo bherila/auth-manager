@@ -992,11 +992,11 @@ drop their own login code. None is designed here.
    rather than write the flow afresh.
 2. **Forced fresh sign-in.** Covered by section 2 (`auth_time`, `amr`, `acr`, `prompt=login`,
    `max_age`, `acr_values`).
-3. **Self-service account lifecycle.** Password reset, registration, email verification and
-   email change are administrator-mediated or absent. **Self-service password reset is
-   required (owner, 2026-10-27).** Signing in with an emailed code is not an acceptable
-   recovery path. Like the second factor after a password, it blocks relying deployments
-   that currently run their own password reset from moving their sign-in to the provider.
+3. **Self-service account lifecycle.** Registration, email verification and email change are
+   administrator-mediated or absent. Self-service password reset is implemented, off by default
+   per instance (`AUTH_MANAGER_ALLOW_PASSWORD_RESET`; see `deployment.md#sign-in-methods`). It was
+   required by the owner on 2026-10-27, because signing in with an emailed code is not an
+   acceptable recovery path.
 4. **New-device and sign-in location alerts, trusted devices.** Not present.
 5. **Passkey portability.** Passkeys stay bound to their RP ID, so moving people to another
    instance or domain means re-enrolment (by design; see `AGENTS.md`).

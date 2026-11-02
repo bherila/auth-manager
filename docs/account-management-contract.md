@@ -37,9 +37,13 @@ lock, and the existing minimum length. They advance the credential generation,
 revoke OAuth credentials and invalidate existing sessions. Passkey ceremonies
 retain the existing recent-authentication and WebAuthn checks.
 
-Recovery initially uses the existing emailed sign-in code and administrator
-password reset. Self-service email changes, self-deletion and new recovery
-factors are not implied by the account hub. A failed or throttled email-code
+Recovery uses self-service password reset where the instance enables it, and
+otherwise the existing emailed sign-in code and administrator password reset. A
+completed reset advances the credential generation, revokes OAuth credentials,
+invalidates existing sessions and creates no session, so the person returns
+through ordinary sign-in, including any second factor. Self-service email
+changes, self-deletion and new recovery factors are not implied by the account
+hub. A failed or throttled email-code
 request must not reveal whether an email belongs to an active account.
 
 Bound consumers link to provider credential controls and reject local credential

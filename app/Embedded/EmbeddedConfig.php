@@ -59,6 +59,14 @@ final class EmbeddedConfig
         self::defineConnection($config);
         $config->set('auth.providers.'.Mount::EMBEDDED_USER_PROVIDER, ['driver' => 'eloquent', 'model' => User::class]);
         $config->set('auth.guards.'.Mount::EMBEDDED_GUARD, ['driver' => 'session', 'provider' => Mount::EMBEDDED_USER_PROVIDER]);
+        // Never the host's broker: that one looks up the host's own accounts.
+        $config->set('auth.passwords.'.Mount::EMBEDDED_USER_PROVIDER, [
+            'provider' => Mount::EMBEDDED_USER_PROVIDER,
+            'connection' => Mount::EMBEDDED_CONNECTION,
+            'table' => 'password_reset_tokens',
+            'expire' => 60,
+            'throttle' => 60,
+        ]);
         $config->set('auth.guards.'.Mount::EMBEDDED_API_GUARD, ['driver' => 'passport', 'provider' => Mount::EMBEDDED_USER_PROVIDER]);
         // Passport belongs to the embedded provider (a host that is a relying party has no use
         // for it), so its models, migrations and commands use the provider's connection.

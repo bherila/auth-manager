@@ -50,6 +50,7 @@ return [
     'sign_in' => [
         'code_after_password' => $signInSetting('AUTH_MANAGER_REQUIRE_CODE_AFTER_PASSWORD', false),
         'code_only' => $signInSetting('AUTH_MANAGER_ALLOW_CODE_ONLY_SIGN_IN', true),
+        'password_reset' => $signInSetting('AUTH_MANAGER_ALLOW_PASSWORD_RESET', false),
     ],
     'profile' => $profile->value,
     'issuer' => $issuer,
