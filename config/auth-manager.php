@@ -35,8 +35,22 @@ if ($passwordMinLength === false) {
     throw new InvalidArgumentException('AUTH_MANAGER_PASSWORD_MIN_LENGTH must be an integer from 8 to 72.');
 }
 
+// Refused rather than read as false: a mistyped value must not quietly turn a sign-in control off.
+$signInSetting = static function (string $name, bool $default): bool {
+    $value = filter_var(env($name, $default), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    if ($value === null) {
+        throw new InvalidArgumentException("{$name} must be true or false.");
+    }
+
+    return $value;
+};
+
 return [
     'password_min_length' => $passwordMinLength,
+    'sign_in' => [
+        'code_after_password' => $signInSetting('AUTH_MANAGER_REQUIRE_CODE_AFTER_PASSWORD', false),
+        'code_only' => $signInSetting('AUTH_MANAGER_ALLOW_CODE_ONLY_SIGN_IN', true),
+    ],
     'profile' => $profile->value,
     'issuer' => $issuer,
     'resource' => $resource,

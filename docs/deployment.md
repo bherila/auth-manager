@@ -109,6 +109,24 @@ work, and current-password checks do not impose the new-password minimum.
 Confirmation, credential invalidation and existing upper storage limits remain
 in effect. Other instances retain their own settings.
 
+## Sign-in methods
+
+Both settings apply to this instance only. Set them in the instance's persistent
+runtime environment and rebuild the configuration cache. A value other than true
+or false stops the configuration from loading.
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `AUTH_MANAGER_REQUIRE_CODE_AFTER_PASSWORD` | `false` | When `true`, a correct password emails a 6-digit code, and sign-in finishes only once the code is verified. |
+| `AUTH_MANAGER_ALLOW_CODE_ONLY_SIGN_IN` | `true` | When `false`, `POST /login/email-code` answers 404 for every address, and the login page stops offering it. |
+
+If only the first setting is on, an emailed code alone still signs someone in, so
+holding the mailbox remains enough. Turn code-only sign-in off as well to require
+both factors for everyone who doesn't use a passkey.
+
+With code-only sign-in off, there's no self-service recovery until self-service
+password reset ships. An administrator can reset a password.
+
 ## Build, activate and verify
 
 1. Verify the environment opt-in, target policy, application/tooling revisions and

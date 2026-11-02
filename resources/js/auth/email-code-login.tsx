@@ -26,6 +26,11 @@ const HINT_ID = 'email-code-hint';
 const ERROR_ID = 'email-code-error';
 const RESEND_COOLDOWN_SECONDS = 30;
 
+export interface PasswordChallenge {
+  attemptToken: string;
+  email: string;
+}
+
 /** Request a code for `email`. The server always answers 200 so unknown addresses are indistinguishable. */
 async function requestSignInCode(email: string, remember: boolean): Promise<string> {
   const result = (await fetchWrapper.post(appPath('/login/email-code'), { email, remember })) as EmailCodeResponse;
@@ -41,12 +46,15 @@ function setPasswordSectionHidden(hidden: boolean): void {
  * Emailed one-time code sign-in. Starts as a single secondary button that
  * reads the email already typed into the password form, then replaces that
  * form in place with the code-entry step.
+ *
+ * With `passwordChallenge`, the password was already accepted and this only
+ * collects the code that finishes signing in.
  */
-export function EmailCodeLogin(): React.JSX.Element {
-  const [step, setStep] = useState<'idle' | 'requesting' | 'code'>('idle');
-  const [email, setEmail] = useState('');
+export function EmailCodeLogin({ passwordChallenge }: { passwordChallenge?: PasswordChallenge }): React.JSX.Element {
+  const [step, setStep] = useState<'idle' | 'requesting' | 'code'>(passwordChallenge ? 'code' : 'idle');
+  const [email, setEmail] = useState(passwordChallenge?.email ?? '');
   const [remember, setRemember] = useState(false);
-  const [attemptToken, setAttemptToken] = useState('');
+  const [attemptToken, setAttemptToken] = useState(passwordChallenge?.attemptToken ?? '');
   const [code, setCode] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
@@ -165,7 +173,9 @@ export function EmailCodeLogin(): React.JSX.Element {
     setResending(true);
     const session = codeSessionRef.current;
     try {
-      const token = await requestSignInCode(email, remember);
+      const token = passwordChallenge
+        ? (((await fetchWrapper.post(appPath('/login/challenge/resend'), {})) as EmailCodeResponse).attempt_token ?? '')
+        : await requestSignInCode(email, remember);
       if (session !== codeSessionRef.current) return;
       setAttemptToken(token);
       setCode('');
@@ -178,6 +188,16 @@ export function EmailCodeLogin(): React.JSX.Element {
       setError(mapCodeError(caught));
     } finally {
       if (session === codeSessionRef.current) setResending(false);
+    }
+  }
+
+  async function startOver(): Promise<void> {
+    codeSessionRef.current += 1;
+    setVerifying(true);
+    try {
+      await fetchWrapper.post(appPath('/login/challenge/cancel'), {});
+    } finally {
+      window.location.assign(appPath('/login'));
     }
   }
 
@@ -226,8 +246,17 @@ export function EmailCodeLogin(): React.JSX.Element {
       <div>
         <h2 className="text-lg font-semibold">Check your email</h2>
         <p id={HINT_ID} className="text-muted-foreground mt-1 text-sm">
-          If <strong className="text-foreground font-medium">{email}</strong> belongs to an account, we sent it a
-          6-digit code. It expires in 15 minutes.
+          {passwordChallenge ? (
+            <>
+              We sent <strong className="text-foreground font-medium">{email}</strong> a 6-digit code.
+            </>
+          ) : (
+            <>
+              If <strong className="text-foreground font-medium">{email}</strong> belongs to an account, we sent it a
+              6-digit code.
+            </>
+          )}{' '}
+          It expires in 15 minutes.
         </p>
       </div>
 
@@ -274,8 +303,13 @@ export function EmailCodeLogin(): React.JSX.Element {
         >
           {resending ? 'Sending…' : cooldown > 0 ? `Send a new code (${cooldown}s)` : 'Send a new code'}
         </Button>
-        <Button type="button" variant="link" onClick={back} disabled={verifying || resending}>
-          Use a different email
+        <Button
+          type="button"
+          variant="link"
+          onClick={passwordChallenge ? () => void startOver() : back}
+          disabled={verifying || resending}
+        >
+          {passwordChallenge ? 'Start over' : 'Use a different email'}
         </Button>
       </div>
     </div>

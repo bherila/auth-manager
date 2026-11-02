@@ -10,6 +10,8 @@ Successful changes increment the credential version, rotate the remembered-login
 
 Recovery uses the existing emailed sign-in-code flow. A person who has forgotten their password still needs an administrator to reset it; an emailed sign-in code does not waive current-password confirmation. People without access to their account email must contact an administrator. This milestone adds no email editing, account deletion, new MFA, or session-management product.
 
+An instance can change both sign-in methods; see [Sign-in methods](deployment.md#sign-in-methods). With a code required after the password, the password alone creates no session and can't complete an authorization request. With code-only sign-in off, the emailed code stops being a recovery path too, so a person who has forgotten their password needs an administrator or a passkey. Passkey sign-in is unchanged by either setting.
+
 Email-code requests are limited independently to one per normalized email address per 30 seconds and ten per IP per minute. Limits run before lookup, including for unknown and disabled addresses. Successful request responses always contain an opaque 64-character attempt token; throttled responses always use the same JSON error shape and retry headers. Only eligible accounts receive mail.
 
 ## Passkeys and return destinations
