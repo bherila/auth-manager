@@ -17,6 +17,7 @@ use BWH\AuthManager\OAuth\GrantAwareRefreshTokenRepository;
 use BWH\AuthManager\Services\AuthenticationContext;
 use BWH\AuthManager\Services\OAuthAuthenticationContextCarrier;
 use BWH\AuthManager\Services\OAuthCredentialGenerationContext;
+use BWH\AuthManager\Services\TrustedDevices;
 use BWH\AuthManager\Support\ApplicationInvitationKeys;
 use BWH\AuthManager\Support\ApplicationInvitations;
 use BWH\AuthManager\Support\DelegatedAccessApplications;
@@ -149,6 +150,11 @@ class AppServiceProvider extends ServiceProvider
                 $afterPassword ? ['pwd', 'otp', 'mfa'] : ['otp'],
                 $afterPassword ? AuthenticationRequirement::ACR_MFA : AuthenticationRequirement::ACR_SINGLE,
             );
+
+            // Only this session's own password challenge confirms a browser: a code alone never does.
+            if ($afterPassword && TrustedDevices::enabled() && request()->boolean('trust_device')) {
+                app(TrustedDevices::class)->trust(request(), $event->user);
+            }
         });
 
         // Keys live under the private storage root, which the deploy excludes from its

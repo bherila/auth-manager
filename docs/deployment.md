@@ -111,15 +111,22 @@ in effect. Other instances retain their own settings.
 
 ## Sign-in methods
 
-Both settings apply to this instance only. Set them in the instance's persistent
-runtime environment and rebuild the configuration cache. A value other than true
-or false stops the configuration from loading.
+These settings apply to this instance only. Set them in the instance's persistent
+runtime environment and rebuild the configuration cache. A value outside what a
+setting accepts stops the configuration from loading.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `AUTH_MANAGER_REQUIRE_CODE_AFTER_PASSWORD` | `false` | When `true`, a correct password emails a 6-digit code, and sign-in finishes only once the code is verified. |
 | `AUTH_MANAGER_ALLOW_CODE_ONLY_SIGN_IN` | `true` | When `false`, `POST /login/email-code` answers 404 for every address, and the login page stops offering it. |
 | `AUTH_MANAGER_ALLOW_PASSWORD_RESET` | `false` | When `true`, the login page links to `/forgot-password`, and a person can set a new password from an emailed link. When `false`, the reset pages answer 404. |
+| `AUTH_MANAGER_ALLOW_TRUSTED_DEVICES` | `false` | When `true` and a code is required after the password, a person can choose not to be asked for the code again on a browser they just confirmed with one. When `false`, no device cookie is issued or honored, and the next scheduled prune removes every stored device. |
+| `AUTH_MANAGER_TRUSTED_DEVICE_DAYS` | `30` | How long a trusted browser lasts, from 1 to 365 days. Use doesn't extend it. |
+
+Trusted devices weaken the second factor on purpose: on a trusted browser, the
+password is enough to sign in, and a request for `acr:mfa` or `amr:otp` still gets
+the code. See [Trusted browsers](account-security.md#trusted-browsers). The
+`trusted_devices` table is new, so run migrations before turning this on.
 
 If only the first setting is on, an emailed code alone still signs someone in, so
 holding the mailbox remains enough. Turn code-only sign-in off as well to require

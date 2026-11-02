@@ -4,6 +4,7 @@ namespace BWH\AuthManager\Console;
 
 use BWH\Auth\OAuth\DelegatedAccess\DatabaseNonceStore;
 use BWH\AuthManager\Models\InvitationAcceptanceCode;
+use BWH\AuthManager\Models\TrustedDevice;
 use Closure;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
@@ -31,5 +32,9 @@ final class ProviderSchedule
         // Invitation acceptance codes live minutes; expired ones, used or not, are removed.
         $schedule->call(static fn () => $within(static fn () => InvitationAcceptanceCode::pruneExpired()))
             ->name('application-invitations:prune-codes')->hourly()->withoutOverlapping();
+
+        // Expired, from an earlier credential version, or all of them with the setting off.
+        $schedule->call(static fn () => $within(static fn () => TrustedDevice::pruneUnusable()))
+            ->name('trusted-devices:prune')->hourly()->withoutOverlapping();
     }
 }

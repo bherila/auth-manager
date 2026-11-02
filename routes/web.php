@@ -48,6 +48,8 @@ Route::post('/logout', function (Request $request) {
 Route::middleware([Authenticate::class, RequireActiveUser::class])->group(function (): void {
     Route::get('/settings', [AccountSettingsController::class, 'show'])->name('settings.account');
     Route::put('/settings/password', [AccountSettingsController::class, 'changePassword'])->middleware('throttle:5,1')->name('settings.password');
+    Route::delete('/settings/trusted-devices', [AccountSettingsController::class, 'revokeTrustedDevices'])->name('settings.trusted-devices.destroy-all');
+    Route::delete('/settings/trusted-devices/{device}', [AccountSettingsController::class, 'revokeTrustedDevice'])->whereNumber('device')->name('settings.trusted-devices.destroy');
 });
 
 Route::view('/settings/passkeys', 'settings.passkeys')
