@@ -348,7 +348,9 @@ Restoring a session without one (a remember-me cookie, a session revived after e
 the values the session already had, or none when they are unknown, and a session with none
 satisfies no `max_age` or `acr_values` request, so those always force a real
 re-authentication. The authorization code, the tokens issued from it, and the refresh
-lineage carry the values unchanged.
+lineage carry the values unchanged. A password sign-in that skips the code on a
+[trusted browser](account-security.md#trusted-browsers) reports `pwd` and the `single` rung,
+and the provider asks for the code instead of skipping it when the request needs more.
 
 | Method | `amr` (RFC 8176) |
 | --- | --- |
@@ -1001,7 +1003,9 @@ drop their own login code. None is designed here.
    per instance (`AUTH_MANAGER_ALLOW_PASSWORD_RESET`; see `deployment.md#sign-in-methods`). It was
    required by the owner on 2026-10-27, because signing in with an emailed code is not an
    acceptable recovery path.
-4. **New-device and sign-in location alerts, trusted devices.** Not present.
+4. **New-device and sign-in location alerts, trusted devices.** Alerts are not present. Trusted
+   devices are implemented, off by default per instance (`AUTH_MANAGER_ALLOW_TRUSTED_DEVICES`; see
+   `account-security.md#trusted-browsers`).
 5. **Passkey portability.** Passkeys stay bound to their RP ID, so moving people to another
    instance or domain means re-enrolment (by design; see `AGENTS.md`).
 6. **Branding depth.** Branding is logos and CSS. Application-specific onboarding journeys stay

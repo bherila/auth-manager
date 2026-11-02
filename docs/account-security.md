@@ -14,6 +14,19 @@ An instance can change both sign-in methods; see [Sign-in methods](deployment.md
 
 Email-code requests are limited independently to one per normalized email address per 30 seconds and ten per IP per minute. Limits run before lookup, including for unknown and disabled addresses. Successful request responses always contain an opaque 64-character attempt token; throttled responses always use the same JSON error shape and retry headers. Only eligible accounts receive mail.
 
+## Trusted browsers
+
+An instance that requires a code after the password can let people skip it on a browser they've already confirmed; see [Sign-in methods](deployment.md#sign-in-methods). It is off by default. When it's on, the code step offers a choice, unchecked by default, not to be asked again on this browser.
+
+- **What is stored.** The browser keeps a random token in a `__Host-` cookie that is HttpOnly, Secure and SameSite=Strict. The provider stores only its SHA-256 hash, the account's credential version, the user agent and the expiry, so a copy of the table can't be replayed as a cookie.
+- **When it ends.** Expiry is fixed when the browser is confirmed, and use doesn't extend it. Anything that advances the credential version ends every trusted browser on the account: a password change, a completed reset, an administrator reset, or disabling the account. People can see and remove their browsers under Account and security. Removing one doesn't sign that browser out.
+- **What it counts for.** The cookie only skips the code after a correct password, and only for the account that confirmed it. The sign-in reports `amr: ["pwd"]` and the `single` rung, never `mfa`. An application asking for `acr:mfa` or `amr:otp` still gets the code, and `prompt=login` or `max_age` alone accept the password. An application that needs a second factor on a fresh sign-in must ask for one.
+- **Passkeys.** Where this setting is on, enrolling or removing a passkey needs a session that presented a code or a passkey, because an enrolled passkey reaches the `mfa` rung. Someone who signed in by skipping the code must remove that browser and sign in again.
+
+The audit events are `trusted_device_added`, `trusted_device_revoked` and `trusted_devices_revoked_all`. A sign-in that skips the code logs a successful login with the method `trusted_device`.
+
+The cookie and password together can still change the account's password, as a full sign-in can. Treat a trusted browser as holding the second factor.
+
 ## Passkeys and return destinations
 
 The hub reuses the existing passkey page, routes, and recent-authentication protections. Passkeys stay bound to the relying-party domain where they were registered; no credentials are copied or rebound. The UI reminds people to keep email or password access before removing a passkey. Persistent passkey-login behavior remains the separate upstream work tracked in #21.

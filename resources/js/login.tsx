@@ -13,9 +13,13 @@ if (passkeyMount) {
 
 const emailCodeMount = loginEl(LOGIN_DOM.emailCodeMount);
 if (emailCodeMount) {
-  const { attemptToken, email } = emailCodeMount.dataset;
+  const { attemptToken, email, trustDays } = emailCodeMount.dataset;
   createRoot(emailCodeMount).render(
-    <EmailCodeLogin passwordChallenge={attemptToken && email ? { attemptToken, email } : undefined} />,
+    <EmailCodeLogin
+      passwordChallenge={
+        attemptToken && email ? { attemptToken, email, trustDays: trustDays ? Number(trustDays) : undefined } : undefined
+      }
+    />,
   );
 }
 
