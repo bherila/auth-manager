@@ -21,6 +21,19 @@ class User extends Authenticatable implements OAuthenticatable
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
+    protected static function booted(): void
+    {
+        // Reset tokens are found by address alone, so an outstanding link must not outlive the
+        // address it was sent to, or it would work on whoever is given that address next.
+        static::updated(static function (User $user): void {
+            if ($user->wasChanged('email')) {
+                $user->getConnection()->table('password_reset_tokens')
+                    ->whereIn('email', [$user->getOriginal('email'), $user->email])
+                    ->delete();
+            }
+        });
+    }
+
     /**
      * Where auth-laravel's passkey and two-factor sign-ins return the person: the page they
      * asked for, or this provider's home, which is below the prefix when embedded.

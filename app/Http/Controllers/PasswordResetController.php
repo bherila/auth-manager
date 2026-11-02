@@ -10,6 +10,7 @@ use BWH\Auth\Models\TwoFactorAttempt;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\OAuthTokenRevocationService;
 use BWH\AuthManager\Support\Mount;
+use Closure;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\PasswordResetLinkSent;
 use Illuminate\Contracts\Auth\PasswordBroker;
@@ -97,7 +98,12 @@ final class PasswordResetController
         $validated = $request->validate([
             'token' => ['required', 'string'],
             'email' => ['required', 'email', 'max:254'],
-            'password' => ['required', 'confirmed', 'max:255', PasswordRule::min((int) config('auth-manager.password_min_length'))],
+            'password' => ['required', 'confirmed', 'max:72', PasswordRule::min((int) config('auth-manager.password_min_length')), static function (string $attribute, mixed $value, Closure $fail): void {
+                // bcrypt reads only the first 72 bytes, so a longer password is refused rather than cut short.
+                if (is_string($value) && strlen($value) > 72) {
+                    $fail('The password must use at most 72 UTF-8 bytes.');
+                }
+            }],
         ]);
 
         $resetUser = null;

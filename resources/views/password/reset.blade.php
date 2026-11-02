@@ -42,7 +42,7 @@
                             name="password"
                             required
                             minlength="{{ config('auth-manager.password_min_length') }}"
-                            maxlength="255"
+                            maxlength="72"
                             autocomplete="new-password"
                         />
                         <p class="text-muted-foreground text-sm">Use at least {{ config('auth-manager.password_min_length') }} characters.</p>
@@ -55,7 +55,7 @@
                             name="password_confirmation"
                             required
                             minlength="{{ config('auth-manager.password_min_length') }}"
-                            maxlength="255"
+                            maxlength="72"
                             autocomplete="new-password"
                         />
                     </div>

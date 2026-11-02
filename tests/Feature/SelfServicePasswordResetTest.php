@@ -279,6 +279,42 @@ final class SelfServicePasswordResetTest extends TestCase
         $this->assertTrue(Hash::check('synthetic-password', $user->fresh()->password));
     }
 
+    public function test_a_password_over_72_bytes_is_refused_even_within_72_characters(): void
+    {
+        $user = $this->person();
+        $token = $this->tokenFor($user);
+        $password = str_repeat('é', 40);
+
+        $this->get("/reset-password/{$token}")->assertOk()->assertSee('maxlength="72"', false);
+        $this->from("/reset-password/{$token}")
+            ->post('/reset-password', [...$this->resetFields($user, $token), 'password' => $password, 'password_confirmation' => $password])
+            ->assertSessionHasErrors(['password' => 'The password must use at most 72 UTF-8 bytes.']);
+
+        $this->assertTrue(Hash::check('synthetic-password', $user->fresh()->password));
+    }
+
+    public function test_a_link_sent_to_an_earlier_address_cannot_reach_whoever_has_it_now(): void
+    {
+        $original = $this->person();
+        $token = $this->tokenFor($original);
+        $original->update(['email' => 'moved@example.test']);
+        $replacement = User::factory()->create(['email' => 'person@example.test', 'password' => 'replacement-password', 'user_role' => 'user']);
+
+        $this->from("/reset-password/{$token}")->post('/reset-password', $this->resetFields($replacement, $token))->assertSessionHasErrors('email');
+
+        $this->assertTrue(Hash::check('replacement-password', $replacement->fresh()->password));
+    }
+
+    public function test_a_link_is_cancelled_when_the_address_changes(): void
+    {
+        $user = $this->person();
+        $this->tokenFor($user);
+
+        $user->update(['email' => 'moved@example.test']);
+
+        $this->assertDatabaseCount('password_reset_tokens', 0);
+    }
+
     public function test_a_signed_in_person_is_not_blocked_by_the_passkey_recency_check(): void
     {
         $user = $this->person();
