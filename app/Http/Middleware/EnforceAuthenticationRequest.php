@@ -76,7 +76,9 @@ final class EnforceAuthenticationRequest
         if ($user instanceof User) {
             $context = AuthenticationContext::for($request, $user);
             $forced = $requirement->forceLogin || $requirement->maxAge === 0;
-            $fresh = $context !== null && (! $forced || ($pending !== null && $context['auth_time'] >= $pending['requested_at']));
+            // A credential presented since this request began, and not merely in the same second.
+            $presentedSince = $context !== null && $pending !== null && $context['presentation'] !== $pending['presentation'];
+            $fresh = $context !== null && (! $forced || $presentedSince);
 
             if ($fresh && $requirement->satisfiedBy($context['auth_time'], $context['amr'], $context['acr'], now()->getTimestamp(), $pending['requested_at'] ?? null)) {
                 $request->session()->forget(self::SESSION_KEY);
@@ -89,7 +91,7 @@ final class EnforceAuthenticationRequest
             }
 
             // They authenticated for this request, and it still didn't meet it. Asking again would loop.
-            if ($pending !== null && $context !== null && $context['auth_time'] >= $pending['requested_at']) {
+            if ($presentedSince) {
                 $request->session()->forget(self::SESSION_KEY);
 
                 return $this->refuse($request, 'unmet_authentication_requirements', 'The sign-in did not meet the requirement.');
@@ -179,6 +181,9 @@ final class EnforceAuthenticationRequest
             'fingerprint' => $fingerprint,
             'requested_at' => $pending['requested_at'] ?? now()->getTimestamp(),
             'subject' => $pending['subject'] ?? ($user instanceof User ? (string) $user->getKey() : null),
+            'presentation' => array_key_exists('presentation', $pending ?? [])
+                ? $pending['presentation']
+                : ($user instanceof User ? AuthenticationContext::for($request, $user)['presentation'] ?? null : null),
             'methods' => self::offeredMethods($requirement->acrValues),
         ]);
         $request->session()->put('url.intended', $request->fullUrl());

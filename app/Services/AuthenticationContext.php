@@ -6,6 +6,7 @@ use BWH\Auth\Models\PasskeyCredential;
 use BWH\Auth\OAuth\AuthenticationRequirement;
 use BWH\AuthManager\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
  * How the person in this session last presented a credential.
@@ -26,6 +27,8 @@ final class AuthenticationContext
             'auth_time' => now()->getTimestamp(),
             'amr' => $amr,
             'acr' => $acr,
+            // Seconds can't tell two presentations apart, so a re-authentication compares this.
+            'presentation' => Str::random(32),
         ]);
     }
 
@@ -41,7 +44,7 @@ final class AuthenticationContext
         );
     }
 
-    /** @return array{auth_time: int, amr: list<string>, acr: string}|null */
+    /** @return array{auth_time: int, amr: list<string>, acr: string, presentation: string|null}|null */
     public static function for(Request $request, User $user): ?array
     {
         $context = $request->hasSession() ? $request->session()->get(self::SESSION_KEY) : null;
@@ -54,6 +57,11 @@ final class AuthenticationContext
             return null;
         }
 
-        return ['auth_time' => $context['auth_time'], 'amr' => array_values($context['amr']), 'acr' => $context['acr']];
+        return [
+            'auth_time' => $context['auth_time'],
+            'amr' => array_values($context['amr']),
+            'acr' => $context['acr'],
+            'presentation' => is_string($context['presentation'] ?? null) ? $context['presentation'] : null,
+        ];
     }
 }

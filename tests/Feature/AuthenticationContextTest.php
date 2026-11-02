@@ -169,6 +169,30 @@ final class AuthenticationContextTest extends TestCase
         $this->assertFalse(session()->has(EnforceAuthenticationRequest::SESSION_KEY));
     }
 
+    public function test_repeating_a_forced_request_in_the_same_second_does_not_skip_the_sign_in(): void
+    {
+        [$user, $client] = $this->granted();
+        Carbon::setTestNow(now());
+        $this->signInWithPassword($user);
+
+        $this->authorize($user, $client, ['prompt' => 'login'])->assertRedirect('/login');
+        $this->authorize($user, $client, ['prompt' => 'login'])->assertRedirect('/login');
+        $this->authorize($user, $client, ['max_age' => '0'])->assertRedirect('/login');
+        $this->authorize($user, $client, ['max_age' => '0'])->assertRedirect('/login');
+    }
+
+    public function test_a_sign_in_in_the_same_second_as_the_request_still_counts(): void
+    {
+        [$user, $client] = $this->granted();
+        Carbon::setTestNow(now());
+        $this->signInWithPassword($user);
+        $this->authorize($user, $client, ['prompt' => 'login'])->assertRedirect('/login');
+
+        $this->signInWithPassword($user);
+
+        $this->assertArrayHasKey('code', $this->callbackQuery($this->authorize($user, $client, ['prompt' => 'login'])));
+    }
+
     public function test_max_age_zero_behaves_like_prompt_login(): void
     {
         [$user, $client] = $this->granted();
