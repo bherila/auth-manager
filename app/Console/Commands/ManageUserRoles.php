@@ -4,8 +4,10 @@ namespace BWH\AuthManager\Console\Commands;
 
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\ProviderAdministrators;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Show, grant or revoke a person's provider roles from the host, idempotently and audited.
@@ -30,7 +32,7 @@ class ManageUserRoles extends Command
     /** The delegated-administration roles name one permission and one application, or every application. */
     private const DELEGATED = '/^access-(view|manage|directory|invite):([a-z][a-z0-9-]*|\*)$/D';
 
-    public function handle(): int
+    public function handle(ProviderAdministrators $administrators): int
     {
         $add = array_values(array_unique(array_map(static fn (string $role): string => strtolower(trim($role)), (array) $this->option('add'))));
         $remove = array_values(array_unique(array_map(static fn (string $role): string => strtolower(trim($role)), (array) $this->option('remove'))));
@@ -57,23 +59,46 @@ class ManageUserRoles extends Command
             return self::FAILURE;
         }
 
-        $result = DB::transaction(function () use ($user, $add, $remove): array {
-            $locked = User::query()->lockForUpdate()->findOrFail($user->id);
-            $before = $locked->roleNames();
-            $after = array_values(array_diff(array_unique([...$before, ...$add]), $remove));
-            $added = array_values(array_diff($after, $before));
-            $removed = array_values(array_diff($before, $after));
-            if ($added !== [] || $removed !== []) {
-                $locked->forceFill(['user_role' => implode(',', $after)])->save();
-                AuthAuditLog::create([
-                    'user_id' => $locked->id, 'acting_user_id' => null,
-                    'event' => 'user_roles_changed', 'auth_method' => 'console', 'succeeded' => true,
-                    'metadata' => ['added' => $added, 'removed' => $removed],
-                ]);
+        try {
+            $result = DB::transaction(function () use ($user, $add, $remove, $administrators): array {
+                $users = $administrators->lockDirectory();
+                $locked = $administrators->target($users, $user);
+                $before = $locked->roleNames();
+                $after = array_values(array_diff(array_unique([...$before, ...$add]), $remove));
+                $added = array_values(array_diff($after, $before));
+                $removed = array_values(array_diff($before, $after));
+                $administratorChanged = in_array('admin', $before, true) !== in_array('admin', $after, true);
+                if ($administratorChanged && in_array('admin', $before, true)) {
+                    $administrators->preserveRecoveryAdministrator($users, $locked, 'demoted');
+                }
+                if ($administratorChanged && in_array('admin', $after, true) && $locked->disabled_at !== null) {
+                    throw ValidationException::withMessages(['user' => 'Enable this account before granting provider-administrator authority.']);
+                }
+                if ($added !== [] || $removed !== []) {
+                    $locked->user_role = implode(',', $after);
+                    if ($administratorChanged) {
+                        $administrators->invalidateAuthority($locked);
+                    } else {
+                        $locked->save();
+                    }
+                    AuthAuditLog::create([
+                        'user_id' => $locked->id, 'acting_user_id' => null,
+                        'event' => 'user_roles_changed', 'auth_method' => 'console', 'succeeded' => true,
+                        'metadata' => ['added' => $added, 'removed' => $removed],
+                    ]);
+                }
+
+                return [$after, $added, $removed];
+            }, 3);
+        } catch (ValidationException $failure) {
+            foreach ($failure->errors() as $errors) {
+                foreach ($errors as $error) {
+                    $this->components->error($error);
+                }
             }
 
-            return [$after, $added, $removed];
-        });
+            return self::FAILURE;
+        }
         [$roles, $added, $removed] = $result;
 
         if ($added === [] && $removed === []) {

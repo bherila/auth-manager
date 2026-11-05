@@ -21,6 +21,7 @@ interface DirectoryUser {
   email: string;
   status: 'active' | 'disabled';
   roles: string[];
+  administration_revision: string;
   disabled_at: string | null;
   last_login_date: string | null;
   client_ids: string[];
@@ -58,7 +59,11 @@ function UserCard({
   async function run(action: () => Promise<unknown>, message: string): Promise<void> {
     setBusy(true);
     try {
-      await action();
+      const result = await action();
+      if (typeof result === 'object' && result !== null && 'redirect' in result && typeof result.redirect === 'string') {
+        window.location.assign(result.redirect);
+        return;
+      }
       await onChanged(message);
     } catch (caught) {
       onError(errorText(caught));
@@ -115,8 +120,22 @@ function UserCard({
     }
 
     await run(
-      () => fetchWrapper.delete(appPath(`/api/admin/users/${user.id}`), {}),
+      () => fetchWrapper.delete(appPath(`/api/admin/users/${user.id}`), { expected_revision: user.administration_revision }),
       `${user.name} was deleted at the provider and queued for application reconciliation.`,
+    );
+  }
+
+  async function changeAdministrator(): Promise<void> {
+    const administrator = !user.roles.includes('admin');
+    if (!window.confirm(
+      `${administrator ? 'Grant' : 'Remove'} provider administrator authority ${administrator ? 'for' : 'from'} ${user.name}? This controls this identity directory and credentials; application permissions stay separate. Their existing sessions will end.`,
+    )) return;
+    await run(
+      () => fetchWrapper.put(appPath(`/api/admin/users/${user.id}/provider-administrator`), {
+        administrator,
+        expected_revision: user.administration_revision,
+      }),
+      `${user.name}'s provider administrator authority was ${administrator ? 'granted' : 'removed'}.`,
     );
   }
 
@@ -140,6 +159,15 @@ function UserCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        <fieldset className="border-border space-y-2 rounded-md border p-4">
+          <legend className="px-1 text-sm font-medium">Provider administrator authority</legend>
+          <p className="text-muted-foreground text-xs">Controls people and credentials in this provider. OAuth grants and application administrator permissions are separate.</p>
+          <Button type="button" variant={user.roles.includes('admin') ? 'destructive' : 'outline'}
+            disabled={busy || (!user.roles.includes('admin') && user.status !== 'active')}
+            onClick={() => void changeAdministrator()}>
+            {user.roles.includes('admin') ? 'Remove provider administrator' : 'Grant provider administrator'}
+          </Button>
+        </fieldset>
         <form className="grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={(event) => void updateName(event)}>
           <div className="space-y-2">
             <Label htmlFor={`name-${user.id}`}>Provider display name</Label>
@@ -240,7 +268,7 @@ function UserCard({
               variant="destructive"
               disabled={busy}
               onClick={() => void run(
-                () => fetchWrapper.post(appPath(`/api/admin/users/${user.id}/disable`), {}),
+                () => fetchWrapper.post(appPath(`/api/admin/users/${user.id}/disable`), { expected_revision: user.administration_revision }),
                 `${user.name} was disabled and existing sessions and tokens were revoked.`,
               )}
             >
@@ -284,6 +312,8 @@ function DirectoryAdminPage() {
   const [enabled, setEnabled] = useState(true);
   const [clientIds, setClientIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
+  const [confirmationPassword, setConfirmationPassword] = useState('');
+  const [confirming, setConfirming] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     const response = await fetchWrapper.get(appPath('/api/admin/users')) as DirectoryResponse;
@@ -303,6 +333,21 @@ function DirectoryAdminPage() {
       await load();
     } catch (caught) {
       setError(errorText(caught));
+    }
+  }
+
+  async function confirmAdministration(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setConfirming(true);
+    setError(null);
+    try {
+      await fetchWrapper.post(appPath('/api/admin/confirm'), { password: confirmationPassword });
+      setMessage('Provider administration confirmed for five minutes.');
+    } catch (caught) {
+      setError(errorText(caught));
+    } finally {
+      setConfirmationPassword('');
+      setConfirming(false);
     }
   }
 
@@ -350,6 +395,25 @@ function DirectoryAdminPage() {
 
       {error ? <p className="border-destructive bg-destructive/10 text-destructive rounded-md border p-3 text-sm">{error}</p> : null}
       {message ? <p className="border-success bg-success/10 text-success rounded-md border p-3 text-sm">{message}</p> : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Confirm provider administration</CardTitle>
+          <CardDescription>Changing provider administrators needs a credential confirmed in the last five minutes. Sign in again with a passkey or confirm your current password here.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="flex flex-wrap items-end gap-3" onSubmit={(event) => void confirmAdministration(event)}>
+            <div className="space-y-2">
+              <Label htmlFor="administration-password">Your current password</Label>
+              <Input id="administration-password" type="password" autoComplete="current-password" value={confirmationPassword}
+                onChange={(event) => setConfirmationPassword(event.target.value)} required />
+            </div>
+            <Button type="submit" variant="outline" disabled={confirming || confirmationPassword === ''}>
+              {confirming ? 'Confirming…' : 'Confirm provider administration'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

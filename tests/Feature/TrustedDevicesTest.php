@@ -7,6 +7,7 @@ use BWH\Auth\Mail\TwoFactorLoginMail;
 use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\Models\TwoFactorAttempt;
 use BWH\Auth\OAuth\AuthenticationRequirement;
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
 use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
 use BWH\AuthManager\Models\TrustedDevice;
 use BWH\AuthManager\Models\User;
@@ -378,7 +379,8 @@ final class TrustedDevicesTest extends TestCase
         $user = $this->person();
         $token = $this->confirmBrowser($user);
 
-        app(DirectoryAdminService::class)->resetPassword($this->sessionRequest(), $this->administrator(), $user, self::NEW_PASSWORD);
+        $administrator = $this->administrator();
+        app(DirectoryAdminService::class)->resetPassword($this->sessionRequest($administrator), $administrator, $user, self::NEW_PASSWORD);
         $this->newBrowser();
 
         $this->withCookie(TrustedDevices::COOKIE, $token);
@@ -392,13 +394,13 @@ final class TrustedDevicesTest extends TestCase
         $administrator = $this->administrator();
         $directory = app(DirectoryAdminService::class);
 
-        $directory->disable($this->sessionRequest(), $administrator, $user);
+        $directory->disable($this->sessionRequest($administrator), $administrator, $user);
         $this->newBrowser();
         $this->withCookie(TrustedDevices::COOKIE, $token);
         $this->post('/login', $this->credentials($user))->assertSessionHasErrors('email');
         $this->assertGuest();
 
-        $directory->enable($this->sessionRequest(), $administrator, $user->fresh());
+        $directory->enable($this->sessionRequest($administrator), $administrator, $user->fresh());
         $this->newBrowser();
         $this->withCookie(TrustedDevices::COOKIE, $token);
         $this->assertAskedForCode($user);
@@ -779,6 +781,7 @@ final class TrustedDevicesTest extends TestCase
         $request->setLaravelSession(session()->driver());
         if ($user !== null) {
             $request->setUserResolver(static fn (): User => $user);
+            $request->session()->put(EnsureCredentialVersion::SESSION_KEY, (int) $user->credential_version);
         }
 
         return $request;

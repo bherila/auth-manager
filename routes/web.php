@@ -6,6 +6,7 @@ use BWH\AuthManager\Http\Controllers\AccountSettingsController;
 use BWH\AuthManager\Http\Controllers\ApplicationAccessController;
 use BWH\AuthManager\Http\Controllers\ApplicationRegistryController;
 use BWH\AuthManager\Http\Controllers\ConfirmApplicationAccessController;
+use BWH\AuthManager\Http\Controllers\ConfirmProviderAdministrationController;
 use BWH\AuthManager\Http\Controllers\DirectoryAdminController;
 use BWH\AuthManager\Http\Controllers\IdentityLifecycleController;
 use BWH\AuthManager\Http\Controllers\InvitationAcceptanceController;
@@ -62,6 +63,7 @@ Route::middleware([Authenticate::class, RequireProviderAdmin::class])->group(fun
     Route::get('/admin/identity-lifecycle', [IdentityLifecycleController::class, 'page'])->name('admin.identity-lifecycle');
 
     Route::prefix('/api/admin')->group(function (): void {
+        Route::post('/confirm', ConfirmProviderAdministrationController::class)->middleware('throttle:5,1');
         Route::post('/applications', [ApplicationRegistryController::class, 'store'])->name('admin.applications.store');
         Route::put('/applications/{application}', [ApplicationRegistryController::class, 'update'])->name('admin.applications.update');
         Route::get('/identity-lifecycle', [IdentityLifecycleController::class, 'index']);
@@ -69,6 +71,7 @@ Route::middleware([Authenticate::class, RequireProviderAdmin::class])->group(fun
         Route::post('/users', [DirectoryAdminController::class, 'store']);
         Route::patch('/users/{user}/name', [DirectoryAdminController::class, 'updateName']);
         Route::patch('/users/{user}/email', [DirectoryAdminController::class, 'updateEmail']);
+        Route::put('/users/{user}/provider-administrator', [DirectoryAdminController::class, 'updateAdministrator']);
         Route::post('/users/{user}/disable', [DirectoryAdminController::class, 'disable']);
         Route::post('/users/{user}/enable', [DirectoryAdminController::class, 'enable']);
         Route::put('/users/{user}/password', [DirectoryAdminController::class, 'resetPassword']);

@@ -5,8 +5,10 @@ namespace BWH\AuthManager\Http\Controllers;
 use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\DirectoryAdminService;
+use BWH\AuthManager\Services\ProviderAdministrators;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -101,9 +103,28 @@ class DirectoryAdminController extends Controller
 
     public function disable(Request $request, User $user): JsonResponse
     {
-        $updated = $this->directory->disable($request, $this->actor($request), $user);
+        $updated = $this->directory->disable($request, $this->actor($request), $user, $this->expectedRevision($request));
 
         return response()->json(['user' => $this->userPayload($updated)]);
+    }
+
+    public function updateAdministrator(Request $request, User $user): JsonResponse
+    {
+        $input = $request->validate([
+            'administrator' => ['required', 'boolean'],
+            'expected_revision' => ['required', 'string', 'size:64', 'regex:/^[a-f0-9]+$/D'],
+        ]);
+        $actor = $this->actor($request);
+        $updated = $this->directory->changeAdministrator($request, $actor, $user, $input['administrator'], $input['expected_revision']);
+        $redirect = null;
+        if ($updated->id === $actor->id && (int) $updated->credential_version !== (int) $actor->credential_version) {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+            $redirect = route('auth-manager.login');
+        }
+
+        return response()->json(['user' => $this->userPayload($updated), 'redirect' => $redirect]);
     }
 
     public function enable(Request $request, User $user): JsonResponse
@@ -131,7 +152,7 @@ class DirectoryAdminController extends Controller
 
     public function destroy(Request $request, User $user): JsonResponse
     {
-        $tombstone = $this->directory->tombstone($request, $this->actor($request), $user);
+        $tombstone = $this->directory->tombstone($request, $this->actor($request), $user, $this->expectedRevision($request));
 
         return response()->json([
             'tombstone' => [
@@ -176,6 +197,11 @@ class DirectoryAdminController extends Controller
         return $actor;
     }
 
+    private function expectedRevision(Request $request): ?string
+    {
+        return $request->validate(['expected_revision' => ['sometimes', 'required', 'string', 'size:64', 'regex:/^[a-f0-9]+$/D']])['expected_revision'] ?? null;
+    }
+
     /**
      * @return array{
      *     id:int,
@@ -183,6 +209,7 @@ class DirectoryAdminController extends Controller
      *     email:string,
      *     status:'active'|'disabled',
      *     roles:list<string>,
+     *     administration_revision:string,
      *     disabled_at:?string,
      *     last_login_date:?string,
      *     client_ids:list<string>
@@ -205,6 +232,7 @@ class DirectoryAdminController extends Controller
             'email' => $user->email,
             'status' => $user->canLogin() ? 'active' : 'disabled',
             'roles' => $user->roleNames(),
+            'administration_revision' => app(ProviderAdministrators::class)->revision($user),
             'disabled_at' => $user->disabled_at?->toISOString(),
             'last_login_date' => $user->last_login_date?->toISOString(),
             'client_ids' => $clientIds,

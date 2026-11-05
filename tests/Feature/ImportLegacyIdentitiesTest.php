@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use BWH\AuthManager\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -97,6 +99,24 @@ class ImportLegacyIdentitiesTest extends TestCase
         config(['database.connections.legacy_identity.database' => null]);
 
         $this->artisan('identity:import-legacy')->assertFailed();
+    }
+
+    public function test_legacy_replay_preserves_existing_provider_administrator_and_delegated_roles(): void
+    {
+        $this->configureLegacySource(withPasskeys: false);
+        $this->seedLegacyUser(42, role: 'user', password: Hash::make('synthetic-legacy-password'));
+        $admin = User::factory()->create(['id' => 42, 'email' => 'person@example.test', 'user_role' => 'admin,user,access-manage:example-app']);
+        $admin->forceFill(['remember_token' => null])->save();
+        DB::connection('legacy_identity')->table('users')->where('id', 42)->update(['remember_token' => 'revoked-legacy-remember-cookie']);
+        DB::table('auth_two_factor_attempts')->insert(['user_id' => 42, 'token' => 'legacy-old-attempt', 'code' => '123456', 'expires_at' => now()->addMinute()]);
+        $this->artisan('identity:import-legacy', ['--only' => 'users'])->assertSuccessful();
+        $this->assertTrue($admin->fresh()->hasRole('admin'));
+        $this->artisan('identity:import-legacy', ['--only' => 'users', '--apply' => true])->assertSuccessful();
+        $this->assertSame(['admin', 'user', 'access-manage:example-app'], $admin->fresh()->roleNames());
+        $this->assertTrue($admin->fresh()->canLogin());
+        $this->assertNull($admin->fresh()->remember_token);
+        $this->assertSame(1, $admin->fresh()->credential_version);
+        $this->assertSame(0, DB::table('auth_two_factor_attempts')->count());
     }
 
     public function test_it_refuses_a_source_that_is_its_own_database(): void

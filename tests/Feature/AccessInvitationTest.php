@@ -517,7 +517,9 @@ class AccessInvitationTest extends TestCase
         $this->inviteAndGetLinkAs($this->inviter, 'PERSON@example.test');
         $this->inviteAndGetLinkAs($this->inviter, 'someone-else@example.test');
 
-        $tombstone = app(DirectoryAdminService::class)->tombstone(request(), $this->inviter, $person);
+        $administrator = User::factory()->create(['user_role' => 'admin']);
+        $this->signIn($administrator);
+        $tombstone = app(DirectoryAdminService::class)->tombstone(request(), $administrator, $person);
         $tombstone->forceFill(['purge_after' => now()->subMinute()])->save();
         app(IdentityTombstonePurger::class)->purgeEligible();
 

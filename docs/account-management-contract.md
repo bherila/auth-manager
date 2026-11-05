@@ -55,6 +55,45 @@ credentials with those values unchanged; mismatches fail closed or require an
 explicit, reported omission and re-enrollment. The legacy selected-person copy
 does not copy passkeys. No migration relabels credentials for a different RP ID.
 
+## Provider administrator management
+
+The directory's **Provider administrator authority** control grants or removes the
+provider `admin` role, with explicit confirmation. It does not change OAuth client
+grants, application administrator flags or workspace permissions. Ordinary users,
+application-only administrators and disabled/deleted accounts cannot use the API
+to elevate themselves. A disabled target must be enabled before promotion; an
+existing disabled administrator can still have their authority removed.
+
+`PUT /api/admin/users/{user}/provider-administrator` takes `administrator` and the
+`expected_revision` from the directory response. The actor must be an active
+provider administrator with a current credential generation and proof from a
+credential presented within five minutes. `POST /api/admin/confirm` confirms the
+current password for this administrative purpose only. It does not refresh
+passkey-enrollment proof or OAuth authentication context. Remember-cookie
+restoration alone supplies no recent proof.
+
+Every directory mutation rechecks actor authority and generation inside the same
+ordered user-row locks used by administrator changes, disable/delete and
+`auth-manager:user-roles`. A stale target revision returns HTTP 409 with reload
+guidance. The revision also covers the displayed name/email so a confirmation
+cannot apply to identity labels that changed meanwhile. The last eligible active provider administrator cannot be demoted,
+disabled or deleted; disabled or soft-deleted administrators do not count toward
+recovery. Self-demotion is permitted when another eligible administrator remains,
+retains ordinary sign-in, and ends the former administrator's session.
+
+Successful changes audit actor, target and before/after roles. Authority changes
+advance the target's credential generation and invalidate sessions, remember
+cookies, trusted devices, OAuth credentials and pending sign-in/reset attempts.
+Unchanged requests produce no additional role audit. The operator role command
+uses the same recovery guard and invalidation. Legacy import replays preserve
+existing provider roles and cannot revive revoked remember cookies; credential
+replacement also advances the generation and clears old pending attempts.
+
+SQLite feature tests cover authorization, recent proof, self-demotion, recovery,
+stale requests and invalidation. CI's isolated MariaDB tests run competing
+demotion/disable/delete/operator mutations on independent connections and assert
+that one eligible administrator remains.
+
 ## Instance-local application registry
 
 Each deployment has its own directory, registry, client credentials and keys.

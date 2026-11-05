@@ -26,6 +26,12 @@ see [deployment profiles](docs/deployment-profiles.md). They can also delete a p
 tombstone-and-reconcile lifecycle. Every successful mutation records the target
 and the acting provider administrator in the authentication audit log.
 
+Administrators can also grant or remove **provider administrator authority** after
+recent sign-in or explicit password confirmation. This authority controls the
+identity directory; application permissions remain separate. Last-administrator
+safeguards cover role changes, disable/delete and the operator role command.
+See [provider administrator management](docs/account-management-contract.md#provider-administrator-management).
+
 Provider state deliberately stops at the OAuth boundary: creating a person or
 granting an OAuth client here never creates an account or permissions inside a
 connected application.
