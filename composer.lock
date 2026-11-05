@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d4d2552f3cc3c1b44981e6545bb8850f",
+    "content-hash": "a827818a40eff3d6d8df2bbf75794fe5",
     "packages": [
         {
             "name": "bherila/auth-laravel",
-            "version": "v0.28.3",
+            "version": "v0.28.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/auth-laravel.git",
-                "reference": "401e3397e75de0ae878efb6e068c272ccad604a3"
+                "reference": "7f27d5bba6ba15034e112f0ae2789c169a6cf780"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/auth-laravel/zipball/401e3397e75de0ae878efb6e068c272ccad604a3",
-                "reference": "401e3397e75de0ae878efb6e068c272ccad604a3",
+                "url": "https://api.github.com/repos/bherila/auth-laravel/zipball/7f27d5bba6ba15034e112f0ae2789c169a6cf780",
+                "reference": "7f27d5bba6ba15034e112f0ae2789c169a6cf780",
                 "shasum": ""
             },
             "require": {
@@ -67,7 +67,7 @@
                 "issues": "https://github.com/bherila/auth-laravel/issues",
                 "source": "https://github.com/bherila/auth-laravel"
             },
-            "time": "2026-11-02T18:49:17+00:00"
+            "time": "2026-11-05T19:18:49+00:00"
         },
         {
             "name": "brick/math",

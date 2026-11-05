@@ -1,6 +1,7 @@
 import { authenticateWithPasskey, isAbortError, isConditionalMediationAvailable } from 'bwh-auth';
 
 import { getCsrfToken } from './shared-components';
+import { rememberLogin } from './login-dom';
 import { appPath, authEndpoints } from '@/lib/app-path';
 
 interface AutofillHandlers {
@@ -43,6 +44,7 @@ export async function startPasskeyAutofill(handlers: AutofillHandlers): Promise<
       endpoints: authEndpoints(getCsrfToken()),
       mediation: 'conditional',
       signal: own.signal,
+      remember: rememberLogin,
     });
     handlers.onSuccess(redirectUrl || appPath('/'));
   } catch (error) {
