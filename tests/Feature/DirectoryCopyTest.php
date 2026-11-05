@@ -118,6 +118,40 @@ class DirectoryCopyTest extends TestCase
         $this->assertSame(0, DB::table('webauthn_credentials')->count());
     }
 
+    public function test_a_matching_configured_rp_is_not_portable_to_an_unrelated_target_origin(): void
+    {
+        $this->passkey('example.test');
+        $archive = $this->archive();
+        $this->target();
+        config(['app.url' => 'https://unrelated.test']);
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('cannot be used with the target RP ID');
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], false);
+    }
+
+    public function test_ip_origins_require_an_exact_rp_match_rather_than_a_numeric_suffix(): void
+    {
+        config(['app.url' => 'http://127.0.0.1', 'bherila-auth.passkeys.rp_id' => '0.1']);
+        $this->passkey('0.1');
+        $archive = $this->archive();
+        $this->target();
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('cannot be used with the target RP ID');
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], false);
+    }
+
+    public function test_preferred_passkey_verification_cannot_be_downgraded_to_discouraged(): void
+    {
+        $this->passkey('example.test');
+        config(['bherila-auth.passkeys.user_verification' => 'preferred']);
+        $archive = $this->archive();
+        $this->target();
+        config(['bherila-auth.passkeys.user_verification' => 'discouraged']);
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('weaker than the source');
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], false);
+    }
+
     public function test_invitation_business_state_and_operation_id_survive_but_live_credentials_do_not(): void
     {
         $person = User::factory()->create();

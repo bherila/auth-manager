@@ -95,9 +95,14 @@ final class DirectoryTransfer
         }
         $tables = $this->validated($payload, $db);
         $incompatible = 0;
+        $targetRp = $this->effectiveRpId();
+        $targetHost = trim(strtolower((string) parse_url((string) config('app.url'), PHP_URL_HOST)), '[]');
+        $rpHost = strtolower($targetRp);
+        $isIp = filter_var($targetHost, FILTER_VALIDATE_IP) !== false || filter_var($rpHost, FILTER_VALIDATE_IP) !== false;
+        $rpIsWithinTargetOrigin = $rpHost !== '' && ($targetHost === $rpHost || (! $isIp && str_ends_with($targetHost, '.'.$rpHost)));
         foreach ($tables['passkeys'] as $index => $row) {
             $rp = $row['rp_id'] ?? $payload['source_rp_id'];
-            if ($rp !== $this->effectiveRpId() || $payload['source_rp_id'] !== $this->effectiveRpId()) {
+            if (! $rpIsWithinTargetOrigin || $rp !== $targetRp || $payload['source_rp_id'] !== $targetRp) {
                 $incompatible++;
                 unset($tables['passkeys'][$index]);
             }
@@ -106,11 +111,12 @@ final class DirectoryTransfer
             throw new InvalidArgumentException("{$incompatible} passkeys cannot be used with the target RP ID. Nothing was written; use --skip-incompatible-passkeys to omit them explicitly.");
         }
         $assurance = $payload['assurance'];
+        $verificationRanks = ['discouraged' => 0, 'preferred' => 1, 'required' => 2];
+        $targetVerification = $verificationRanks[(string) config('bherila-auth.passkeys.user_verification', 'preferred')] ?? -1;
         if (($assurance['code_after_password'] && ! config('auth-manager.sign_in.code_after_password'))
             || (! $assurance['code_only'] && config('auth-manager.sign_in.code_only'))
             || (! $assurance['trusted_devices'] && config('auth-manager.sign_in.trusted_devices'))
-            || ($tables['passkeys'] !== [] && $assurance['passkey_user_verification'] === 'required'
-                && config('bherila-auth.passkeys.user_verification') !== 'required')) {
+            || ($tables['passkeys'] !== [] && $targetVerification < $verificationRanks[$assurance['passkey_user_verification']])) {
             throw new InvalidArgumentException('Target sign-in assurance is weaker than the source. Match or strengthen the source code-after-password, code-only, trusted-device and passkey user-verification settings before import.');
         }
         $reset = 0;

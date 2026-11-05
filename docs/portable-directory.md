@@ -39,8 +39,9 @@ the source and update its consumer before making a new archive.
 
 ## Protect the material
 
-The format is a versioned JSON envelope with SHA-256 over the exact base64-encoded
-payload bytes. Row values are base64 encoded so credential bytes survive exactly.
+The format is a versioned JSON envelope with SHA-256 over the exact decoded
+payload JSON bytes; those bytes travel in a base64 field. Row values are also
+base64 encoded so credential bytes survive exactly.
 The checksum detects accidental corruption; it is **not a signature** and does not
 authenticate the sender. Import only a trusted operator's snapshot, transferred
 over a pinned private channel. Anyone who can replace the payload can replace its
@@ -75,7 +76,8 @@ removes retained copies under their retention policy.
    `AUTH_MANAGER_ALLOW_CODE_ONLY_SIGN_IN=false`. A source with trusted devices off
    requires `AUTH_MANAGER_ALLOW_TRUSTED_DEVICES=false`. If copied passkeys require
    user verification, set `WEBAUTHN_USER_VERIFICATION=required`. Import refuses a
-   weaker target, including during dry run. Rebuild the target configuration cache.
+   weaker target, including `preferred` becoming `discouraged`, during dry run.
+   Rebuild the target configuration cache.
 5. Freeze source directory/credential/client/invitation mutations before the final
    snapshot and keep it frozen through cutover. A consistent snapshot cannot
    account for subjects or credentials created on the source after export. Keep
