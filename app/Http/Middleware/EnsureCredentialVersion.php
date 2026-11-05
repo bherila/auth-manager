@@ -16,7 +16,11 @@ class EnsureCredentialVersion
 
     public function handle(Request $request, Closure $next): Response
     {
-        $user = $request->user();
+        // Route authentication can select Passport's bearer guard before this
+        // web-group middleware runs. Its credential generation belongs to the
+        // token, not this browser session, and TokenGuard cannot log out.
+        $guard = Auth::guard((string) config('passport.guard', 'web'));
+        $user = $guard->user();
 
         if (! $user instanceof User) {
             return $next($request);
@@ -38,7 +42,7 @@ class EnsureCredentialVersion
             return $next($request);
         }
 
-        Auth::logout();
+        $guard->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
