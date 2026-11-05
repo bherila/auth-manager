@@ -37,6 +37,25 @@ class EmbeddedModeTest extends EmbeddedTestCase
         ])->assertStatus(400);
     }
 
+    public function test_rotated_credentials_keep_bearer_and_browser_generation_checks_separate(): void
+    {
+        [$user, $client, $secret] = $this->grantedClient('correct horse battery staple');
+        $user->forceFill(['credential_version' => 2])->save();
+
+        $authorization = $this->authorizeThroughBrowser($client, 'correct horse battery staple');
+        $tokens = $this->exchange($client, $secret, $authorization['code'], $authorization['verifier']);
+        $this->freshRequest()->withToken($tokens['access_token'])->getJson('/auth/api/oauth/user')
+            ->assertOk()->assertJsonPath('credential_version', 2);
+
+        $user->forceFill(['credential_version' => 3])->save();
+        $this->freshRequest()->withToken($tokens['access_token'])->getJson('/auth/api/oauth/user')->assertUnauthorized();
+
+        // An Authorization header must not exempt a stale browser session from its own check.
+        $this->freshRequest()->withCookie('auth_manager_session', $authorization['session'])
+            ->withToken('invalid-bearer')->getJson('/auth/settings')->assertUnauthorized();
+        $this->assertFalse(auth(Mount::EMBEDDED_GUARD)->check());
+    }
+
     public function test_the_issuer_and_generated_urls_are_below_the_prefix(): void
     {
         $this->assertSame(self::HOST.'/auth', config('auth-manager.issuer'));

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\OAuthClientGrantService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -58,6 +59,24 @@ class OAuthClientGrantEndpointTest extends TestCase
         $this->post('/oauth/token', $this->authorizationCodePayload($client, $secret, $authorizationCode))
             ->assertStatus(400)
             ->assertJsonPath('error', 'invalid_grant');
+    }
+
+    public function test_rotated_credentials_allow_a_fresh_bearer_without_a_browser_session(): void
+    {
+        [$user, $client, $secret] = $this->grantedClient();
+        $user->forceFill(['credential_version' => 2])->save();
+        $this->withSession([EnsureCredentialVersion::SESSION_KEY => 2]);
+        $code = $this->authorizationCode($user, $client);
+        $token = $this->post('/oauth/token', $this->authorizationCodePayload($client, $secret, $code))
+            ->assertOk()->json('access_token');
+
+        Auth::forgetGuards();
+        $this->flushSession();
+        $this->withToken($token)->getJson('/api/oauth/user')->assertOk()->assertJsonPath('credential_version', 2);
+
+        $user->forceFill(['credential_version' => 3])->save();
+        Auth::forgetGuards();
+        $this->withToken($token)->getJson('/api/oauth/user')->assertUnauthorized();
     }
 
     public function test_code_exchange_rechecks_account_status_changed_after_authorization(): void
