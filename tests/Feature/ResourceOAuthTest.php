@@ -19,10 +19,10 @@ use Laravel\Passport\Client;
 use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Passport;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
-use PHPUnit\Framework\Attributes\RunClassInSeparateProcess;
+use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use Tests\TestCase;
 
-#[RunClassInSeparateProcess]
+#[RunTestsInSeparateProcesses]
 #[PreserveGlobalState(false)]
 class ResourceOAuthTest extends TestCase
 {
