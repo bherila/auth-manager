@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 
-import { LOGIN_DOM, loginEl } from './login-dom';
+import { LOGIN_DOM, loginEl, rememberLogin } from './login-dom';
 import { isPasskeyCancellation, mapPasskeyError } from './login-errors';
 import {
   abortPasskeyAutofill,
@@ -53,7 +53,7 @@ export function PasskeyLogin(): React.JSX.Element {
     setVerifying(true);
     abortPasskeyAutofill();
     try {
-      const { redirectUrl } = await authenticateWithPasskey({ endpoints: authEndpoints(getCsrfToken()) });
+      const { redirectUrl } = await authenticateWithPasskey({ endpoints: authEndpoints(getCsrfToken()), remember: rememberLogin });
       go(redirectUrl);
     } catch (caught) {
       if (!isPasskeyCancellation(caught)) {
