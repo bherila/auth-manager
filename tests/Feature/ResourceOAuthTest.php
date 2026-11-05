@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use BWH\Auth\Http\Middleware\AppendOAuthAuthorizationResponseIssuer;
 use BWH\Auth\Http\Middleware\EnforceOAuthPkce;
 use BWH\Auth\Http\Middleware\EnforceOAuthResourceIndicator;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
@@ -92,9 +93,14 @@ class ResourceOAuthTest extends TestCase
             $this->assertContains(EnforceOAuthResourceIndicator::class, $route->gatherMiddleware());
         }
 
+        foreach (['passport.authorizations.authorize', 'passport.authorizations.approve', 'passport.authorizations.deny'] as $name) {
+            $this->assertContains(AppendOAuthAuthorizationResponseIssuer::class, Route::getRoutes()->getByName($name)?->gatherMiddleware() ?? []);
+        }
+
         $this->getJson('/.well-known/oauth-authorization-server')
             ->assertOk()
             ->assertJsonPath('issuer', self::ISSUER)
+            ->assertJsonPath('authorization_response_iss_parameter_supported', true)
             ->assertJsonPath('authorization_endpoint', self::ISSUER.'/oauth/authorize')
             ->assertJsonPath('token_endpoint', self::ISSUER.'/oauth/token')
             ->assertJsonPath('registration_endpoint', self::ISSUER.'/oauth/register')
@@ -150,6 +156,49 @@ class ResourceOAuthTest extends TestCase
         $this->assertSame(self::RESOURCE, OAuthResourceIndicator::tokenClaims((string) $refreshed->json('access_token'))['resource'] ?? null);
     }
 
+    public function test_approval_and_denial_redirects_identify_the_exact_authorization_server(): void
+    {
+        $this->withoutVite();
+        $user = User::factory()->create(['user_role' => 'user']);
+        $client = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Example Client', ['https://app.example.test/oauth/callback'], false);
+        $client->forceFill(['dynamically_registered_at' => now(), 'scopes' => ['mcp:use', 'offers:read']])->save();
+
+        foreach (['POST' => 'code', 'DELETE' => 'error'] as $method => $parameter) {
+            $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($this->authorizationParameters($client)))->assertOk();
+            $authToken = session('authToken');
+            $this->assertIsString($authToken);
+            $response = $this->call($method, '/oauth/authorize', ['auth_token' => $authToken])->assertRedirect();
+            $location = (string) $response->headers->get('Location');
+            parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
+            $this->assertSame(self::ISSUER, $query['iss'] ?? null);
+            $this->assertSame('state-value', $query['state'] ?? null);
+            $this->assertNotEmpty($query[$parameter] ?? null);
+            $this->assertSame(1, substr_count($location, 'iss='));
+            if ($method === 'DELETE') {
+                $this->assertSame('access_denied', $query['error']);
+            }
+        }
+    }
+
+    public function test_only_validated_authorization_error_redirects_receive_an_issuer(): void
+    {
+        [$user, $client] = $this->grantedClient();
+        $parameters = $this->authorizationParameters($client);
+        foreach ([['scope' => 'unknown:scope'], ['max_age' => 'invalid']] as $invalid) {
+            $response = $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([...$parameters, ...$invalid]))->assertRedirect();
+            parse_str((string) parse_url((string) $response->headers->get('Location'), PHP_URL_QUERY), $query);
+            $this->assertSame(self::ISSUER, $query['iss'] ?? null);
+            $this->assertSame('state-value', $query['state'] ?? null);
+            $this->assertNotEmpty($query['error'] ?? null);
+        }
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$parameters, 'redirect_uri' => 'https://unregistered.example.test/callback', 'scope' => 'unknown:scope',
+        ]))->assertStatus(400)->assertHeaderMissing('Location');
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$parameters, 'redirect_uri' => 'https://unregistered.example.test/callback',
+        ]))->assertStatus(401)->assertHeaderMissing('Location');
+    }
+
     public function test_uc_dynamic_registration_creates_an_untrusted_public_client(): void
     {
         $response = $this->postJson('/oauth/register', [
@@ -200,6 +249,7 @@ class ResourceOAuthTest extends TestCase
         ])->assertRedirect();
         parse_str((string) parse_url((string) $approved->headers->get('Location'), PHP_URL_QUERY), $query);
         $this->assertIsString($query['code'] ?? null);
+        $this->assertSame(self::ISSUER, $query['iss'] ?? null);
         $token = $this->postJson('/oauth/token', [
             'grant_type' => 'authorization_code',
             'client_id' => (string) $client->getKey(),
@@ -302,6 +352,18 @@ class ResourceOAuthTest extends TestCase
         return $this->post('/oauth/introspect', ['token' => $token], [
             'Authorization' => 'Basic '.base64_encode('resource-server:test-introspection-secret'),
         ]);
+    }
+
+    /** @return array<string, string> */
+    private function authorizationParameters(Client $client): array
+    {
+        return [
+            'client_id' => (string) $client->getKey(),
+            'redirect_uri' => 'https://app.example.test/oauth/callback',
+            'response_type' => 'code', 'scope' => 'mcp:use offers:read', 'resource' => self::RESOURCE,
+            'state' => 'state-value', 'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', str_repeat('v', 64), true)), '+/', '-_'), '='),
+            'code_challenge_method' => 'S256',
+        ];
     }
 
     private function setResourceEnvironment(): void
