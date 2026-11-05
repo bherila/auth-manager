@@ -36,6 +36,15 @@ The resource profile publishes authorization-server metadata at
 registration at `POST /oauth/register` and token introspection at
 `POST /oauth/introspect`. These endpoints are absent from the default profile.
 
+It also advertises RFC 9207 issuer identification with
+`authorization_response_iss_parameter_supported: true`. Every authorization and
+consent route adds the exact configured issuer as `iss` to successful and error
+redirects, including consent denial. When embedded, the issuer includes the
+mount path, for example `https://app.example.test/auth`. Requests with an
+unregistered redirect URI are refused locally and never become authorization
+responses to that URI. The default identity profile retains its existing
+behavior and does not publish this metadata claim.
+
 On the `resource` profile, active provider users can authorize dynamically
 registered MCP clients (including Codex, ChatGPT, and Claude) without an
 administrator granting each newly registered client. Registration does not grant

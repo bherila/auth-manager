@@ -3,6 +3,7 @@
 use BWH\Auth\Http\Controllers\OAuthDynamicClientRegistrationController;
 use BWH\Auth\Http\Controllers\OAuthMetadataController;
 use BWH\Auth\Http\Controllers\OAuthTokenIntrospectionController;
+use BWH\Auth\Http\Middleware\AppendOAuthAuthorizationResponseIssuer;
 use BWH\Auth\Http\Middleware\EnforceOAuthPkce;
 use BWH\Auth\Http\Middleware\EnforceOAuthResourceIndicator;
 use BWH\Auth\Http\Middleware\EnsureOAuthServerEnabled;
@@ -41,6 +42,8 @@ Route::prefix(config('passport.path', 'oauth'))
             ->name('end-session');
 
         $authorizationMiddleware = [
+            // Outer middleware covers success, validation errors and consent denial.
+            AppendOAuthAuthorizationResponseIssuer::class,
             ...$oauthServerMiddleware,
             Mount::webMiddleware(),
             EnforceAuthenticationRequest::class,
