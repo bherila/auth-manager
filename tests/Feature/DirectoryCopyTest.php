@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use BWH\AuthManager\Models\AccessInvitation;
+use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\DirectoryCopy\DirectoryArchive;
 use BWH\AuthManager\Services\DirectoryCopy\DirectoryTransfer;
@@ -224,6 +225,55 @@ class DirectoryCopyTest extends TestCase
         DB::table('oauth_clients')->update(['provider' => 'foreign-users']);
         $this->assertSame(1, Artisan::call('identity:directory-export', ['--output' => $this->path]));
         $this->assertStringContainsString('foreign user provider', Artisan::output());
+        $this->assertFileDoesNotExist($this->path);
+    }
+
+    public function test_purged_client_owners_stay_historical_without_turning_third_party_clients_into_first_party(): void
+    {
+        $owner = User::factory()->create(['id' => 61]);
+        $viewer = User::factory()->create(['id' => 7]);
+        $client = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Owned app', ['https://app.example.test/oauth/callback'], user: $owner);
+        DB::table('oauth_client_grants')->insert([
+            ['oauth_client_id' => $client->id, 'subject' => $owner->id, 'created_at' => now(), 'updated_at' => now()],
+            ['oauth_client_id' => $client->id, 'subject' => $viewer->id, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        $this->assertFalse($client->firstParty());
+        $owner->forceDelete();
+        $this->assertSame(1, DB::table('oauth_client_grants')->count(), 'The deleted owner grant cascades, while another person keeps their grant.');
+        $archive = $this->archive();
+        $this->target();
+        $report = app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
+        $this->assertSame(1, $report['historical_client_owners']);
+        $copied = PassportClient::findOrFail($client->id);
+        $this->assertSame('61', (string) $copied->owner_id);
+        $this->assertSame(User::class, $copied->owner_type);
+        $this->assertNull($copied->owner);
+        $this->assertFalse($copied->firstParty());
+        $this->assertFalse($copied->skipsAuthorization(User::findOrFail(7), []));
+        $this->assertSame(1, DB::table('oauth_client_grants')->count());
+        $this->assertGreaterThan(61, User::factory()->create()->id);
+    }
+
+    public function test_client_ownership_cannot_reserve_an_identifier_beyond_the_source_floor(): void
+    {
+        $owner = User::factory()->create(['id' => 61]);
+        app(ClientRepository::class)->createAuthorizationCodeGrantClient('Owned app', ['https://app.example.test/oauth/callback'], user: $owner);
+        $owner->forceDelete();
+        $snapshot = app(DirectoryTransfer::class)->snapshot();
+        $snapshot['tables']['oauth_clients'][0]['owner_id'] = base64_encode('999');
+        $archive = DirectoryArchive::decode(DirectoryArchive::encode($snapshot));
+        $this->target();
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('outside the allocated directory subject range');
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], false);
+    }
+
+    public function test_foreign_client_owner_models_are_refused_without_exporting_secret_material(): void
+    {
+        app(ClientRepository::class)->createAuthorizationCodeGrantClient('Owned app', ['https://app.example.test/oauth/callback']);
+        DB::table('oauth_clients')->update(['owner_type' => 'External\\Models\\User', 'owner_id' => 61]);
+        $this->assertSame(1, Artisan::call('identity:directory-export', ['--output' => $this->path]));
+        $this->assertStringContainsString('foreign user provider or owner model', Artisan::output());
         $this->assertFileDoesNotExist($this->path);
     }
 

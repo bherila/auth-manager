@@ -37,6 +37,12 @@ Unknown or encrypted secret representations are refused rather than copied as
 unusable ciphertext. Align the target's hasher, or rotate an unsupported client on
 the source and update its consumer before making a new archive.
 
+Clients owned by a purged person retain their recognized owner model and historical
+owner ID. The ID must be positive and below the reserved source allocation floor.
+It is never reassigned to a new person. Keeping those fields also keeps a third-party
+client third-party; clearing them would incorrectly make Passport trust it as
+first-party. `historical_client_owners` reports these preserved references.
+
 ## Protect the material
 
 The format is a versioned JSON envelope with SHA-256 over the exact decoded
@@ -83,8 +89,8 @@ removes retained copies under their retention policy.
    account for subjects or credentials created on the source after export. Keep
    target provisioning closed until import and verification finish.
 
-For Vora, the local-account bulk importer first stages the directory inside its
-embedded provider with explicit local-to-provider bindings. A subsequent full
+For a relying application, its local-account bulk importer first stages the
+directory inside its embedded provider with explicit local-to-provider bindings. A subsequent full
 provider move uses this archive and preserves those subjects. The local bulk
 importer and a provider directory move are separate steps; importing this archive
 never reads a relying application's users table.

@@ -137,7 +137,9 @@ final class DirectoryTransfer
         if ($reset > 0 && ! $resetIncompatiblePasswords) {
             throw new InvalidArgumentException("{$reset} password hashes are incompatible with the target hasher. Nothing was written; align the hasher or use --reset-incompatible-passwords and arrange recovery.");
         }
-        $report = ['already_imported' => 0, 'passkeys_omitted' => $incompatible, 'passwords_requiring_reset' => $reset, 'verification_codes_excluded' => 1, 'runtime_keys_excluded' => 1];
+        $users = array_fill_keys(array_column($tables['users'], 'id'), true);
+        $historicalOwners = count(array_filter($tables['oauth_clients'], static fn (array $client): bool => $client['owner_id'] !== null && ! isset($users[$client['owner_id']])));
+        $report = ['already_imported' => 0, 'passkeys_omitted' => $incompatible, 'passwords_requiring_reset' => $reset, 'historical_client_owners' => $historicalOwners, 'verification_codes_excluded' => 1, 'runtime_keys_excluded' => 1];
         foreach ($tables as $name => $rows) {
             $report[$name] = count($rows);
         }
@@ -238,7 +240,7 @@ final class DirectoryTransfer
                 throw new InvalidArgumentException('Directory archive would reuse a tombstoned subject.');
             }
         }
-        $this->assertReferences($tables);
+        $this->assertReferences($tables, $payload['sequence_floors']['users']);
 
         return $tables;
     }
@@ -289,7 +291,7 @@ final class DirectoryTransfer
     }
 
     /** @param array<string, list<array<string, string|null>>> $tables */
-    private function assertReferences(array $tables): void
+    private function assertReferences(array $tables, int $userFloor): void
     {
         $ids = [];
         foreach ($tables as $name => $rows) {
@@ -311,9 +313,21 @@ final class DirectoryTransfer
             }
             $emails[$email] = true;
         }
+        foreach ($tables['oauth_clients'] as $client) {
+            $owner = $client['owner_id'];
+            if ($owner === null) {
+                continue;
+            }
+            // Purging a person intentionally leaves their owned clients. Keep
+            // the historical ownership marker: clearing it would make Passport
+            // treat a formerly third-party client as trusted first-party.
+            if ($client['owner_type'] !== User::class || ! ctype_digit($owner)
+                || (int) $owner < 1 || (int) $owner >= $userFloor) {
+                throw new InvalidArgumentException('A client ownership identifier is outside the allocated directory subject range.');
+            }
+        }
         $references = [
             'passkeys' => ['user_id' => 'users'],
-            'oauth_clients' => ['owner_id' => 'users'],
             'oauth_client_grants' => ['subject' => 'users', 'oauth_client_id' => 'oauth_clients'],
             'registered_application_clients' => ['registered_application_id' => 'registered_applications', 'oauth_client_id' => 'oauth_clients'],
             'access_invitations' => ['inviter_id' => 'users', 'revoked_by' => 'users', 'accepted_user_id' => 'users', 'requesting_client_id' => 'oauth_clients'],
