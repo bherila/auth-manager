@@ -29,6 +29,8 @@ const RESEND_COOLDOWN_SECONDS = 30;
 export interface PasswordChallenge {
   attemptToken: string;
   email: string;
+  /** Present only where this instance lets a person trust a browser. */
+  trustDays?: number;
 }
 
 /** Request a code for `email`. The server always answers 200 so unknown addresses are indistinguishable. */
@@ -56,6 +58,7 @@ export function EmailCodeLogin({ passwordChallenge }: { passwordChallenge?: Pass
   const [remember, setRemember] = useState(false);
   const [attemptToken, setAttemptToken] = useState(passwordChallenge?.attemptToken ?? '');
   const [code, setCode] = useState('');
+  const [trustDevice, setTrustDevice] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -149,6 +152,7 @@ export function EmailCodeLogin({ passwordChallenge }: { passwordChallenge?: Pass
       const result = (await fetchWrapper.post(appPath('/api/auth/two-factor/verify'), {
         attempt_token: attemptToken,
         code,
+        trust_device: trustDevice,
       })) as VerifyResponse;
       if (session !== codeSessionRef.current) return;
       window.location.assign(result.redirect || appPath('/'));
@@ -280,6 +284,19 @@ export function EmailCodeLogin({ passwordChallenge }: { passwordChallenge?: Pass
             className="h-10 text-center text-lg tracking-[0.3em]"
           />
         </div>
+        {passwordChallenge?.trustDays ? (
+          <label htmlFor="trust-device" className="flex min-h-6 cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              id="trust-device"
+              name="trust_device"
+              checked={trustDevice}
+              onChange={(event) => setTrustDevice(event.target.checked)}
+              className="border-input accent-primary size-4 rounded"
+            />
+            Don&apos;t ask for a code on this browser for {passwordChallenge.trustDays} days
+          </label>
+        ) : null}
         <Button type="submit" size="lg" className="w-full" disabled={verifying || locked} aria-busy={verifying}>
           {verifying ? 'Verifying…' : 'Verify and sign in'}
         </Button>

@@ -46,6 +46,7 @@
                     class="mt-6"
                     data-attempt-token="{{ $passwordChallenge['attempt_token'] }}"
                     data-email="{{ $passwordChallenge['email'] }}"
+                    @if ($passwordChallenge['trust_days'] !== null) data-trust-days="{{ $passwordChallenge['trust_days'] }}" @endif
                 ></div>
 
                 <noscript>
@@ -73,6 +74,12 @@
                                     required
                                 />
                             </div>
+                            @if ($passwordChallenge['trust_days'] !== null)
+                                <label for="noscript-trust-device" class="flex min-h-6 cursor-pointer items-center gap-2 text-sm">
+                                    <input type="checkbox" id="noscript-trust-device" name="trust_device" value="1" class="border-input accent-primary size-4 rounded" />
+                                    Don't ask for a code on this browser for {{ $passwordChallenge['trust_days'] }} days
+                                </label>
+                            @endif
                             <x-ui.button type="submit" size="lg" class="w-full">Verify and sign in</x-ui.button>
                         </form>
                         <form method="POST" action="{{ route('auth-manager.login.challenge.cancel') }}">

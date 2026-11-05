@@ -9,8 +9,10 @@ use BWH\Auth\OAuth\AuthenticationRequirement;
 use BWH\Auth\Services\TwoFactorService;
 use BWH\AuthManager\Http\Middleware\EnforceAuthenticationRequest;
 use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
+use BWH\AuthManager\Models\TrustedDevice;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\AuthenticationContext;
+use BWH\AuthManager\Services\TrustedDevices;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -47,6 +49,7 @@ class LoginController extends Controller
             'passwordChallenge' => $attempt === null ? null : [
                 'attempt_token' => (string) $attempt->getAttribute('token'),
                 'email' => (string) $request->session()->get(self::PASSWORD_CHALLENGE_SESSION_KEY.'.email'),
+                'trust_days' => TrustedDevices::enabled() ? (int) config('auth-manager.sign_in.trusted_device_days') : null,
             ],
         ]);
     }
@@ -152,14 +155,19 @@ class LoginController extends Controller
                 ->withInput($request->only('email', 'remember'));
         }
 
+        if (config('hashing.rehash_on_login', true)) {
+            Auth::getProvider()->rehashPasswordIfRequired($user, $credentials);
+        }
+
+        $device = app(TrustedDevices::class)->standingInFor($request, $user);
+        if ($device !== null) {
+            return $this->finishOnTrustedDevice($request, $user, $device, $remember);
+        }
+
         if (! $this->mayMailPasswordChallenge($user)) {
             return back()
                 ->withErrors(['email' => 'Too many sign-in code requests. Please try again later.'])
                 ->withInput($request->only('email', 'remember'));
-        }
-
-        if (config('hashing.rehash_on_login', true)) {
-            Auth::getProvider()->rehashPasswordIfRequired($user, $credentials);
         }
 
         $request->session()->regenerate();
@@ -170,6 +178,26 @@ class LoginController extends Controller
         ]);
 
         return redirect()->route('auth-manager.login');
+    }
+
+    /**
+     * Only a password was presented, so that is all this reports. It also records no credential
+     * verification for managing passkeys: a passkey reaches the `mfa` rung, so enrolling one from
+     * here would turn this browser's cookie into the second factor it stood in for.
+     */
+    private function finishOnTrustedDevice(Request $request, User $user, TrustedDevice $device, bool $remember): RedirectResponse
+    {
+        // A challenge left open in another tab would otherwise hold this session as half signed in.
+        $this->livePasswordChallenge($request)?->update(['is_used' => true]);
+        $this->clearPasswordChallenge($request);
+
+        Auth::login($user, $remember);
+        $request->session()->regenerate();
+        AuthenticationContext::record($request, $user, ['pwd'], AuthenticationRequirement::ACR_SINGLE);
+        $device->forceFill(['last_used_at' => now()])->save();
+        $this->auditLoginSucceeded($request, $user, 'trusted_device');
+
+        return redirect()->intended(route('auth-manager.home'));
     }
 
     private function livePasswordChallenge(Request $request): ?TwoFactorAttempt

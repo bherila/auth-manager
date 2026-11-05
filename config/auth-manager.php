@@ -45,12 +45,21 @@ $signInSetting = static function (string $name, bool $default): bool {
     return $value;
 };
 
+$trustedDeviceDays = filter_var(env('AUTH_MANAGER_TRUSTED_DEVICE_DAYS', 30), FILTER_VALIDATE_INT, [
+    'options' => ['min_range' => 1, 'max_range' => 365],
+]);
+if ($trustedDeviceDays === false) {
+    throw new InvalidArgumentException('AUTH_MANAGER_TRUSTED_DEVICE_DAYS must be an integer from 1 to 365.');
+}
+
 return [
     'password_min_length' => $passwordMinLength,
     'sign_in' => [
         'code_after_password' => $signInSetting('AUTH_MANAGER_REQUIRE_CODE_AFTER_PASSWORD', false),
         'code_only' => $signInSetting('AUTH_MANAGER_ALLOW_CODE_ONLY_SIGN_IN', true),
         'password_reset' => $signInSetting('AUTH_MANAGER_ALLOW_PASSWORD_RESET', false),
+        'trusted_devices' => $signInSetting('AUTH_MANAGER_ALLOW_TRUSTED_DEVICES', false),
+        'trusted_device_days' => $trustedDeviceDays,
     ],
     'profile' => $profile->value,
     'issuer' => $issuer,

@@ -29,6 +29,39 @@
             <p class="text-muted-foreground my-3 text-sm">Passkeys belong to the domain where you register them. They are never copied between providers. Keep access to your email or password before removing a passkey. A passkey sign-in may require signing in again on your next visit.</p>
             <x-ui.button :href="route('auth-manager.settings.passkeys')" variant="outline">Manage passkeys</x-ui.button>
         </section>
+        @if ($trustedDevices !== null)
+            <section aria-labelledby="trusted-devices-heading" class="rounded-xl border border-border bg-card p-6">
+                <h2 id="trusted-devices-heading" class="text-lg font-semibold">Trusted browsers</h2>
+                <p class="text-muted-foreground mt-2 text-sm">These browsers can sign in with your password and skip the emailed code. An application that asks for a second factor still gets the code, and so does managing passkeys. Changing or resetting your password removes them all. Removing one doesn't sign that browser out.</p>
+                @if (session('trusted-devices-status'))
+                    <p role="status" class="mt-3 text-sm">{{ session('trusted-devices-status') }}</p>
+                @endif
+                @if ($trustedDevices->isEmpty())
+                    <p class="text-muted-foreground mt-4 text-sm">No trusted browsers.</p>
+                @else
+                    <ul class="mt-4 space-y-3">
+                        @foreach ($trustedDevices as $entry)
+                            <li class="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+                                <div class="min-w-0 text-sm">
+                                    <p class="font-medium">{{ $entry['device']->label() }}@if ($entry['current']) <span class="text-muted-foreground font-normal">(this browser)</span>@endif</p>
+                                    <p class="text-muted-foreground">Added {{ $entry['device']->created_at->toFormattedDateString() }}. Last used {{ $entry['device']->last_used_at?->toFormattedDateString() ?? 'never' }}. Expires {{ $entry['device']->expires_at->toFormattedDateString() }}.</p>
+                                </div>
+                                <form method="POST" action="{{ route('auth-manager.settings.trusted-devices.destroy', ['device' => $entry['device']->getKey()]) }}">
+                                    @csrf
+                                    @method('DELETE')
+                                    <x-ui.button type="submit" variant="outline" size="sm">Remove</x-ui.button>
+                                </form>
+                            </li>
+                        @endforeach
+                    </ul>
+                    <form method="POST" action="{{ route('auth-manager.settings.trusted-devices.destroy-all') }}" class="mt-4">
+                        @csrf
+                        @method('DELETE')
+                        <x-ui.button type="submit" variant="outline">Remove all</x-ui.button>
+                    </form>
+                @endif
+            </section>
+        @endif
         <section aria-labelledby="recovery-heading">
             <h2 id="recovery-heading" class="text-lg font-semibold">Trouble signing in?</h2>
             <p class="text-muted-foreground mt-2 text-sm">@if (config('auth-manager.sign_in.password_reset'))If you forgot your password, you can reset it from the sign-in page using your account email.@else Use an emailed sign-in code from the sign-in page if you can access your account email. If you forgot your password, an administrator must reset it.@endif If you cannot access your email, contact an administrator. Name and email changes are administrator-managed.</p>

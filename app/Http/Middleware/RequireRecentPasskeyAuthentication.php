@@ -2,6 +2,9 @@
 
 namespace BWH\AuthManager\Http\Middleware;
 
+use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\AuthenticationContext;
+use BWH\AuthManager\Services\TrustedDevices;
 use BWH\AuthManager\Support\Mount;
 use Closure;
 use Illuminate\Http\JsonResponse;
@@ -26,7 +29,9 @@ final class RequireRecentPasskeyAuthentication
     {
         if ($this->protects($request) && $request->user() !== null && ! $this->hasFreshAuthentication($request)) {
             return new JsonResponse([
-                'message' => 'Please sign in again before managing passkeys.',
+                'message' => TrustedDevices::enabled()
+                    ? 'Managing passkeys needs a sign-in with an emailed code or a passkey. If this browser skips the code, stop trusting it under Account and security, then sign in again.'
+                    : 'Please sign in again before managing passkeys.',
             ], Response::HTTP_FORBIDDEN, [
                 'Cache-Control' => 'no-store',
                 'Pragma' => 'no-cache',
@@ -74,6 +79,10 @@ final class RequireRecentPasskeyAuthentication
             return false;
         }
 
+        if (TrustedDevices::enabled() && ! $this->presentedMoreThanAPassword($request, $user)) {
+            return false;
+        }
+
         $authenticatedUserId = $authentication['user_id'] ?? null;
         $authenticatedAt = $authentication['authenticated_at'] ?? null;
 
@@ -87,6 +96,19 @@ final class RequireRecentPasskeyAuthentication
         $timestamp = (int) $authenticatedAt;
 
         return $timestamp <= $now && $timestamp >= $now - self::MAX_AGE_SECONDS;
+    }
+
+    /**
+     * Where a trusted browser can skip the code, a password is no proof the second factor was
+     * ever seen, and a passkey enrolled on it would reach the `mfa` rung. So the session must
+     * have presented a code or passkey. A session restored from a remember-me cookie has no
+     * recorded context and doesn't qualify, and neither does a password confirmed again later.
+     */
+    private function presentedMoreThanAPassword(Request $request, mixed $user): bool
+    {
+        $context = $user instanceof User ? AuthenticationContext::for($request, $user) : null;
+
+        return $context !== null && array_diff($context['amr'], ['pwd']) !== [];
     }
 
     /**
