@@ -2,4 +2,5 @@
 enableGlobalVirtualStore: true
 
 allowBuilds:
-  bwh-auth: true
+  # Match the official release artifact source while registry indexing catches up.
+  'bwh-auth@https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.2/bwh-auth-0.6.2.tgz': true

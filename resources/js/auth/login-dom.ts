@@ -20,3 +20,8 @@ export const LOGIN_DOM = {
 export function loginEl<T extends HTMLElement = HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
 }
+
+/** Sample at verification time: autofill may have waited while the choice changed. */
+export function rememberLogin(): boolean {
+  return loginEl<HTMLInputElement>(LOGIN_DOM.rememberInput)?.checked ?? false;
+}
