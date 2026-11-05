@@ -30,10 +30,16 @@ explains identity, application access and consumer boundaries.
 ## Validation and delivery
 
 Use existing Laravel, TypeScript and component conventions. Keep changes focused.
-During iteration run the relevant tests; before publishing runtime changes run
-`composer ci:check` and `pnpm run build`. Run the Python script suites when changing
-packaging/deployment behavior. Use isolated SQLite test databases and synthetic
-environment settings; never seed tests from a live environment.
+Use CI for heavy validation: full test suites, full Pint, PHPStan, builds and
+mutation/coverage runs. Run these locally only when the user explicitly requests
+local execution. Keep local checks to relevant tests, file-scoped formatting,
+linting and targeted browser verification; push a focused candidate promptly.
+Use required CI results on the exact candidate commit as the validation gate.
+Inspect mutation artifacts when an advisory green job can hide escaped mutations;
+do not weaken checks or deadlines. Run scoped Python checks for touched deployment
+behavior. Use isolated SQLite test databases and synthetic environment settings;
+never seed tests from a live environment. This user preference supersedes older
+guidance requiring full local runs.
 
 Before publishing, run `node scripts/scan-sensitive.mjs --staged` and the full-tree
 scan, and manually review the diff for disclosure. Do not weaken the scanner to

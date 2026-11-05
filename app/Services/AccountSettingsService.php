@@ -32,6 +32,10 @@ final class AccountSettingsService
             ])->save();
             $this->tokens->forSubject((string) $user->getKey());
             DB::table('sessions')->where('user_id', $user->getKey())->delete();
+            // A code challenge opened under the former password must not finish
+            // afterward and acquire the new credential generation.
+            DB::table(config('bherila-auth.two_factor.table', 'auth_two_factor_attempts'))->where('user_id', $user->getKey())->delete();
+            DB::table('password_reset_tokens')->where('email', $user->email)->delete();
             AuthAuditLog::create([
                 'user_id' => $user->getKey(),
                 'acting_user_id' => $user->getKey(),

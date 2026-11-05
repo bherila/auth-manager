@@ -8,7 +8,6 @@ use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Support\ReconciliationClientRegistry;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -33,11 +32,14 @@ class DirectoryAdminService
 
     public const EVENT_USER_TOMBSTONED = 'directory_user_tombstoned';
 
+    public const EVENT_ADMINISTRATOR_CHANGED = 'provider_administrator_changed';
+
     public function __construct(
         private readonly OAuthClientGrantService $grants,
         private readonly OAuthTokenRevocationService $tokens,
         private readonly DirectoryAdminAuditLogger $audit,
         private readonly ReconciliationClientRegistry $reconciliationClients,
+        private readonly ProviderAdministrators $administrators,
     ) {}
 
     /**
@@ -48,6 +50,7 @@ class DirectoryAdminService
         $clientIds = $this->activeClientIds($attributes['client_ids']);
 
         return DB::transaction(function () use ($request, $actor, $attributes, $clientIds): User {
+            $this->administrators->actor($this->administrators->lockDirectory(), $actor, $request);
             $user = User::query()->create([
                 'name' => $attributes['name'],
                 'email' => $attributes['email'],
@@ -66,13 +69,13 @@ class DirectoryAdminService
             ]);
 
             return $user;
-        });
+        }, 3);
     }
 
     public function changeName(Request $request, User $actor, User $target, string $name): User
     {
         return DB::transaction(function () use ($request, $actor, $target, $name): User {
-            $locked = $this->lock($target);
+            $locked = $this->lock($request, $actor, $target);
 
             if ($locked->name !== $name) {
                 $previous = $locked->name;
@@ -84,13 +87,13 @@ class DirectoryAdminService
             }
 
             return $locked;
-        });
+        }, 3);
     }
 
     public function changeEmail(Request $request, User $actor, User $target, string $email): User
     {
         return DB::transaction(function () use ($request, $actor, $target, $email): User {
-            $locked = $this->lock($target);
+            $locked = $this->lock($request, $actor, $target);
 
             if ($locked->email !== $email) {
                 $locked->forceFill([
@@ -101,49 +104,67 @@ class DirectoryAdminService
             }
 
             return $locked;
-        });
+        }, 3);
     }
 
-    public function disable(Request $request, User $actor, User $target): User
+    public function changeAdministrator(Request $request, User $actor, User $target, bool $administrator, string $expectedRevision): User
     {
-        return DB::transaction(function () use ($request, $actor, $target): User {
-            /** @var Collection<int, User> $users */
-            $users = User::query()->orderBy('id')->lockForUpdate()->get();
-            $locked = $users->first(
-                static fn (User $user): bool => $user->getKey() === $target->getKey(),
-            );
-
-            if (! $locked instanceof User) {
-                abort(404);
+        return DB::transaction(function () use ($request, $actor, $target, $administrator, $expectedRevision): User {
+            $users = $this->administrators->lockDirectory();
+            $this->administrators->actor($users, $actor, $request, recent: true);
+            $locked = $this->administrators->target($users, $target);
+            $this->administrators->expectRevision($locked, $expectedRevision);
+            if ($administrator && ! $locked->canLogin()) {
+                throw ValidationException::withMessages(['user' => 'Enable this account before granting provider-administrator authority.']);
             }
+            if ($locked->hasRole('admin') === $administrator) {
+                return $locked;
+            }
+            if (! $administrator) {
+                $this->administrators->preserveRecoveryAdministrator($users, $locked, 'demoted');
+            }
+            $before = $locked->roleNames();
+            $after = $administrator ? [...$before, 'admin'] : array_values(array_diff($before, ['admin']));
+            // Removing provider administration does not disable ordinary sign-in.
+            if (! $administrator && ! in_array('user', $after, true)) {
+                $after[] = 'user';
+            }
+            $locked->user_role = implode(',', $after);
+            $this->administrators->invalidateAuthority($locked);
+            $this->audit->record($request, $actor, $locked, self::EVENT_ADMINISTRATOR_CHANGED, [
+                'administrator' => $administrator, 'previous_roles' => $before, 'roles' => $after,
+            ]);
+
+            return $locked;
+        }, 3);
+    }
+
+    public function disable(Request $request, User $actor, User $target, ?string $expectedRevision = null): User
+    {
+        return DB::transaction(function () use ($request, $actor, $target, $expectedRevision): User {
+            $users = $this->administrators->lockDirectory();
+            $this->administrators->actor($users, $actor, $request);
+            $locked = $this->administrators->target($users, $target);
+            $this->administrators->expectRevision($locked, $expectedRevision);
 
             if ($locked->disabled_at !== null) {
                 return $locked;
             }
 
-            if ($locked->hasRole('admin') && $this->activeAdminCount($users) <= 1) {
-                throw ValidationException::withMessages([
-                    'user' => 'The last active provider administrator cannot be disabled.',
-                ]);
-            }
+            $this->administrators->preserveRecoveryAdministrator($users, $locked, 'disabled');
 
-            $locked->forceFill([
-                'disabled_at' => now(),
-                'credential_version' => (int) $locked->credential_version + 1,
-                'remember_token' => null,
-            ])->save();
-
-            $this->tokens->forSubject((string) $locked->getKey());
+            $locked->disabled_at = now();
+            $this->administrators->invalidateAuthority($locked);
             $this->audit->record($request, $actor, $locked, self::EVENT_USER_DISABLED);
 
             return $locked;
-        });
+        }, 3);
     }
 
     public function enable(Request $request, User $actor, User $target): User
     {
         return DB::transaction(function () use ($request, $actor, $target): User {
-            $locked = $this->lock($target);
+            $locked = $this->lock($request, $actor, $target);
 
             if ($locked->canLogin()) {
                 return $locked;
@@ -158,44 +179,29 @@ class DirectoryAdminService
             $this->audit->record($request, $actor, $locked, self::EVENT_USER_ENABLED);
 
             return $locked;
-        });
+        }, 3);
     }
 
     public function resetPassword(Request $request, User $actor, User $target, string $password): User
     {
         return DB::transaction(function () use ($request, $actor, $target, $password): User {
-            $locked = $this->lock($target);
-            $locked->forceFill([
-                'password' => $password,
-                'credential_version' => (int) $locked->credential_version + 1,
-                'remember_token' => Str::random(60),
-            ])->save();
-
-            $this->tokens->forSubject((string) $locked->getKey());
+            $locked = $this->lock($request, $actor, $target);
+            $locked->password = $password;
+            $this->administrators->invalidateAuthority($locked);
             $this->audit->record($request, $actor, $locked, self::EVENT_PASSWORD_RESET);
 
             return $locked;
-        });
+        }, 3);
     }
 
-    public function tombstone(Request $request, User $actor, User $target): IdentityTombstone
+    public function tombstone(Request $request, User $actor, User $target, ?string $expectedRevision = null): IdentityTombstone
     {
-        return DB::transaction(function () use ($request, $actor, $target): IdentityTombstone {
-            /** @var Collection<int, User> $users */
-            $users = User::query()->orderBy('id')->lockForUpdate()->get();
-            $locked = $users->first(
-                static fn (User $user): bool => $user->getKey() === $target->getKey(),
-            );
-
-            if (! $locked instanceof User) {
-                abort(404);
-            }
-
-            if ($locked->hasRole('admin') && $locked->canLogin() && $this->activeAdminCount($users) <= 1) {
-                throw ValidationException::withMessages([
-                    'user' => 'The last active provider administrator cannot be deleted.',
-                ]);
-            }
+        return DB::transaction(function () use ($request, $actor, $target, $expectedRevision): IdentityTombstone {
+            $users = $this->administrators->lockDirectory();
+            $this->administrators->actor($users, $actor, $request);
+            $locked = $this->administrators->target($users, $target);
+            $this->administrators->expectRevision($locked, $expectedRevision);
+            $this->administrators->preserveRecoveryAdministrator($users, $locked, 'deleted');
 
             $now = now();
             $retentionDays = max(1, (int) config('identity-deletion.retention_days', 30));
@@ -237,7 +243,7 @@ class DirectoryAdminService
             $locked->delete();
 
             return $tombstone->load('clients');
-        });
+        }, 3);
     }
 
     public function grantClient(Request $request, User $actor, User $target, PassportClient $client): User
@@ -245,7 +251,7 @@ class DirectoryAdminService
         $this->assertActiveClient($client);
 
         return DB::transaction(function () use ($request, $actor, $target, $client): User {
-            $locked = $this->lock($target);
+            $locked = $this->lock($request, $actor, $target);
 
             if ($this->grants->grant((string) $locked->getKey(), (string) $client->getKey())) {
                 $this->audit->record($request, $actor, $locked, self::EVENT_CLIENT_GRANTED, [
@@ -254,13 +260,13 @@ class DirectoryAdminService
             }
 
             return $locked;
-        });
+        }, 3);
     }
 
     public function revokeClient(Request $request, User $actor, User $target, PassportClient $client): User
     {
         return DB::transaction(function () use ($request, $actor, $target, $client): User {
-            $locked = $this->lock($target);
+            $locked = $this->lock($request, $actor, $target);
             $removed = $this->grants->revoke((string) $locked->getKey(), (string) $client->getKey());
 
             if ($removed) {
@@ -270,22 +276,15 @@ class DirectoryAdminService
             }
 
             return $locked;
-        });
+        }, 3);
     }
 
-    private function lock(User $target): User
+    private function lock(Request $request, User $actor, User $target): User
     {
-        return User::query()->lockForUpdate()->findOrFail($target->getKey());
-    }
+        $users = $this->administrators->lockDirectory();
+        $this->administrators->actor($users, $actor, $request);
 
-    /**
-     * @param  Collection<int, User>  $users
-     */
-    private function activeAdminCount(Collection $users): int
-    {
-        return $users
-            ->filter(static fn (User $user): bool => $user->canLogin() && $user->hasRole('admin'))
-            ->count();
+        return $this->administrators->target($users, $target);
     }
 
     /**

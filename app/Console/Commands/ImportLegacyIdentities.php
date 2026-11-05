@@ -2,6 +2,7 @@
 
 namespace BWH\AuthManager\Console\Commands;
 
+use BWH\AuthManager\Services\ProviderAdministrators;
 use Illuminate\Console\Command;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\QueryException;
@@ -196,6 +197,12 @@ class ImportLegacyIdentities extends Command
                 'created_at' => $row->created_at,
                 'updated_at' => $row->updated_at,
             ];
+            // After initial creation, provider roles belong to this directory.
+            // Replaying a legacy snapshot must never demote its recovery admin.
+            if ($existing !== null) {
+                $attributes['user_role'] = $existing->user_role;
+                $attributes['remember_token'] = $existing->remember_token;
+            }
 
             $collision = DB::table('users')
                 ->where('email', $row->email)
@@ -240,7 +247,31 @@ class ImportLegacyIdentities extends Command
             }
 
             if ($apply) {
-                DB::table('users')->where('id', $row->id)->update($attributes);
+                $updated = DB::transaction(function () use ($row, $attributes): bool {
+                    $users = app(ProviderAdministrators::class)->lockDirectory();
+                    $locked = $users->first(static fn ($user): bool => (int) $user->id === (int) $row->id);
+                    if ($locked === null || $locked->trashed()
+                        || DB::table('identity_tombstones')->where('subject', $row->id)->exists()) {
+                        return false;
+                    }
+                    // Re-read under the same lock as HTTP and operator role changes.
+                    $attributes['user_role'] = $locked->user_role;
+                    $credentialChanged = ! hash_equals((string) $locked->password, (string) $attributes['password']);
+                    // A legacy replay must not revive a remember cookie revoked by
+                    // a later provider-administrator or credential change.
+                    $attributes['remember_token'] = $locked->remember_token;
+                    DB::table('users')->where('id', $row->id)->update($attributes);
+                    if ($credentialChanged) {
+                        app(ProviderAdministrators::class)->invalidateAuthority($locked->refresh());
+                    }
+
+                    return true;
+                }, 3);
+                if (! $updated) {
+                    $counts['skipped']++;
+
+                    continue;
+                }
             }
             $counts['updated']++;
         }
