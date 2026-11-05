@@ -69,7 +69,7 @@ final class ProviderAdministrators
     public function revision(User $user): string
     {
         return hash('sha256', json_encode([
-            (string) $user->getKey(), $user->roleNames(), $user->disabled_at?->toISOString(),
+            (string) $user->getKey(), $user->name, $user->email, $user->roleNames(), $user->disabled_at?->toISOString(),
             $user->deleted_at?->toISOString(), (int) $user->credential_version,
         ], JSON_THROW_ON_ERROR));
     }

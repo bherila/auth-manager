@@ -75,7 +75,8 @@ restoration alone supplies no recent proof.
 Every directory mutation rechecks actor authority and generation inside the same
 ordered user-row locks used by administrator changes, disable/delete and
 `auth-manager:user-roles`. A stale target revision returns HTTP 409 with reload
-guidance. The last eligible active provider administrator cannot be demoted,
+guidance. The revision also covers the displayed name/email so a confirmation
+cannot apply to identity labels that changed meanwhile. The last eligible active provider administrator cannot be demoted,
 disabled or deleted; disabled or soft-deleted administrators do not count toward
 recovery. Self-demotion is permitted when another eligible administrator remains,
 retains ordinary sign-in, and ends the former administrator's session.

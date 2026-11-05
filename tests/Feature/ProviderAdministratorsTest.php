@@ -118,6 +118,19 @@ class ProviderAdministratorsTest extends TestCase
         $this->assertSame(0, AuthAuditLog::where('auth_method', 'admin')->count());
     }
 
+    public function test_a_role_confirmation_cannot_apply_after_the_displayed_name_or_address_changes(): void
+    {
+        $admin = User::factory()->create(['user_role' => 'admin']);
+        $target = User::factory()->create();
+        foreach (['name' => 'Changed synthetic name', 'email' => 'changed-label@example.test'] as $field => $value) {
+            $revision = app(ProviderAdministrators::class)->revision($target->fresh());
+            $this->recent($admin)->patchJson("/api/admin/users/{$target->id}/{$field}", [$field => $value])->assertOk();
+            $this->putJson($this->url($target), ['administrator' => true, 'expected_revision' => $revision])->assertConflict();
+            $this->assertFalse($target->fresh()->hasRole('admin'));
+        }
+        $this->assertSame(0, AuthAuditLog::where('event', DirectoryAdminService::EVENT_ADMINISTRATOR_CHANGED)->count());
+    }
+
     public function test_role_changes_revoke_every_old_session_and_pending_credential_path(): void
     {
         $admin = User::factory()->create(['user_role' => 'admin']);
