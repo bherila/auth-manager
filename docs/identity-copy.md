@@ -4,6 +4,11 @@
 with their subjects unchanged. Use them when an application moves to a new dedicated
 instance and the people it already knows must keep signing in to the same accounts.
 
+For a whole-directory move that also preserves compatible passkeys, client
+registrations/grants, invitations and tombstones, use
+[portable directory archives](portable-directory.md). The selected-person format
+below intentionally remains narrower and unchanged.
+
 Relying applications bind their accounts to `(provider key, subject)`, and the subject is the
 users-table id. A copy is only useful if every subject arrives unchanged, and it is only safe
 if the receiving instance can never later give one of those subjects, or any other subject

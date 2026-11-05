@@ -8,6 +8,8 @@ use BWH\AuthManager\Services\DirectoryCopy\DirectoryArchive;
 use BWH\AuthManager\Services\DirectoryCopy\DirectoryTransfer;
 use BWH\AuthManager\Services\DirectoryCopy\PrivateArchiveFile;
 use BWH\AuthManager\Services\IdentityCopy\TableSequence;
+use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +42,7 @@ class DirectoryCopyTest extends TestCase
     public function test_directory_preserves_subjects_credentials_clients_roles_and_grants_and_replay_is_noop(): void
     {
         $person = User::factory()->create(['id' => 17, 'email' => 'person@example.test', 'user_role' => 'admin,user', 'password' => 'long-test-password']);
+        $person->forceFill(['credential_version' => 7])->save();
         $client = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Example app', ['https://app.example.test/oauth/callback']);
         $secret = $client->plainSecret;
         DB::table('oauth_clients')->where('id', $client->id)->update(['provider' => 'auth-manager-users']);
@@ -57,6 +60,7 @@ class DirectoryCopyTest extends TestCase
         $this->assertSame(17, User::firstOrFail()->id);
         $this->assertTrue(Hash::check('long-test-password', User::firstOrFail()->password));
         $this->assertSame('admin,user', User::firstOrFail()->user_role);
+        $this->assertSame(7, User::firstOrFail()->credential_version);
         $this->assertNull(User::firstOrFail()->remember_token);
         $copied = DB::table('oauth_clients')->where('id', $client->id)->first();
         $this->assertSame('users', $copied->provider);
@@ -187,6 +191,118 @@ class DirectoryCopyTest extends TestCase
         $this->assertSame(1, Artisan::call('identity:directory-export', ['--output' => $this->path]));
         $this->assertStringContainsString('foreign user provider', Artisan::output());
         $this->assertFileDoesNotExist($this->path);
+    }
+
+    public function test_unknown_password_hash_requires_an_explicit_recovery_plan_and_is_reported(): void
+    {
+        User::factory()->create(['id' => 18]);
+        DB::table('users')->where('id', 18)->update(['password' => 'unsupported-source-hash']);
+        $archive = $this->archive();
+        $this->assertNull(DirectoryArchive::unpackRow($archive['payload']['tables']['users'][0])['password']);
+        $this->target();
+        try {
+            app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
+            $this->fail('An unsupported password hash was accepted.');
+        } catch (\InvalidArgumentException $failure) {
+            $this->assertStringContainsString('1 password hashes', $failure->getMessage());
+        }
+        $plan = app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], false, false, true);
+        $this->assertSame(1, $plan['passwords_requiring_reset']);
+        $this->assertSame(0, DB::table('users')->count());
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true, false, true);
+        $this->assertNotSame('unsupported-source-hash', User::findOrFail(18)->password);
+        $this->assertSame('bcrypt', password_get_info(User::findOrFail(18)->password)['algoName']);
+        $this->assertSame(1, User::findOrFail(18)->credential_version);
+    }
+
+    public function test_failed_apply_rolls_back_all_rows_and_same_archive_can_resume_after_correction(): void
+    {
+        User::factory()->create(['id' => 27]);
+        app(ClientRepository::class)->createAuthorizationCodeGrantClient('Example', ['https://app.example.test/oauth/callback']);
+        $archive = $this->archive();
+        $this->target();
+        DB::statement("CREATE TRIGGER reject_client BEFORE INSERT ON oauth_clients BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END");
+        try {
+            app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
+            $this->fail('The synthetic write failure was ignored.');
+        } catch (QueryException) {
+            $this->assertSame(0, DB::table('users')->count());
+            $this->assertSame(0, DB::table('directory_imports')->count());
+        }
+        $this->assertGreaterThanOrEqual(28, (new TableSequence(DB::connection()))->next('users'));
+        DB::statement('DROP TRIGGER reject_client');
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
+        $this->assertSame(27, User::firstOrFail()->id);
+        $this->assertSame(1, DB::table('directory_imports')->count());
+    }
+
+    public function test_invalid_references_are_refused_during_dry_run(): void
+    {
+        $this->passkey('example.test');
+        $snapshot = app(DirectoryTransfer::class)->snapshot();
+        $snapshot['tables']['passkeys'][0]['user_id'] = base64_encode('999');
+        $archive = DirectoryArchive::decode(DirectoryArchive::encode($snapshot));
+        $this->target();
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('missing referenced');
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], false);
+    }
+
+    public function test_export_refuses_application_and_web_root_paths(): void
+    {
+        $unsafe = public_path('directory-archive-'.Str::uuid().'.json');
+        $this->assertSame(1, Artisan::call('identity:directory-export', ['--output' => $unsafe]));
+        $this->assertStringContainsString('outside the application and web root', Artisan::output());
+        $this->assertFileDoesNotExist($unsafe);
+    }
+
+    public function test_receipt_is_a_singleton_and_a_different_archive_cannot_be_imported_even_after_edits(): void
+    {
+        User::factory()->create(['id' => 15]);
+        $archive = $this->archive();
+        $this->target();
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
+        $this->assertSame(1, (int) DB::table('directory_imports')->value('id'));
+        User::findOrFail(15)->update(['name' => 'Changed after cutover']);
+        $payload = $archive['payload'];
+        $payload['source_issuer'] = 'https://other.example.test';
+        $different = DirectoryArchive::decode(DirectoryArchive::encode($payload));
+        try {
+            app(DirectoryTransfer::class)->import($different['checksum'], $different['payload'], true);
+            $this->fail('A second archive was allowed.');
+        } catch (\InvalidArgumentException) {
+            $this->assertSame('Changed after cutover', User::findOrFail(15)->name);
+        }
+        $this->assertSame(1, DB::table('directory_imports')->count());
+        $this->expectException(UniqueConstraintViolationException::class);
+        DB::table('directory_imports')->insert(['id' => 1, 'checksum' => $different['checksum'], 'report' => '{}', 'created_at' => now()]);
+    }
+
+    public function test_copy_cannot_silently_weaken_password_second_factor_or_passkey_assurance(): void
+    {
+        $this->passkey('example.test');
+        config(['auth-manager.sign_in.code_after_password' => true, 'auth-manager.sign_in.code_only' => false, 'bherila-auth.passkeys.user_verification' => 'required']);
+        $archive = $this->archive();
+        $this->target();
+        $settings = [
+            ['auth-manager.sign_in.code_after_password', false, true],
+            ['auth-manager.sign_in.code_only', true, false],
+            ['auth-manager.sign_in.trusted_devices', true, false],
+            ['bherila-auth.passkeys.user_verification', 'preferred', 'required'],
+        ];
+        foreach ($settings as [$key, $weaker, $original]) {
+            config([$key => $weaker]);
+            try {
+                app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], false);
+                $this->fail('A weaker target assurance setting was accepted: '.$key);
+            } catch (\InvalidArgumentException $failure) {
+                $this->assertStringContainsString('weaker than the source', $failure->getMessage());
+                $this->assertSame(0, DB::table('users')->count());
+            }
+            config([$key => $original]);
+        }
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
+        $this->assertSame(1, DB::table('webauthn_credentials')->count());
     }
 
     /** @return array{checksum: string, payload: array<string, mixed>} */

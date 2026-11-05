@@ -48,8 +48,12 @@ request must not reveal whether an email belongs to an active account.
 
 Bound consumers link to provider credential controls and reject local credential
 mutations. Keep a tested, explicitly designated, unbound local emergency
-administrator before restricting local sign-in. Passkey credentials remain at
-their original RP ID; migration never copies or rebinds them.
+administrator before restricting local sign-in. Passkey credentials remain bound
+to their original RP ID and subject/user handle. A
+[portable whole-directory move](portable-directory.md) may copy compatible
+credentials with those values unchanged; mismatches fail closed or require an
+explicit, reported omission and re-enrollment. The legacy selected-person copy
+does not copy passkeys. No migration relabels credentials for a different RP ID.
 
 ## Instance-local application registry
 

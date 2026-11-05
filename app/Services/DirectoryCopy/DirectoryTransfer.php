@@ -7,6 +7,8 @@ use BWH\AuthManager\Services\IdentityCopy\TableSequence;
 use BWH\AuthManager\Support\Mount;
 use Illuminate\Database\Connection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 
 /** A whole-directory move, separate from the stable selected-person identity-copy contract. */
@@ -48,6 +50,16 @@ final class DirectoryTransfer
                 if ($name === 'oauth_clients') {
                     $rows = array_map(fn (array $row): array => $this->normalizeClient($row, false), $rows);
                 }
+                if ($name === 'users') {
+                    foreach ($rows as &$row) {
+                        if ((password_get_info((string) $row['password'])['algoName'] ?? 'unknown') === 'unknown') {
+                            // Unknown legacy material could even be plaintext. Carry only
+                            // the need for recovery, never an unrecognized credential value.
+                            $row['password'] = null;
+                        }
+                    }
+                    unset($row);
+                }
                 if (in_array('id', $columns, true) && $name !== 'oauth_clients') {
                     $floors[$name] = $sequence->next($table);
                 }
@@ -58,6 +70,12 @@ final class DirectoryTransfer
             return [
                 'source_issuer' => (string) config('auth-manager.issuer'),
                 'source_rp_id' => $this->effectiveRpId(),
+                'assurance' => [
+                    'code_after_password' => (bool) config('auth-manager.sign_in.code_after_password'),
+                    'code_only' => (bool) config('auth-manager.sign_in.code_only'),
+                    'trusted_devices' => (bool) config('auth-manager.sign_in.trusted_devices'),
+                    'passkey_user_verification' => (string) config('bherila-auth.passkeys.user_verification', 'preferred'),
+                ],
                 'sequence_floors' => $floors,
                 'tables' => $tables,
             ];
@@ -65,9 +83,16 @@ final class DirectoryTransfer
     }
 
     /** @param array<string, mixed> $payload @return array<string, int> */
-    public function import(string $checksum, array $payload, bool $apply, bool $skipIncompatiblePasskeys = false): array
+    public function import(string $checksum, array $payload, bool $apply, bool $skipIncompatiblePasskeys = false, bool $resetIncompatiblePasswords = false): array
     {
         $db = $this->connection();
+        $receipt = $db->table('directory_imports')->where('checksum', $checksum)->first();
+        if ($receipt !== null) {
+            $report = json_decode($receipt->report, true, 32, JSON_THROW_ON_ERROR);
+            $report['already_imported'] = 1;
+
+            return $report;
+        }
         $tables = $this->validated($payload, $db);
         $incompatible = 0;
         foreach ($tables['passkeys'] as $index => $row) {
@@ -80,16 +105,35 @@ final class DirectoryTransfer
         if ($incompatible > 0 && ! $skipIncompatiblePasskeys) {
             throw new InvalidArgumentException("{$incompatible} passkeys cannot be used with the target RP ID. Nothing was written; use --skip-incompatible-passkeys to omit them explicitly.");
         }
-        $report = ['already_imported' => 0, 'passkeys_omitted' => $incompatible, 'verification_codes_discarded' => 1, 'runtime_keys_not_copied' => 1];
+        $assurance = $payload['assurance'];
+        if (($assurance['code_after_password'] && ! config('auth-manager.sign_in.code_after_password'))
+            || (! $assurance['code_only'] && config('auth-manager.sign_in.code_only'))
+            || (! $assurance['trusted_devices'] && config('auth-manager.sign_in.trusted_devices'))
+            || ($tables['passkeys'] !== [] && $assurance['passkey_user_verification'] === 'required'
+                && config('bherila-auth.passkeys.user_verification') !== 'required')) {
+            throw new InvalidArgumentException('Target sign-in assurance is weaker than the source. Match or strengthen the source code-after-password, code-only, trusted-device and passkey user-verification settings before import.');
+        }
+        $reset = 0;
+        foreach ($tables['users'] as &$user) {
+            if (! $this->compatibleHash((string) $user['password'])) {
+                $reset++;
+                if ($resetIncompatiblePasswords && (int) $user['credential_version'] >= PHP_INT_MAX) {
+                    throw new InvalidArgumentException('A credential generation cannot be advanced safely. Nothing was written.');
+                }
+                if ($apply && $resetIncompatiblePasswords) {
+                    // Nobody knows this random credential: the operator must provide recovery.
+                    $user['password'] = Hash::make(Str::random(64));
+                    $user['credential_version'] = (string) ((int) $user['credential_version'] + 1);
+                }
+            }
+        }
+        unset($user);
+        if ($reset > 0 && ! $resetIncompatiblePasswords) {
+            throw new InvalidArgumentException("{$reset} password hashes are incompatible with the target hasher. Nothing was written; align the hasher or use --reset-incompatible-passwords and arrange recovery.");
+        }
+        $report = ['already_imported' => 0, 'passkeys_omitted' => $incompatible, 'passwords_requiring_reset' => $reset, 'verification_codes_excluded' => 1, 'runtime_keys_excluded' => 1];
         foreach ($tables as $name => $rows) {
             $report[$name] = count($rows);
-        }
-        $receipt = $db->table('directory_imports')->where('checksum', $checksum)->first();
-        if ($receipt !== null) {
-            $report = json_decode($receipt->report, true, 32, JSON_THROW_ON_ERROR);
-            $report['already_imported'] = 1;
-
-            return $report;
         }
         $this->assertFresh($db);
         if (! $apply) {
@@ -104,16 +148,20 @@ final class DirectoryTransfer
         }
         $db->transaction(function () use ($db, $tables, $checksum, $report): void {
             $this->assertFresh($db);
+            // A fixed primary key serializes competing imports even when their
+            // snapshots contain disjoint IDs under MariaDB repeatable-read.
+            // Insert before rows so the losing transaction can never merge them.
+            $db->table('directory_imports')->insert([
+                'id' => 1,
+                'checksum' => $checksum,
+                'report' => json_encode($report, JSON_THROW_ON_ERROR),
+                'created_at' => now(),
+            ]);
             foreach ($tables as $name => $rows) {
                 foreach (array_chunk($rows, 100) as $chunk) {
                     $db->table($this->table($name))->insert($chunk);
                 }
             }
-            $db->table('directory_imports')->insert([
-                'checksum' => $checksum,
-                'report' => json_encode($report, JSON_THROW_ON_ERROR),
-                'created_at' => now(),
-            ]);
         });
 
         return $report;
@@ -122,11 +170,18 @@ final class DirectoryTransfer
     /** @param array<string, mixed> $payload @return array<string, list<array<string, string|null>>> */
     private function validated(array $payload, Connection $db): array
     {
-        if (array_keys($payload) !== ['source_issuer', 'source_rp_id', 'sequence_floors', 'tables']
+        if (array_keys($payload) !== ['source_issuer', 'source_rp_id', 'assurance', 'sequence_floors', 'tables']
             || ! is_string($payload['source_issuer']) || ! is_string($payload['source_rp_id']) || $payload['source_rp_id'] === ''
             || ! is_array($payload['tables']) || array_keys($payload['tables']) !== array_keys(self::COLUMNS)
             || ! is_array($payload['sequence_floors'])) {
             throw new InvalidArgumentException('Directory archive has invalid metadata or table fields.');
+        }
+        if (! is_array($payload['assurance'])
+            || array_keys($payload['assurance']) !== ['code_after_password', 'code_only', 'trusted_devices', 'passkey_user_verification']
+            || ! is_bool($payload['assurance']['code_after_password']) || ! is_bool($payload['assurance']['code_only'])
+            || ! is_bool($payload['assurance']['trusted_devices'])
+            || ! in_array($payload['assurance']['passkey_user_verification'], ['required', 'preferred', 'discouraged'], true)) {
+            throw new InvalidArgumentException('Directory archive has invalid sign-in assurance metadata.');
         }
         $sequence = new TableSequence($db);
         if (! $sequence->supported()) {
@@ -148,8 +203,11 @@ final class DirectoryTransfer
                 if ($name === 'oauth_clients') {
                     $row = $this->normalizeClient($row, true);
                 }
-                if ($name === 'users' && (password_get_info((string) $row['password'])['algoName'] ?? 'unknown') === 'unknown') {
-                    throw new InvalidArgumentException('A directory password hash is unsupported; arrange password recovery before copying.');
+                if ($name === 'users' && (! ctype_digit((string) $row['credential_version'])
+                    || strlen((string) $row['credential_version']) > strlen((string) PHP_INT_MAX)
+                    || (strlen((string) $row['credential_version']) === strlen((string) PHP_INT_MAX)
+                        && strcmp((string) $row['credential_version'], (string) PHP_INT_MAX) > 0))) {
+                    throw new InvalidArgumentException('A credential generation is outside the supported range.');
                 }
                 $tables[$name][] = $row;
             }
@@ -174,6 +232,7 @@ final class DirectoryTransfer
                 throw new InvalidArgumentException('Directory archive would reuse a tombstoned subject.');
             }
         }
+        $this->assertReferences($tables);
 
         return $tables;
     }
@@ -185,8 +244,9 @@ final class DirectoryTransfer
             || ! in_array($row['owner_type'], [null, User::class], true)) {
             throw new InvalidArgumentException('A client belongs to a foreign user provider or owner model; it cannot be copied safely.');
         }
-        if ($row['secret'] !== null && (password_get_info((string) $row['secret'])['algoName'] ?? 'unknown') === 'unknown') {
-            throw new InvalidArgumentException('A client secret is not a portable recognized hash; rotate it before copying.');
+        if ($row['secret'] !== null && (($import && ! $this->compatibleHash((string) $row['secret']))
+            || (password_get_info((string) $row['secret'])['algoName'] ?? 'unknown') === 'unknown')) {
+            throw new InvalidArgumentException('A client secret is not a compatible portable hash; align the target hasher or rotate it before copying.');
         }
         $row['provider'] = $row['provider'] === null ? null : ($import && Mount::embedded() ? Mount::EMBEDDED_USER_PROVIDER : 'users');
 
@@ -195,9 +255,71 @@ final class DirectoryTransfer
 
     private function assertFresh(Connection $db): void
     {
-        foreach ([...array_keys(self::COLUMNS), 'directory_imports', 'oauth_auth_codes', 'oauth_access_tokens', 'oauth_refresh_tokens', 'sessions', 'trusted_devices', 'password_reset_tokens'] as $name) {
+        foreach ([...array_keys(self::COLUMNS), 'directory_imports', 'oauth_auth_codes', 'oauth_access_tokens', 'oauth_refresh_tokens', 'oauth_device_codes', 'sessions', 'trusted_devices', 'password_reset_tokens', 'invitation_acceptance_codes'] as $name) {
             if ($db->table($this->table($name))->exists()) {
                 throw new InvalidArgumentException('The target directory is not fresh. No existing identity, client or credential may be adopted.');
+            }
+        }
+    }
+
+    private function compatibleHash(string $hash): bool
+    {
+        $algorithm = password_get_info($hash)['algoName'] ?? 'unknown';
+        if ($algorithm === 'unknown') {
+            return false;
+        }
+        $driver = (string) config('hashing.driver', 'bcrypt');
+        $options = $driver === 'argon2id' ? 'argon' : $driver;
+        if (! config('hashing.'.$options.'.verify', true)) {
+            return true;
+        }
+
+        return $algorithm === match ($driver) {
+            'bcrypt' => 'bcrypt',
+            'argon' => 'argon2i',
+            'argon2id' => 'argon2id',
+            default => null,
+        };
+    }
+
+    /** @param array<string, list<array<string, string|null>>> $tables */
+    private function assertReferences(array $tables): void
+    {
+        $ids = [];
+        foreach ($tables as $name => $rows) {
+            $seen = [];
+            foreach ($rows as $row) {
+                $key = isset($row['id']) ? $row['id'] : $row['oauth_client_id'].'/'.$row['subject'];
+                if (isset($seen[$key])) {
+                    throw new InvalidArgumentException('Directory archive repeats a primary identifier.');
+                }
+                $seen[$key] = true;
+            }
+            $ids[$name] = $seen;
+        }
+        $emails = [];
+        foreach ($tables['users'] as $user) {
+            $email = mb_strtolower(trim((string) $user['email']));
+            if ($email === '' || isset($emails[$email])) {
+                throw new InvalidArgumentException('Directory archive contains conflicting identity addresses.');
+            }
+            $emails[$email] = true;
+        }
+        $references = [
+            'passkeys' => ['user_id' => 'users'],
+            'oauth_clients' => ['owner_id' => 'users'],
+            'oauth_client_grants' => ['subject' => 'users', 'oauth_client_id' => 'oauth_clients'],
+            'registered_application_clients' => ['registered_application_id' => 'registered_applications', 'oauth_client_id' => 'oauth_clients'],
+            'access_invitations' => ['inviter_id' => 'users', 'revoked_by' => 'users', 'accepted_user_id' => 'users', 'requesting_client_id' => 'oauth_clients'],
+            'identity_tombstone_clients' => ['identity_tombstone_id' => 'identity_tombstones'],
+        ];
+        foreach ($references as $table => $columns) {
+            foreach ($tables[$table] as $row) {
+                foreach ($columns as $column => $parent) {
+                    if ($row[$column] !== null && ! isset($ids[$parent][$row[$column]])) {
+                        throw new InvalidArgumentException('Directory archive has a missing referenced identity, client or application.');
+                    }
+                }
             }
         }
     }

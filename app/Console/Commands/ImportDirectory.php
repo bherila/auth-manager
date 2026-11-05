@@ -12,7 +12,8 @@ final class ImportDirectory extends Command
     protected $signature = 'identity:directory-import
         {--input= : Private directory archive file}
         {--apply : Apply to a fresh directory; otherwise report the plan without writing}
-        {--skip-incompatible-passkeys : Explicitly omit passkeys whose original RP ID is incompatible}';
+        {--skip-incompatible-passkeys : Explicitly omit passkeys whose original RP ID is incompatible}
+        {--reset-incompatible-passwords : Replace unsupported password hashes with unknown random credentials; arrange recovery}';
 
     protected $description = 'Import a portable provider directory with original subjects; dry run by default';
 
@@ -25,7 +26,7 @@ final class ImportDirectory extends Command
         }
         try {
             $archive = DirectoryArchive::decode(PrivateArchiveFile::read($this->option('input')));
-            $report = $transfer->import($archive['checksum'], $archive['payload'], (bool) $this->option('apply'), (bool) $this->option('skip-incompatible-passkeys'));
+            $report = $transfer->import($archive['checksum'], $archive['payload'], (bool) $this->option('apply'), (bool) $this->option('skip-incompatible-passkeys'), (bool) $this->option('reset-incompatible-passwords'));
         } catch (\Throwable $failure) {
             $this->error($failure instanceof \InvalidArgumentException ? $failure->getMessage() : 'Directory import failed. Row changes were rolled back; allocation floors may already have increased.');
 

@@ -244,10 +244,14 @@ Embedding uses the host's mailer, proxies and scheduler.
 The issuer changes from `https://app.example.test/auth` to `https://id.example.test`.
 Relying applications keep their `(oauth_provider, oauth_subject)` bindings when the
 provider *name* is unchanged. Passkeys survive only if their RP ID is still valid at the
-new host, so set `WEBAUTHN_RP_ID` to the registrable domain from the start. Copying the
-directory is #105: [copying identities](identity-copy.md) already reads the
-`auth-manager` connection, prefix included. Reconciliation secrets derived from
-`APP_KEY` need the same key, or new secrets, after the move.
+new host, so choose an explicit `WEBAUTHN_RP_ID` before enrolling credentials.
+Use the [portable directory archive](portable-directory.md) to export from the
+`auth-manager` connection and import into a fresh standalone provider, preserving
+subjects, supported credentials, clients, grants, invitations and tombstones.
+Match or strengthen source sign-in assurance on the destination. Source `APP_KEY`,
+signing keys, live sessions and tokens are not copied; configure target runtime
+trust independently and issue verification evidence afresh. Existing
+[selected-person copies](identity-copy.md) keep their narrower contract.
 
 ## Packaging
 

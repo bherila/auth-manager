@@ -9,7 +9,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('directory_imports', function (Blueprint $table): void {
-            $table->char('checksum', 64)->primary();
+            $table->unsignedTinyInteger('id')->primary();
+            $table->char('checksum', 64)->unique();
             $table->json('report');
             $table->timestamp('created_at');
         });

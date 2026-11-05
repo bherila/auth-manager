@@ -112,7 +112,11 @@ Start with [the deployment guide](docs/deployment.md), then use the focused
 automatic deployment jobs serve configured installations; they are not a generic
 onboarding mechanism for another client. Relying deployments can install a pinned,
 attested build instead: see [provider releases](docs/releases.md). Moving people to a new
-instance with their subjects intact is covered by [copying identities](docs/identity-copy.md).
+instance with their subjects intact is covered by [copying selected identities](docs/identity-copy.md).
+For a complete embedded-to-standalone move, use the private checksummed
+[portable directory archive](docs/portable-directory.md), which also preserves
+compatible credentials, clients, grants, invitations and tombstones without
+copying live sessions, OAuth tokens or runtime keys.
 
 The host invokes `php artisan schedule:run` every minute. The application
 scheduler runs identity-tombstone retention hourly and prevents overlapping
