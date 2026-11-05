@@ -117,7 +117,8 @@ return [
         'auth_code_resource_column' => 'resource_uri',
         'resource_column' => 'resource_uri',
         'refresh_token_resource_column' => 'resource_uri',
-        'authorization_response_issuer' => ['enabled' => false],
+        // Every authorization/consent route installs the response middleware.
+        'authorization_response_issuer' => ['enabled' => true],
         'resource_required_scope' => null,
         'resource_required_scopes' => config('auth-manager.resource_required_scopes'),
         // Off: this provider issues resource-bound credentials only to clients that name the resource.
