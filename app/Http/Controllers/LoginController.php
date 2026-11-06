@@ -6,7 +6,9 @@ use BWH\Auth\Concerns\LogsAuthEvents;
 use BWH\Auth\Contracts\LoginThrottle;
 use BWH\Auth\Models\TwoFactorAttempt;
 use BWH\Auth\OAuth\AuthenticationRequirement;
+use BWH\Auth\Services\PasswordCredentials;
 use BWH\Auth\Services\TwoFactorService;
+use BWH\Auth\Support\PasswordCredentialStatus;
 use BWH\AuthManager\Http\Middleware\EnforceAuthenticationRequest;
 use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
 use BWH\AuthManager\Models\TrustedDevice;
@@ -54,7 +56,7 @@ class LoginController extends Controller
         ]);
     }
 
-    public function login(Request $request, LoginThrottle $throttle, TwoFactorService $twoFactor): RedirectResponse
+    public function login(Request $request, LoginThrottle $throttle, TwoFactorService $twoFactor, PasswordCredentials $passwords): RedirectResponse
     {
         $email = $request->input('email', '');
         $credentials = $request->only('email', 'password');
@@ -70,33 +72,31 @@ class LoginController extends Controller
                 ->withInput($request->only('email', 'remember'));
         }
 
+        $result = $passwords->verify($request, $credentials);
+        $user = $result->user;
+        if ($result->status === PasswordCredentialStatus::InvalidCredentials || ! $user instanceof User) {
+            return $this->invalidCredentials($request);
+        }
+
+        if ($result->status === PasswordCredentialStatus::AccountDisabled) {
+            $this->auditLoginFailed($request, $user, $email, 'Account disabled', 'password');
+
+            return back()
+                ->withErrors(['email' => 'Your account is disabled. Please contact an administrator.'])
+                ->withInput($request->only('email', 'remember'));
+        }
+
         if (config('auth-manager.sign_in.code_after_password')) {
-            return $this->startPasswordChallenge($request, $credentials, $remember, $twoFactor);
+            return $this->startPasswordChallenge($request, $user, $remember, $twoFactor);
         }
 
-        if (Auth::attempt($credentials, $remember)) {
-            $user = Auth::user();
+        Auth::login($user, $remember);
+        $request->session()->regenerate();
+        RequireRecentPasskeyAuthentication::recordCredentialVerification($request);
+        AuthenticationContext::record($request, $user, ['pwd'], AuthenticationRequirement::ACR_SINGLE);
+        $this->auditLoginSucceeded($request, $user, 'password');
 
-            // Check if user has valid role to login
-            if (! $user->canLogin()) {
-                Auth::logout();
-                $request->session()->invalidate();
-                $this->auditLoginFailed($request, $user, $email, 'Account disabled', 'password');
-
-                return back()
-                    ->withErrors(['email' => 'Your account is disabled. Please contact an administrator.'])
-                    ->withInput($request->only('email', 'remember'));
-            }
-
-            $request->session()->regenerate();
-            RequireRecentPasskeyAuthentication::recordCredentialVerification($request);
-            AuthenticationContext::record($request, $user, ['pwd'], AuthenticationRequirement::ACR_SINGLE);
-            $this->auditLoginSucceeded($request, $user, 'password');
-
-            return redirect()->intended(route('auth-manager.home'));
-        }
-
-        return $this->invalidCredentials($request);
+        return redirect()->intended(route('auth-manager.home'));
     }
 
     /**
@@ -136,29 +136,8 @@ class LoginController extends Controller
             : redirect()->route('auth-manager.login');
     }
 
-    /** @param array<string, mixed> $credentials */
-    private function startPasswordChallenge(Request $request, array $credentials, bool $remember, TwoFactorService $twoFactor): RedirectResponse
+    private function startPasswordChallenge(Request $request, User $user, bool $remember, TwoFactorService $twoFactor): RedirectResponse
     {
-        $email = (string) $request->input('email', '');
-
-        // validate(), not attempt(): nothing is signed in until the code is verified.
-        if (! Auth::validate($credentials)) {
-            return $this->invalidCredentials($request);
-        }
-
-        $user = Auth::getLastAttempted();
-        if (! $user instanceof User || ! $user->canLogin()) {
-            $this->auditLoginFailed($request, $user, $email, 'Account disabled', 'password');
-
-            return back()
-                ->withErrors(['email' => 'Your account is disabled. Please contact an administrator.'])
-                ->withInput($request->only('email', 'remember'));
-        }
-
-        if (config('hashing.rehash_on_login', true)) {
-            Auth::getProvider()->rehashPasswordIfRequired($user, $credentials);
-        }
-
         $device = app(TrustedDevices::class)->standingInFor($request, $user);
         if ($device !== null) {
             return $this->finishOnTrustedDevice($request, $user, $device, $remember);
