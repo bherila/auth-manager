@@ -5,6 +5,7 @@ namespace Tests\Embedded;
 use BWH\Auth\Mail\TwoFactorLoginMail;
 use BWH\Auth\Services\TwoFactorService;
 use BWH\AuthManager\Embedded\EmbeddedContext;
+use Closure;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Auth\User as HostUser;
@@ -16,10 +17,15 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionProperty;
 
 /** Host and provider confirmation/report names must coexist, including after cache reload. */
 final class EmbeddedTwoFactorRoutesTest extends EmbeddedTestCase
 {
+    private ?Closure $previousRouteLoader = null;
+
+    private ?Closure $previousCachedRouteLoader = null;
+
     protected function defineEnvironment($app): void
     {
         (new Filesystem)->ensureDirectoryExists($this->workDirectory.'/bootstrap/cache', 0700);
@@ -39,6 +45,12 @@ final class EmbeddedTwoFactorRoutesTest extends EmbeddedTestCase
 
     protected function setUp(): void
     {
+        // Standalone tests boot Application::withRouting(), whose callback is
+        // process-wide. This host defines its own routes through Testbench.
+        $this->previousRouteLoader = (new ReflectionProperty(RouteServiceProvider::class, 'alwaysLoadRoutesUsing'))->getValue();
+        $this->previousCachedRouteLoader = (new ReflectionProperty(RouteServiceProvider::class, 'alwaysLoadCachedRoutesUsing'))->getValue();
+        RouteServiceProvider::loadRoutesUsing(null);
+        RouteServiceProvider::loadCachedRoutesUsing(null);
         parent::setUp();
         Schema::table('users', function (Blueprint $table): void {
             $table->string('name')->nullable();
@@ -57,6 +69,16 @@ final class EmbeddedTwoFactorRoutesTest extends EmbeddedTestCase
             $table->timestamp('expires_at');
             $table->timestamps();
         });
+    }
+
+    protected function tearDown(): void
+    {
+        try {
+            parent::tearDown();
+        } finally {
+            RouteServiceProvider::loadRoutesUsing($this->previousRouteLoader);
+            RouteServiceProvider::loadCachedRoutesUsing($this->previousCachedRouteLoader);
+        }
     }
 
     /** @return array<string, array{bool}> */
