@@ -68,6 +68,8 @@ return [
     ],
 
     'two_factor' => [
+        // EmbeddedConfig assigns the provider's reserved namespace in its overlay.
+        'route_name_prefix' => 'bherila-auth.two-factor.',
         'table' => 'auth_two_factor_attempts',
         'expires_minutes' => 15,
         'allow_test_code' => env('BHERILA_AUTH_ALLOW_TEST_2FA_CODE', false),

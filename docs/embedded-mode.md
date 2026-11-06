@@ -42,9 +42,13 @@ Code that has to know where it is mounted asks `BWH\AuthManager\Support\Mount` f
 - the web and api middleware groups
 - the API guard
 
-Route names are `auth-manager.*` in both modes, so views and controllers are the same
-everywhere. The `passport.*` and `bherila-auth.*` names keep their own names, because
-vendor views and controllers look them up.
+Provider route names are `auth-manager.*` in both modes. Embedded two-factor email
+confirmation and suspicious-login report routes use `auth-manager.two-factor.*`,
+through the provider's `bherila-auth.two_factor.route_name_prefix` overlay. The
+host keeps the shared library's default `bherila-auth.two-factor.*` names. This
+separation also applies to generated email URLs and form actions with cached
+routes. Standalone two-factor routes keep the shared library's default names;
+`passport.*` names retain their existing namespace.
 
 ## Configuration
 
@@ -304,9 +308,10 @@ the zip's `shasum` (SHA-1, which Composer verifies) and the exact version:
                 },
                 "require": {
                     "php": "^8.4",
-                    "bherila/auth-laravel": "^0.28.3",
+                    "bherila/auth-laravel": "^0.28.6",
                     "laravel/framework": "^13.17",
                     "laravel/passport": "^13.4",
+                    "laravel/tinker": "^3.0",
                     "symfony/brevo-mailer": "^8.0",
                     "symfony/http-client": "^8.0"
                 },

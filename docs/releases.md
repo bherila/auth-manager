@@ -7,6 +7,8 @@ the tagged commit, builds the tree, records build provenance and publishes a
 GitHub release. Consumers verify the asset, pin it in their own repository and
 deploy it through their own pipeline.
 
+Upgrade guidance: [0.1.4 changes and migration requirements](releases/v0.1.4.md).
+
 ## Cutting a release
 
 Tag a commit that is already on `main` and push the tag:
@@ -27,11 +29,13 @@ The jobs run in order, and each one starts only when the previous one succeeded:
 1. **resolve** validates the tag name and resolves it to a commit on `main`.
 2. **verify** runs the same `composer setup`, `composer ci:check` and deployment
    hook tests that CI runs, on that commit.
-3. **build** produces the tarball and `SHA256SUMS`, then attests the tarball with
+3. **build** produces the standalone tarball and Composer source ZIP, with
+   `SHA256SUMS` and `SHA256SUMS-source`, then attests both archives with
    `actions/attest-build-provenance`.
 4. **publish** checks that the tag still names the built commit and publishes the
-   release with both files as assets. The release is assembled as a draft and
-   made public only after its uploaded checksum file matches.
+   release with both archives and checksum files as assets. The release is
+   assembled as a draft and made public only after both uploaded checksum files
+   match.
 5. **notify** sends the consumer notification described below, when configured.
 
 The workflow runs only in the canonical repository, from a tag push or from a

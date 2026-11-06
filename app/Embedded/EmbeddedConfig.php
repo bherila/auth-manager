@@ -54,6 +54,9 @@ final class EmbeddedConfig
             self::merge(self::load(self::authLaravelPath('config/bherila-auth.php'), absolute: true), self::load('config/bherila-auth.php')),
             (array) ($overrides['bherila-auth'] ?? []),
         );
+        // The host may also expose auth-laravel's confirmation/report routes.
+        // Use the same reserved names at registration and inside provider requests.
+        $overlay['bherila-auth']['two_factor']['route_name_prefix'] = Mount::ROUTE_NAME_PREFIX.'two-factor.';
         $config->set('auth-manager-embedded.overlay', $overlay);
 
         self::defineConnection($config);
