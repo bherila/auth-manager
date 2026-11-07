@@ -68,6 +68,9 @@ class ManageUserRoles extends Command
                 $added = array_values(array_diff($after, $before));
                 $removed = array_values(array_diff($before, $after));
                 $administratorChanged = in_array('admin', $before, true) !== in_array('admin', $after, true);
+                if (in_array('admin', $after, true) && $locked->isTestLogin()) {
+                    throw ValidationException::withMessages(['user' => 'Test logins cannot hold provider-administrator authority.']);
+                }
                 if ($administratorChanged && in_array('admin', $before, true)) {
                     $administrators->preserveRecoveryAdministrator($users, $locked, 'demoted');
                 }

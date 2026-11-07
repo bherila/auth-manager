@@ -193,6 +193,11 @@ class ImportIdentities extends Command
             }
 
             $existing = DB::table('users')->where('id', $id)->first();
+            if ((bool) ($existing->is_test_login ?? false)) {
+                $conflicts[] = "Subject {$id} is a managed test login and cannot be imported.";
+
+                continue;
+            }
 
             $owner = DB::table('users')
                 ->whereRaw('lower(email) = ?', [strtolower(trim($user['email']))])

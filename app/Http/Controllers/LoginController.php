@@ -86,13 +86,21 @@ class LoginController extends Controller
                 ->withInput($request->only('email', 'remember'));
         }
 
-        if (config('auth-manager.sign_in.code_after_password')) {
+        if (config('auth-manager.sign_in.code_after_password') && ! $user->isTestLogin()) {
             return $this->startPasswordChallenge($request, $user, $remember, $twoFactor);
         }
 
+        if ($user->isTestLogin()) {
+            $this->livePasswordChallenge($request)?->update(['is_used' => true]);
+            $this->clearPasswordChallenge($request);
+        }
         Auth::login($user, $remember);
         $request->session()->regenerate();
-        RequireRecentPasskeyAuthentication::recordCredentialVerification($request);
+        // The test-login exemption proves only a password. It must never become
+        // fresh proof for enrolling a passkey or satisfying a second-factor request.
+        if (! $user->isTestLogin()) {
+            RequireRecentPasskeyAuthentication::recordCredentialVerification($request);
+        }
         AuthenticationContext::record($request, $user, ['pwd'], AuthenticationRequirement::ACR_SINGLE);
         $this->auditLoginSucceeded($request, $user, 'password');
 

@@ -182,6 +182,12 @@ class ImportLegacyIdentities extends Command
             }
 
             $existing = DB::table('users')->where('id', $row->id)->first();
+            if ((bool) ($existing->is_test_login ?? false)) {
+                $this->warn('A legacy user record was skipped because the subject is a managed test login.');
+                $counts['skipped']++;
+
+                continue;
+            }
             $role = $columnMap['role_is_admin']
                 ? $this->roleFromAdminFlag($row->user_role)
                 : (string) $row->user_role;
@@ -250,7 +256,7 @@ class ImportLegacyIdentities extends Command
                 $updated = DB::transaction(function () use ($row, $attributes): bool {
                     $users = app(ProviderAdministrators::class)->lockDirectory();
                     $locked = $users->first(static fn ($user): bool => (int) $user->id === (int) $row->id);
-                    if ($locked === null || $locked->trashed()
+                    if ($locked === null || $locked->trashed() || $locked->isTestLogin()
                         || DB::table('identity_tombstones')->where('subject', $row->id)->exists()) {
                         return false;
                     }
