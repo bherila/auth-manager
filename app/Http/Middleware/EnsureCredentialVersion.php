@@ -32,13 +32,14 @@ class EnsureCredentialVersion
         // Preserve sessions created before this mechanism was deployed only while
         // the account is still at its original generation. Once credentials have
         // changed, an unversioned session is necessarily stale and must fail closed.
-        if ($sessionVersion === null && $current === 0) {
+        $eligible = ! $user->isTestLogin() || $user->canLogin();
+        if ($eligible && $sessionVersion === null && $current === 0) {
             $request->session()->put(self::SESSION_KEY, 0);
 
             return $next($request);
         }
 
-        if (is_int($sessionVersion) && $sessionVersion === $current) {
+        if ($eligible && is_int($sessionVersion) && $sessionVersion === $current) {
             return $next($request);
         }
 

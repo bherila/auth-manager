@@ -6,7 +6,7 @@ use InvalidArgumentException;
 
 final class PrivateArchiveFile
 {
-    public static function write(string $path, string $bytes): void
+    public static function write(string $path, #[\SensitiveParameter] string $bytes): void
     {
         $directory = realpath(dirname($path));
         if ($directory === false) {

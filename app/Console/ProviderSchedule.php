@@ -22,6 +22,10 @@ final class ProviderSchedule
             ->hourly()
             ->withoutOverlapping();
 
+        // Expiry is enforced by the model immediately; this revokes residual
+        // credentials and marks a bounded batch disabled if the scheduler runs.
+        $schedule->command('auth-manager:test-logins expire')->everyMinute()->withoutOverlapping();
+
         // Used actor assertion ids outlive their assertions by seconds; only expired ones are removed.
         $schedule->call(static fn () => $within(static function (): void {
             if (Schema::connection(config('application-invitations.nonce_connection'))->hasTable(DatabaseNonceStore::TABLE)) {

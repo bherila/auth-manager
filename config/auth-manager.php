@@ -2,6 +2,7 @@
 
 use BWH\AuthManager\Support\AuthManagerProfile;
 use BWH\AuthManager\Support\Mount;
+use BWH\AuthManager\Support\TestLoginAddresses;
 
 $profile = AuthManagerProfile::fromEnvironment();
 // Embedded in a host application (docs/embedded-mode.md), nothing defaults to a deployment
@@ -52,8 +53,19 @@ if ($trustedDeviceDays === false) {
     throw new InvalidArgumentException('AUTH_MANAGER_TRUSTED_DEVICE_DAYS must be an integer from 1 to 365.');
 }
 
+$testLoginHours = filter_var(env('AUTH_MANAGER_TEST_LOGIN_MAX_HOURS', 24), FILTER_VALIDATE_INT, [
+    'options' => ['min_range' => 1, 'max_range' => 168],
+]);
+if ($testLoginHours === false) {
+    throw new InvalidArgumentException('AUTH_MANAGER_TEST_LOGIN_MAX_HOURS must be an integer from 1 to 168.');
+}
+
 return [
     'password_min_length' => $passwordMinLength,
+    'test_logins' => [
+        'allowed_domains' => TestLoginAddresses::configuredDomains((string) env('AUTH_MANAGER_TEST_LOGIN_DOMAINS', '')),
+        'max_lifetime_hours' => $testLoginHours,
+    ],
     'sign_in' => [
         'code_after_password' => $signInSetting('AUTH_MANAGER_REQUIRE_CODE_AFTER_PASSWORD', false),
         'code_only' => $signInSetting('AUTH_MANAGER_ALLOW_CODE_ONLY_SIGN_IN', true),

@@ -36,8 +36,13 @@ class ImportLegacyIdentities extends Command
      */
     private array $presentUserIds = [];
 
+    /** @var array<int, true> */
+    private array $sourceTestLoginIds = [];
+
     public function handle(): int
     {
+        $this->presentUserIds = [];
+        $this->sourceTestLoginIds = [];
         $only = $this->option('only');
 
         if ($only !== null && ! in_array($only, ['users', 'passkeys'], true)) {
@@ -61,6 +66,10 @@ class ImportLegacyIdentities extends Command
             $hasLegacyPasskeys = $only === null || $only === 'passkeys'
                 ? $this->hasSupportedLegacyPasskeys($legacy)
                 : false;
+            if ($legacy->getSchemaBuilder()->hasColumns('users', ['id', 'is_test_login'])) {
+                $this->sourceTestLoginIds = array_fill_keys($legacy->table('users')->where('is_test_login', true)
+                    ->pluck('id')->map(static fn (mixed $id): int => (int) $id)->all(), true);
+            }
         } catch (QueryException) {
             $this->error('The configured legacy identity source cannot be reached safely.');
 
@@ -157,6 +166,12 @@ class ImportLegacyIdentities extends Command
             ->get();
 
         foreach ($rows as $row) {
+            if (isset($this->sourceTestLoginIds[(int) $row->id])) {
+                $this->warn('A legacy user record was skipped because the source subject is a managed test login.');
+                $counts['skipped']++;
+
+                continue;
+            }
             if (! is_string($row->email) || trim($row->email) === '') {
                 $this->warn('A legacy user record was skipped because it has no usable email address.');
                 $counts['skipped']++;
@@ -182,6 +197,12 @@ class ImportLegacyIdentities extends Command
             }
 
             $existing = DB::table('users')->where('id', $row->id)->first();
+            if ((bool) ($existing->is_test_login ?? false)) {
+                $this->warn('A legacy user record was skipped because the subject is a managed test login.');
+                $counts['skipped']++;
+
+                continue;
+            }
             $role = $columnMap['role_is_admin']
                 ? $this->roleFromAdminFlag($row->user_role)
                 : (string) $row->user_role;
@@ -250,7 +271,7 @@ class ImportLegacyIdentities extends Command
                 $updated = DB::transaction(function () use ($row, $attributes): bool {
                     $users = app(ProviderAdministrators::class)->lockDirectory();
                     $locked = $users->first(static fn ($user): bool => (int) $user->id === (int) $row->id);
-                    if ($locked === null || $locked->trashed()
+                    if ($locked === null || $locked->trashed() || $locked->isTestLogin()
                         || DB::table('identity_tombstones')->where('subject', $row->id)->exists()) {
                         return false;
                     }
@@ -360,7 +381,9 @@ class ImportLegacyIdentities extends Command
 
     private function userWillExist(int $userId): bool
     {
-        return ! DB::table('identity_tombstones')->where('subject', $userId)->exists()
+        return ! isset($this->sourceTestLoginIds[$userId])
+            && ! DB::table('users')->where('id', $userId)->where('is_test_login', true)->exists()
+            && ! DB::table('identity_tombstones')->where('subject', $userId)->exists()
             && (isset($this->presentUserIds[$userId])
                 || DB::table('users')->where('id', $userId)->exists());
     }
@@ -382,7 +405,11 @@ class ImportLegacyIdentities extends Command
 
         foreach ($rows as $row) {
             if (! $this->userWillExist((int) $row->user_id)) {
-                $this->warn('A legacy passkey record was skipped because its owner is not present.');
+                $managed = isset($this->sourceTestLoginIds[(int) $row->user_id])
+                    || DB::table('users')->where('id', $row->user_id)->where('is_test_login', true)->exists();
+                $this->warn($managed
+                    ? 'A legacy passkey record was skipped because its owner is a managed test login.'
+                    : 'A legacy passkey record was skipped because its owner is not present.');
                 $counts['skipped']++;
 
                 continue;

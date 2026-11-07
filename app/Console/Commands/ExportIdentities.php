@@ -49,6 +49,11 @@ class ExportIdentities extends Command
             ->whereIn('id', $subjects)
             ->orderBy('id')
             ->get([...IdentityCopyDocument::COLUMNS, 'deleted_at']);
+        if (DB::table('users')->whereIn('id', $subjects)->where('is_test_login', true)->exists()) {
+            $this->errorLine('Managed test logins cannot be copied as permanent identities. Nothing was exported.');
+
+            return self::FAILURE;
+        }
 
         $missing = array_values(array_diff($subjects, $rows->pluck('id')->map(static fn (mixed $id): int => (int) $id)->all()));
         if ($missing !== []) {

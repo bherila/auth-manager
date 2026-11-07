@@ -124,6 +124,11 @@ For a complete embedded-to-standalone move, use the private checksummed
 compatible credentials, clients, grants, invitations and tombstones without
 copying live sessions, OAuth tokens or runtime keys.
 
+Synthetic browser-test identities have a dedicated, audited operator lifecycle; see
+[test logins](docs/test-logins.md). Repository evidence for the account/security
+and lifecycle contract is recorded in the
+[acceptance audit](docs/account-management-acceptance.md).
+
 The host invokes `php artisan schedule:run` every minute. The application
 scheduler runs identity-tombstone retention hourly and prevents overlapping
 runs.

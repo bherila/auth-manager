@@ -6,10 +6,8 @@ use BWH\AuthManager\Models\IdentityTombstone;
 use BWH\AuthManager\Models\IdentityTombstoneClient;
 use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\User;
-use BWH\AuthManager\Support\ReconciliationClientRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class DirectoryAdminService
@@ -36,10 +34,9 @@ class DirectoryAdminService
 
     public function __construct(
         private readonly OAuthClientGrantService $grants,
-        private readonly OAuthTokenRevocationService $tokens,
         private readonly DirectoryAdminAuditLogger $audit,
-        private readonly ReconciliationClientRegistry $reconciliationClients,
         private readonly ProviderAdministrators $administrators,
+        private readonly IdentityRetirement $retirement,
     ) {}
 
     /**
@@ -114,6 +111,9 @@ class DirectoryAdminService
             $this->administrators->actor($users, $actor, $request, recent: true);
             $locked = $this->administrators->target($users, $target);
             $this->administrators->expectRevision($locked, $expectedRevision);
+            if ($administrator && $locked->isTestLogin()) {
+                throw ValidationException::withMessages(['user' => 'Test logins cannot hold provider-administrator authority.']);
+            }
             if ($administrator && ! $locked->canLogin()) {
                 throw ValidationException::withMessages(['user' => 'Enable this account before granting provider-administrator authority.']);
             }
@@ -203,46 +203,19 @@ class DirectoryAdminService
             $this->administrators->expectRevision($locked, $expectedRevision);
             $this->administrators->preserveRecoveryAdministrator($users, $locked, 'deleted');
 
-            $now = now();
-            $retentionDays = max(1, (int) config('identity-deletion.retention_days', 30));
-            $clients = $this->reconciliationClients->all();
-            $tombstone = IdentityTombstone::query()->create([
-                'public_id' => (string) Str::uuid(),
-                'subject' => (int) $locked->getKey(),
-                'tombstoned_at' => $now,
-                'purge_after' => $now->copy()->addDays($retentionDays),
-            ]);
-
-            foreach ($clients as $client) {
-                IdentityTombstoneClient::query()->create([
-                    'identity_tombstone_id' => $tombstone->getKey(),
-                    'oauth_client_id' => (string) $client->getKey(),
-                    'oauth_client_name' => (string) $client->name,
-                ]);
-            }
-
-            $locked->forceFill([
-                'disabled_at' => $locked->disabled_at ?? $now,
-                'credential_version' => (int) $locked->credential_version + 1,
-                'remember_token' => null,
-            ])->save();
-
-            $this->tokens->forSubject((string) $locked->getKey());
-            DB::table('sessions')->where('user_id', $locked->getKey())->delete();
-            DB::table('password_reset_tokens')->where('email', $locked->email)->delete();
+            $tombstone = $this->retirement->retire($locked);
             $this->audit->record($request, $actor, $locked, self::EVENT_USER_TOMBSTONED, [
                 'identity_tombstone_id' => $tombstone->public_id,
                 'purge_after' => $tombstone->purge_after->toISOString(),
-                'expected_oauth_clients' => $clients
-                    ->map(static fn (PassportClient $client): array => [
-                        'id' => (string) $client->getKey(),
-                        'name' => (string) $client->name,
+                'expected_oauth_clients' => $tombstone->clients
+                    ->map(static fn (IdentityTombstoneClient $client): array => [
+                        'id' => (string) $client->oauth_client_id,
+                        'name' => (string) $client->oauth_client_name,
                     ])
                     ->all(),
             ]);
-            $locked->delete();
 
-            return $tombstone->load('clients');
+            return $tombstone;
         }, 3);
     }
 

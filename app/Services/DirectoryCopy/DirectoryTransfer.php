@@ -37,6 +37,9 @@ final class DirectoryTransfer
         }
 
         return $db->transaction(function () use ($db, $sequence): array {
+            if ($db->table('users')->where('is_test_login', true)->whereNull('deleted_at')->exists()) {
+                throw new InvalidArgumentException('Retire all test logins before exporting this directory; the archive must not turn temporary identities into permanent accounts.');
+            }
             $tables = [];
             $floors = [];
             foreach (self::COLUMNS as $name => $columns) {
