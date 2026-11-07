@@ -47,8 +47,8 @@ php artisan auth-manager:test-logins create \
   --output="$PRIVATE_DIR/browser-login.json"
 ```
 
-Choose an expiry in the future when executing the command. Repeat `--client` for
-each intended active static authorization-code client. Revoked, dynamic, unknown
+Choose a future expiry within the configured maximum when executing the command.
+Repeat `--client` for each intended active static authorization-code client. Revoked, dynamic, unknown
 and foreign-directory clients are refused. Even on the resource profile, flagged
 identities cannot acquire implicit access to dynamically registered clients.
 
