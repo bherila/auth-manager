@@ -4,6 +4,7 @@ namespace BWH\AuthManager\Services;
 
 use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Support\Mount;
 use BWH\AuthManager\Support\StaticApplicationClients;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -21,7 +22,7 @@ class OAuthClientGrantService
                 $client->lockForUpdate();
             }
             $client = $client->first();
-            if (! $user->canLogin() || ! $client instanceof PassportClient || ! $this->clients->eligible($client)) {
+            if (! $user->canLogin() || ! $client instanceof PassportClient || ! $this->eligibleTestClient($client)) {
                 return false;
             }
         }
@@ -50,7 +51,7 @@ class OAuthClientGrantService
     {
         if (User::query()->find($subject)?->isTestLogin()) {
             $client = PassportClient::query()->find($clientId);
-            if (! $client instanceof PassportClient || ! $this->clients->eligible($client)) {
+            if (! $client instanceof PassportClient || ! $this->eligibleTestClient($client)) {
                 throw ValidationException::withMessages(['client' => 'Test logins require an active static authorization-code client.']);
             }
         }
@@ -78,5 +79,13 @@ class OAuthClientGrantService
 
             return $removed === 1 || $revokedTokens;
         });
+    }
+
+    private function eligibleTestClient(PassportClient $client): bool
+    {
+        $provider = config('auth.guards.'.Mount::apiGuard().'.provider');
+
+        return $this->clients->eligible($client)
+            && ($client->provider === null || (is_string($provider) && $client->provider === $provider));
     }
 }

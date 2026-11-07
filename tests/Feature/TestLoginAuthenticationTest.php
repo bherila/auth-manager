@@ -173,6 +173,9 @@ final class TestLoginAuthenticationTest extends TestCase
         $this->assertFalse($grants->allows((string) $test->id, (string) $dynamic->id));
         DB::table('oauth_client_grants')->insert(['subject' => $test->id, 'oauth_client_id' => $dynamic->id]);
         $this->assertFalse($grants->allows((string) $test->id, (string) $dynamic->id), 'Even a stale dynamic grant must not broaden test-login scope.');
+        $other->forceFill(['provider' => 'foreign-provider'])->save();
+        DB::table('oauth_client_grants')->insert(['subject' => $test->id, 'oauth_client_id' => $other->id]);
+        $this->assertFalse($grants->allows((string) $test->id, (string) $other->id));
     }
 
     public function test_expiry_uses_utc_even_when_the_embedding_host_has_another_timezone(): void

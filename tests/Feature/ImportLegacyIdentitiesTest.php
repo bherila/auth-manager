@@ -119,6 +119,68 @@ class ImportLegacyIdentitiesTest extends TestCase
         $this->assertSame(0, DB::table('auth_two_factor_attempts')->count());
     }
 
+    public function test_legacy_replay_cannot_rewrite_a_managed_test_login(): void
+    {
+        $this->configureLegacySource(withPasskeys: false);
+        $this->seedLegacyUser(7, 'legacy@example.test', 'admin');
+        $user = User::factory()->make(['id' => 7, 'email' => 'synthetic@example.test', 'name' => 'Synthetic login', 'user_role' => 'user']);
+        $user->forceFill(['is_test_login' => true, 'test_login_expires_at' => now()->addHour()])->save();
+        $password = $user->password;
+
+        foreach ([false, true] as $apply) {
+            $this->artisan('identity:import-legacy', ['--only' => 'users', '--apply' => $apply])
+                ->expectsOutputToContain('the subject is a managed test login')->assertSuccessful();
+            $this->assertSame('synthetic@example.test', $user->fresh()->email);
+            $this->assertSame('Synthetic login', $user->fresh()->name);
+            $this->assertSame($password, $user->fresh()->password);
+            $this->assertSame(['user'], $user->fresh()->roleNames());
+            $this->assertTrue($user->fresh()->isTestLogin());
+        }
+    }
+
+    public function test_flagged_source_users_and_their_passkeys_cannot_become_permanent_identities(): void
+    {
+        $this->configureLegacySource();
+        Schema::connection('legacy_identity')->table('users', function ($table): void {
+            $table->boolean('is_test_login')->default(false);
+        });
+        foreach ([7, 8] as $id) {
+            $this->seedLegacyUser($id, "synthetic-{$id}@example.test");
+            DB::connection('legacy_identity')->table('users')->where('id', $id)->update(['is_test_login' => true]);
+            DB::connection('legacy_identity')->table('webauthn_credentials')->insert([
+                'user_id' => $id, 'credential_id' => "source-test-key-{$id}", 'public_key' => 'synthetic-key',
+                'counter' => 1, 'name' => 'Synthetic key', 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        // Even an existing ordinary destination with the same subject/address must not
+        // receive a flagged source's credential during a passkeys-only import.
+        $ordinary = User::factory()->create(['id' => 8, 'email' => 'synthetic-8@example.test']);
+        foreach ([['--only' => 'passkeys'], []] as $options) {
+            $this->artisan('identity:import-legacy', ['--apply' => true, ...$options])
+                ->expectsOutputToContain('its owner is a managed test login.')->assertSuccessful();
+            $this->assertDatabaseMissing('users', ['id' => 7]);
+            $this->assertDatabaseCount('webauthn_credentials', 0);
+            $this->assertFalse($ordinary->fresh()->isTestLogin());
+        }
+    }
+
+    public function test_passkeys_only_import_cannot_add_credentials_to_a_managed_destination(): void
+    {
+        $this->configureLegacySource();
+        $this->seedLegacyUser(7);
+        $user = User::factory()->make(['id' => 7, 'email' => 'synthetic@example.test', 'user_role' => 'user']);
+        $user->forceFill(['is_test_login' => true, 'test_login_expires_at' => now()->addHour()])->save();
+        DB::connection('legacy_identity')->table('webauthn_credentials')->insert([
+            'user_id' => 7, 'credential_id' => 'destination-test-key', 'public_key' => 'synthetic-key',
+            'counter' => 1, 'name' => 'Synthetic key', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->artisan('identity:import-legacy', ['--only' => 'passkeys', '--apply' => true])
+            ->expectsOutputToContain('its owner is a managed test login.')->assertSuccessful();
+        $this->assertDatabaseCount('webauthn_credentials', 0);
+        $this->assertTrue($user->fresh()->isTestLogin());
+    }
+
     public function test_it_refuses_a_source_that_is_its_own_database(): void
     {
         $default = config('database.default');

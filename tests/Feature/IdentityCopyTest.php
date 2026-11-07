@@ -67,6 +67,18 @@ class IdentityCopyTest extends TestCase
         $this->assertSame(2, Artisan::call('identity:export', ['--subject' => ['one']]));
     }
 
+    public function test_selected_import_cannot_adopt_an_existing_managed_test_login(): void
+    {
+        $user = User::factory()->make(['id' => 7, 'email' => 'synthetic@example.test', 'user_role' => 'user']);
+        $user->forceFill(['is_test_login' => true, 'test_login_expires_at' => now()->addHour()])->save();
+        $this->writeDocument(10, [$this->entry(7, 'synthetic@example.test')]);
+
+        $this->artisan('identity:import', ['--input' => $this->documentPath, '--apply' => true])
+            ->expectsOutputToContain('Subject 7 is a managed test login and cannot be imported.')->assertFailed();
+        $this->assertTrue($user->fresh()->isTestLogin());
+        $this->assertDatabaseCount('oauth_client_grants', 0);
+    }
+
     public function test_export_of_a_row_that_cannot_be_copied_fails_cleanly(): void
     {
         $this->person(1, 'one@example.test');
