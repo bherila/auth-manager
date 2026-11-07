@@ -24,7 +24,13 @@ final class TestLoginAddresses
             }
         }
 
-        return in_array($domain, array_map('strtolower', (array) config('auth-manager.test_logins.allowed_domains', [])), true);
+        foreach ((array) config('auth-manager.test_logins.allowed_domains', []) as $allowed) {
+            if (is_string($allowed) && strtolower($allowed) === $domain) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return list<string> */
