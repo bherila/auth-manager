@@ -169,7 +169,12 @@ AUTH_MANAGER_DELEGATED_ACCESS_KEYS=example-app|example-app-2026-10|/path/to/dele
 AUTH_MANAGER_DELEGATED_ACCESS_APPLICATIONS=example-app|https://app.example.test/application-access|3
 ```
 
-- `ISSUER` is the provider's root HTTPS URL with no path. The application pins it exactly.
+- `ISSUER` is the provider's exact HTTPS sign-in issuer. A standalone provider
+  uses its origin; an embedded provider includes its configured mount, for
+  example `https://app.example.test/auth`. The application pins the same value
+  as its sign-in provider base URL. The provider refuses a different mount or a
+  path on a standalone issuer. Embedded delegated issuers require shared
+  `bherila/auth-laravel` 0.28.7 or later on the consumer.
 - `KEYS` is a comma-separated list of `application|key-id|/absolute/private/key/path`
   entries, one per application. The application maps the same key ID to its public key. Each
   application appears once and must also be in `APPLICATIONS`; the check command refuses

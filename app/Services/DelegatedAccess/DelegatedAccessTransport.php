@@ -14,6 +14,7 @@ use BWH\AuthManager\Support\AuthManagerProfile;
 use BWH\AuthManager\Support\DelegatedAccessApplications;
 use BWH\AuthManager\Support\DelegatedAccessKeys;
 use BWH\AuthManager\Support\DelegatedAccessPermissions;
+use BWH\AuthManager\Support\Mount;
 use BWH\AuthManager\Support\StaticApplicationClients;
 use Closure;
 use Illuminate\Http\Request;
@@ -223,7 +224,8 @@ final class DelegatedAccessTransport
         $keyId = $signing['key_id'];
         try {
             AuthManagerProfile::validatedAbsoluteUrl($endpoint, 'Delegated endpoint');
-            $issuer = AuthManagerProfile::validatedIssuerUrl($issuer, 'Delegated issuer');
+            $issuer = AuthManagerProfile::validatedIssuerUrl($issuer, 'Delegated issuer',
+                Mount::embedded() ? Mount::path() : null);
             if (parse_url($endpoint, PHP_URL_SCHEME) !== 'https' || parse_url($issuer, PHP_URL_SCHEME) !== 'https'
                 || ! is_string($keyPath) || ! is_readable($keyPath) || ! is_string($keyId) || $keyId === '') {
                 throw new DelegatedAccessException('invalid_configuration');
