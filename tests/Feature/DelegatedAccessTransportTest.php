@@ -405,6 +405,33 @@ class DelegatedAccessTransportTest extends TestCase
         $this->assertSame('capabilities', $result['operation']);
     }
 
+    public function test_embedded_delegation_signs_the_exact_configured_provider_mount_issuer(): void
+    {
+        config(['auth-manager-embedded.enabled' => true, 'auth-manager-embedded.prefix' => 'accounts/identity',
+            'delegated-access.issuer' => 'https://identity.example.test/accounts/identity/']);
+        $this->fakeAdapter('https://identity.example.test/accounts/identity');
+
+        $result = app(DelegatedAccessTransport::class)->send($this->request, 'example-app', ['operation' => 'capabilities']);
+        $this->assertSame('capabilities', $result['operation']);
+        // The shared verifier accepted the signed issuer including its exact mount,
+        // rather than reducing it to an origin or accepting another mount's subject.
+        $this->assertCount(1, Http::recorded());
+    }
+
+    public function test_delegation_rejects_issuer_paths_outside_the_current_mount_before_transmission(): void
+    {
+        foreach ([false, true] as $embedded) {
+            config(['auth-manager-embedded.enabled' => $embedded, 'auth-manager-embedded.prefix' => 'auth']);
+            foreach (['https://identity.example.test/other', 'https://identity.example.test/auth/child'] as $issuer) {
+                config(['delegated-access.issuer' => $issuer]);
+                $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', ['operation' => 'capabilities']), 'invalid_configuration', 503);
+            }
+        }
+        config(['delegated-access.issuer' => 'https://identity.example.test']);
+        $this->refused(fn () => app(DelegatedAccessTransport::class)->send($this->request, 'example-app', ['operation' => 'capabilities']), 'invalid_configuration', 503);
+        Http::assertNothingSent();
+    }
+
     public function test_provider_audit_failure_blocks_transmission_or_preserves_unknown_outcome(): void
     {
         $this->fakeAdapter();
@@ -439,9 +466,9 @@ class DelegatedAccessTransportTest extends TestCase
         $this->assertDatabaseMissing('auth_audit_log', ['event' => 'delegated_access_update_attempt']);
     }
 
-    private function fakeAdapter(): void
+    private function fakeAdapter(string $issuer = 'https://identity.example.test'): void
     {
-        $adapter = new ReferenceAccessAdapter(new ActorAssertionVerifier('https://identity.example.test', 'https://app.example.test/access', 'example-app', ['integration-v1' => $this->publicKey], $this->nonceStore()));
+        $adapter = new ReferenceAccessAdapter(new ActorAssertionVerifier($issuer, 'https://app.example.test/access', 'example-app', ['integration-v1' => $this->publicKey], $this->nonceStore()));
         Http::swap(new Factory);
         Http::fake(function (ClientRequest $request) use ($adapter) {
             $token = substr($request->header('Authorization')[0], 7);
