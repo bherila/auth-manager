@@ -282,8 +282,8 @@ malformed; there is no stepping back to version 2.
 
 ## 6. Delegated access: the application
 
-The application receives delegated calls through the delegated access endpoint in
-`bherila/auth-laravel` (in progress in that package, due in its next minor release). The
+The application receives delegated calls through the shipped delegated access endpoint in
+`bherila/auth-laravel` (the reference acceptance uses 0.28.6). The
 package README is the reference for the application side; this section lists what the
 provider operator must line up with it.
 
@@ -371,6 +371,10 @@ steps are in [application-requested admission invitations](application-invitatio
    Confirm it in the application itself.
 
 ## Rollback
+
+Before retiring application-owned identity forms, also complete the
+[consumer account-management cutover](consumer-account-cutover.md), including
+the designated emergency administrator and real consumer lifecycle acceptance.
 
 - **Stop changes for one application:** remove it from
   `AUTH_MANAGER_DELEGATED_ACCESS_WRITES_APPLICATIONS`, then check and rebuild the

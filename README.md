@@ -88,6 +88,10 @@ operator runbook for connecting an application: choosing a shared or dedicated
 instance, registering its OAuth client, granting users, the application registry,
 delegated access on both sides, verification, and rollback.
 
+Before retiring a consumer's ordinary identity controls, follow the
+[consumer account-management cutover](docs/consumer-account-cutover.md) for its
+emergency access, lifecycle enforcement, delegated permissions and evidence.
+
 An application can also ask the provider to invite someone new to it, with no
 roles: [`docs/application-invitations.md`](docs/application-invitations.md) is the
 contract for those admission invitations. Creating an account from one needs a
