@@ -195,8 +195,8 @@ importers:
         specifier: 1.9.0
         version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       bwh-auth:
-        specifier: https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.2/bwh-auth-0.6.2.tgz
-        version: https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.2/bwh-auth-0.6.2.tgz(lucide-react@1.71.0(@types/react@19.3.0)(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        specifier: https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.3/bwh-auth-0.6.3.tgz
+        version: https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.3/bwh-auth-0.6.3.tgz(lucide-react@1.71.0(@types/react@19.3.0)(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -667,9 +667,9 @@ packages:
     resolution: {integrity: sha512-ooviqdwwgfIfNmDwo94wlshcdzfO64XV0Cg6oDsDYBJfITDz1EngD2z7DkbvCWn+XIMsIqW27sEVF6qcpJrRcg==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
-  bwh-auth@https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.2/bwh-auth-0.6.2.tgz:
-    resolution: {integrity: sha512-DpnGvSX3hryyq1kTk70hcgZZVMX/pAKRBSTNNO6wQ6VF5/ehc1RXjAOCKQ5yRm8S9AX3t0Xyxzbyh94J6pt4XQ==, tarball: https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.2/bwh-auth-0.6.2.tgz}
-    version: 0.6.2
+  bwh-auth@https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.3/bwh-auth-0.6.3.tgz:
+    resolution: {integrity: sha512-WX4YAczuOSVXb5/REW0gdcpgeA4+BwOjs1+ODdOaPssFLt1ffwAwkiqKDELBQ4IpEzUCHfDDsBnJRegh64Skbg==, tarball: https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.3/bwh-auth-0.6.3.tgz}
+    version: 0.6.3
     engines: {node: '>=22'}
     peerDependencies:
       lucide-react: '>=0.468.0 <2.0.0'
@@ -1427,7 +1427,7 @@ snapshots:
   auto-bind@5.0.1:
     optional: true
 
-  bwh-auth@https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.2/bwh-auth-0.6.2.tgz(lucide-react@1.71.0(@types/react@19.3.0)(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
+  bwh-auth@https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.3/bwh-auth-0.6.3.tgz(lucide-react@1.71.0(@types/react@19.3.0)(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:
       lucide-react: 1.71.0(@types/react@19.3.0)(react@19.3.1)
       react: 19.3.1

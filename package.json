@@ -27,7 +27,7 @@
     },
     "dependencies": {
         "@base-ui/react": "1.9.0",
-        "bwh-auth": "https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.2/bwh-auth-0.6.2.tgz",
+        "bwh-auth": "https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.3/bwh-auth-0.6.3.tgz",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "lucide-react": "^1.71.0",
