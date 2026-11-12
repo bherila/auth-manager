@@ -38,7 +38,7 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@12.11.2 --activate
+          corepack prepare pnpm@12.18.0 --activate
 
       - name: Setup application
         run: composer setup
@@ -129,7 +129,7 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@12.11.2 --activate
+          corepack prepare pnpm@12.18.0 --activate
 
       # The release workflow publishes this exact build. Building it twice proves the
       # checksum depends only on the commit.
