@@ -7,7 +7,8 @@ the tagged commit, builds the tree, records build provenance and publishes a
 GitHub release. Consumers verify the asset, pin it in their own repository and
 deploy it through their own pipeline.
 
-Upgrade guidance: [0.1.6 embedded delegated issuers](releases/v0.1.6.md),
+Upgrade guidance: [0.1.7 compatible dependency refresh](releases/v0.1.7.md),
+[0.1.6 embedded delegated issuers](releases/v0.1.6.md),
 [0.1.5 synthetic test-login tooling](releases/v0.1.5.md) and
 [0.1.4 changes and migration requirements](releases/v0.1.4.md).
 
