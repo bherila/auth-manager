@@ -2,7 +2,7 @@
     "$schema": "https://www.schemastore.org/package.json",
     "private": true,
     "type": "module",
-    "packageManager": "pnpm@12.11.2",
+    "packageManager": "pnpm@12.18.0",
     "scripts": {
         "build": "vite build",
         "dev": "vite",
@@ -16,21 +16,21 @@
         "@types/node": "^26.6.6",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
-        "concurrently": "^10.0.6",
+        "concurrently": "^10.0.7",
         "laravel-vite-plugin": "^3.2.1",
         "tailwindcss": "^4.3.5",
         "typescript": "^7.0.2",
-        "vite": "^8.3.6"
+        "vite": "^8.3.7"
     },
     "optionalDependencies": {
         "@laravel/multiplex": "^0.4.5"
     },
     "dependencies": {
         "@base-ui/react": "1.9.0",
-        "bwh-auth": "https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.2/bwh-auth-0.6.2.tgz",
+        "bwh-auth": "https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.3/bwh-auth-0.6.3.tgz",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
-        "lucide-react": "^1.70.0",
+        "lucide-react": "^1.71.0",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",
         "tailwind-merge": "^3.7.0"
