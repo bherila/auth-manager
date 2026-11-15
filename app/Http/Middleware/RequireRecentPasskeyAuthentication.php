@@ -2,6 +2,7 @@
 
 namespace BWH\AuthManager\Http\Middleware;
 
+use BWH\Auth\Http\Middleware\RequirePasswordConfirmation;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\AuthenticationContext;
 use BWH\AuthManager\Services\TrustedDevices;
@@ -27,7 +28,20 @@ final class RequireRecentPasskeyAuthentication
 
     public function handle(Request $request, Closure $next): Response
     {
-        if ($this->protects($request) && $request->user() !== null && ! $this->hasFreshAuthentication($request)) {
+        $enrollment = $request->isMethod('POST') && Mount::is($request, 'api/passkeys/register/options', 'api/passkeys/register');
+        if ($this->protects($request) && $request->user() !== null && ! $this->hasFreshAuthentication($request)
+            && ! ($enrollment && $this->hasFreshEnrollmentConfirmation($request))) {
+            // A password alone cannot replace a skipped second factor. Keep that
+            // explicit re-authentication instruction, and the stronger removal guard.
+            if ($enrollment && ! ($request->user() instanceof User && $request->user()->isTestLogin())
+                && (! TrustedDevices::enabled() || $this->presentedMoreThanAPassword($request, $request->user()))) {
+                return new JsonResponse([
+                    'success' => false,
+                    'message' => 'Confirm your password or an existing passkey before adding a passkey.',
+                    'error' => RequirePasswordConfirmation::ERROR,
+                ], Response::HTTP_LOCKED, ['Cache-Control' => 'private, no-store']);
+            }
+
             return new JsonResponse([
                 'message' => TrustedDevices::enabled()
                     ? 'Managing passkeys needs a sign-in with an emailed code or a passkey. If this browser skips the code, stop trusting it under Account and security, then sign in again.'
@@ -75,11 +89,23 @@ final class RequireRecentPasskeyAuthentication
         $authentication = $request->session()->get(self::SESSION_KEY);
         $user = $request->user();
 
-        if (! is_array($authentication) || $user === null) {
+        if ($user === null) {
             return false;
         }
 
         if (TrustedDevices::enabled() && ! $this->presentedMoreThanAPassword($request, $user)) {
+            return false;
+        }
+
+        // Secret-bearing email-link completion is not necessarily a JSON response.
+        // The provider records its original credential time for every successful
+        // presentation, including that link. Read that time without refreshing it.
+        $context = $user instanceof User ? AuthenticationContext::for($request, $user) : null;
+        if ($context !== null && $this->freshTimestamp($context['auth_time'])) {
+            return true;
+        }
+
+        if (! is_array($authentication)) {
             return false;
         }
 
@@ -96,6 +122,40 @@ final class RequireRecentPasskeyAuthentication
         $timestamp = (int) $authenticatedAt;
 
         return $timestamp <= $now && $timestamp >= $now - self::MAX_AGE_SECONDS;
+    }
+
+    /** Enrollment may re-prove the same account; removal retains its existing sign-in proof. */
+    private function hasFreshEnrollmentConfirmation(Request $request): bool
+    {
+        $user = $request->user();
+        if ($user === null || ($user instanceof User && $user->isTestLogin())) {
+            return false;
+        }
+
+        $passkey = $request->session()->get(RequirePasswordConfirmation::PASSKEY_SESSION_KEY);
+        $passkeyConfirmed = is_array($passkey)
+            && ($passkey['account'] ?? null) === (string) $user->getAuthIdentifier()
+            && $this->freshTimestamp($passkey['at'] ?? null);
+        if ($passkeyConfirmed) {
+            return true;
+        }
+
+        if (TrustedDevices::enabled() && ! $this->presentedMoreThanAPassword($request, $user)) {
+            return false;
+        }
+
+        return $this->freshTimestamp($request->session()->get('auth.password_confirmed_at'));
+    }
+
+    private function freshTimestamp(mixed $timestamp): bool
+    {
+        if (! is_int($timestamp) && ! (is_string($timestamp) && ctype_digit($timestamp))) {
+            return false;
+        }
+
+        $now = now()->getTimestamp();
+
+        return (int) $timestamp <= $now && (int) $timestamp >= $now - self::MAX_AGE_SECONDS;
     }
 
     /**

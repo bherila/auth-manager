@@ -54,6 +54,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prepend(AddSecurityHeaders::class);
         // Provider subjects are opaque identifiers, not text fields to normalize.
         $middleware->trimStrings(except: [fn (Request $request): bool => $request->is('api/reconciliation/identity-status')]);
+        $middleware->authenticateSessions();
         $middleware->appendToGroup('web', EnsureCredentialVersion::class);
         $middleware->redirectGuestsTo(static fn (): string => route('auth-manager.login'));
     })

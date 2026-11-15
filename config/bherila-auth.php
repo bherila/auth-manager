@@ -2,7 +2,6 @@
 
 use BWH\AuthManager\Http\Middleware\EnforceAuthenticationRequest;
 use BWH\AuthManager\Http\Middleware\RequireRecentPasskeyAuthentication;
-use BWH\AuthManager\Http\Middleware\ThrottleTwoFactorVerify;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Support\Mount;
 
@@ -27,10 +26,11 @@ return [
         // independently below.
         'enabled' => true,
         'prefix' => 'api',
-        'middleware' => [Mount::webMiddleware(), ThrottleTwoFactorVerify::class, RequireRecentPasskeyAuthentication::class],
+        'middleware' => [Mount::webMiddleware(), RequireRecentPasskeyAuthentication::class],
         'passkeys' => true,
         'password_resets' => false,
         'change_password' => false,
+        'confirm_password' => true,
         'two_factor' => true,
     ],
 

@@ -44,8 +44,8 @@ class PasskeyManagementTest extends TestCase
 
         $response = $this->actingAs($user)
             ->postJson('/api/passkeys/register/options')
-            ->assertForbidden()
-            ->assertJsonPath('message', 'Please sign in again before managing passkeys.');
+            ->assertStatus(423)
+            ->assertJsonPath('error', 'password_confirmation_required');
 
         $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
 
@@ -61,7 +61,7 @@ class PasskeyManagementTest extends TestCase
             ],
         ])->actingAs($user)
             ->postJson('/api/passkeys/register/options')
-            ->assertForbidden();
+            ->assertStatus(423);
 
         $this->withSession([
             RequireRecentPasskeyAuthentication::SESSION_KEY => [
@@ -70,7 +70,7 @@ class PasskeyManagementTest extends TestCase
             ],
         ])->actingAs($user)
             ->postJson('/api/passkeys/register/options')
-            ->assertForbidden();
+            ->assertStatus(423);
 
         $otherUser = User::factory()->create(['user_role' => 'user']);
         $this->withSession([
@@ -80,7 +80,7 @@ class PasskeyManagementTest extends TestCase
             ],
         ])->actingAs($user)
             ->postJson('/api/passkeys/register/options')
-            ->assertForbidden();
+            ->assertStatus(423);
     }
 
     public function test_a_fresh_password_login_can_start_passkey_registration(): void
@@ -152,7 +152,8 @@ class PasskeyManagementTest extends TestCase
         $this->assertNull(session(RequireRecentPasskeyAuthentication::SESSION_KEY));
 
         $this->postJson('/api/passkeys/register/options')
-            ->assertForbidden()
-            ->assertJsonPath('message', 'Please sign in again before managing passkeys.');
+            ->assertUnauthorized()
+            ->assertJsonPath('message', 'Unauthenticated.');
+        $this->assertGuest();
     }
 }

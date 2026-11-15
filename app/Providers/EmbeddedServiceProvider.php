@@ -31,6 +31,7 @@ use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Http\Middleware\TrimStrings;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Session\SessionManager;
 use Illuminate\Support\Facades\Event;
@@ -105,6 +106,7 @@ final class EmbeddedServiceProvider extends ServiceProvider
             EncryptCookies::class,
             AddQueuedCookiesToResponse::class,
             StartSession::class,
+            AuthenticateSession::class,
             ShareErrorsFromSession::class,
             PreventEmbeddedRequestForgery::class,
             SubstituteBindings::class,
@@ -146,7 +148,7 @@ final class EmbeddedServiceProvider extends ServiceProvider
                             if (($routes['passkeys'] ?? true) === true) {
                                 require EmbeddedConfig::authLaravelPath('routes/passkeys.php');
                             }
-                            if (($routes['password_resets'] ?? false) || ($routes['change_password'] ?? false) || ($routes['two_factor'] ?? false)) {
+                            if (($routes['password_resets'] ?? false) || ($routes['change_password'] ?? false) || ($routes['confirm_password'] ?? true) || ($routes['two_factor'] ?? false)) {
                                 require EmbeddedConfig::authLaravelPath('routes/auth.php');
                             }
                         });

@@ -4,6 +4,8 @@ namespace BWH\AuthManager\Services;
 
 use BWH\Auth\Models\PasskeyCredential;
 use BWH\Auth\OAuth\AuthenticationRequirement;
+use BWH\Auth\OAuth\OAuthIdentity;
+use BWH\Auth\OAuth\Session\AuthenticationContext as SharedAuthenticationContext;
 use BWH\AuthManager\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -22,9 +24,23 @@ final class AuthenticationContext
     /** @param  list<string>  $amr */
     public static function record(Request $request, User $user, array $amr, string $acr): void
     {
+        $authenticatedAt = now()->getTimestamp();
+        // Only this verified credential-presentation path bridges into the shared
+        // package's recent-authentication contract. A recaller/Login event never
+        // calls it. EmbeddedContext has already selected the provider's own session.
+        SharedAuthenticationContext::remember($request, new OAuthIdentity(
+            provider: 'auth-manager',
+            subject: (string) $user->getKey(),
+            name: (string) $user->name,
+            email: (string) $user->email,
+            authTime: $authenticatedAt,
+            amr: $amr,
+            acr: $acr,
+        ), $user);
+
         $request->session()->put(self::SESSION_KEY, [
             'user_id' => (string) $user->getKey(),
-            'auth_time' => now()->getTimestamp(),
+            'auth_time' => $authenticatedAt,
             'amr' => $amr,
             'acr' => $acr,
             // Seconds can't tell two presentations apart, so a re-authentication compares this.

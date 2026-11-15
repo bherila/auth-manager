@@ -62,6 +62,7 @@ final class EmbeddedTwoFactorRoutesTest extends EmbeddedTestCase
             $table->unsignedBigInteger('user_id');
             $table->string('token')->unique();
             $table->string('code');
+            $table->string('link_secret_hash', 64)->nullable();
             $table->boolean('is_used')->default(false);
             $table->boolean('is_suspicious')->default(false);
             $table->string('ip_address')->nullable();
@@ -115,10 +116,15 @@ final class EmbeddedTwoFactorRoutesTest extends EmbeddedTestCase
             return true;
         });
         foreach ([[$hostAttempt, '/api/auth/two-factor'], [$providerAttempt, '/auth/api/auth/two-factor']] as [$attempt, $base]) {
-            $this->assertSame(self::HOST.$base.'/confirm/'.$attempt->token, $links[$attempt->token][0]);
-            $this->assertSame(self::HOST.$base.'/report/'.$attempt->token, $links[$attempt->token][1]);
-            $this->freshRequest()->get($base.'/confirm/'.$attempt->token)->assertOk()->assertSee('action="'.self::HOST.$base.'/confirm/'.$attempt->token.'"', false);
-            $this->freshRequest()->get($base.'/report/'.$attempt->token)->assertOk()->assertSee('action="'.self::HOST.$base.'/report/'.$attempt->token.'"', false);
+            foreach (['confirm', 'report'] as $index => $action) {
+                $url = $links[$attempt->token][$index];
+                $this->assertIsString($url);
+                $this->assertStringStartsWith(self::HOST.$base.'/'.$action.'/'.$attempt->token.'?secret=', $url);
+                parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+                $this->assertIsString($query['secret'] ?? null);
+                $this->assertSame(64, strlen($query['secret']));
+                $this->freshRequest()->get($url)->assertOk()->assertSee('action="'.$url.'"', false);
+            }
             $this->assertGuest('web');
             $this->assertGuest('auth-manager');
         }
@@ -131,10 +137,10 @@ final class EmbeddedTwoFactorRoutesTest extends EmbeddedTestCase
         // must continue to be insufficient even though its email URL is correct.
         $this->freshRequest()->postJson('/auth/api/auth/two-factor/confirm/'.$providerAttempt->token)->assertStatus(422);
         $this->assertGuest('auth-manager');
-        $this->freshRequest()->postJson('/auth/api/auth/two-factor/verify', ['attempt_token' => $providerAttempt->token, 'code' => $providerAttempt->code])->assertOk();
+        $this->freshRequest()->postJson($links[$providerAttempt->token][0])->assertOk();
         $this->assertAuthenticatedAs($provider, 'auth-manager');
         $this->assertGuest('web');
-        $this->freshRequest()->postJson('/api/auth/two-factor/confirm/'.$hostAttempt->token)->assertOk();
+        $this->freshRequest()->postJson($links[$hostAttempt->token][0])->assertOk();
         $this->assertAuthenticatedAs($host, 'web');
         $this->assertSame('bherila-auth.two-factor.', config('bherila-auth.two_factor.route_name_prefix'));
     }
