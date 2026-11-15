@@ -80,6 +80,20 @@ class IdentityDeployTest(unittest.TestCase):
     def deploy(self, **options):
         MODULE.deploy(self.root, 'staging', self.release_id, self.sha, self.url, 'auth_manager_staging', self.engine_sha, **options)
 
+    def test_guarded_stop_permission_is_proved_without_stopping_before_any_schema_or_pointer_change(self):
+        commands = []
+        def runner(*args, cwd=None):
+            commands.append(args)
+            if args == ('sudo', '-n', '-l', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service'):
+                raise PermissionError('synthetic denied stop rule')
+        with patch.object(MODULE, 'run', runner), patch.object(MODULE, 'health') as health:
+            with self.assertRaises(PermissionError):
+                self.deploy(require_safe_rollback=True)
+        self.assertEqual((self.root / 'current').resolve(), self.previous)
+        self.assertFalse((self.root / 'releases' / self.release_id).exists())
+        self.assertEqual(commands, [('sudo', '-n', '-l', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service')])
+        health.assert_not_called()
+
     def test_guarded_health_failure_never_restores_an_unapproved_previous_source(self):
         with patch.object(MODULE, 'run') as run, patch.object(MODULE, 'health', side_effect=RuntimeError('synthetic health failure')) as health:
             with self.assertRaises(RuntimeError):

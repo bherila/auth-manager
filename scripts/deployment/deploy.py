@@ -233,6 +233,10 @@ def activate(root, environment, release_id, sha, url, database, engine_sha, poli
     for child in storage.rglob('*'):
         if child.is_symlink():
             raise RuntimeError('Persistent storage must not contain aliases')
+    if require_safe_rollback:
+        # Query the exact sudo rule without stopping anything. A controller
+        # must not assume restart permission also permits guarded recovery.
+        run('sudo', '-n', '-l', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service')
     candidate = releases / release_id
     candidate.mkdir(exist_ok=False)
     archive = root / 'incoming' / (release_id + '.tar.gz')

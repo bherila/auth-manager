@@ -180,6 +180,12 @@ source only after independently proving that same ancestry; unknown, malformed,
 missing or failed Git proof supplies no approved revision. Keep the floor fixed
 in reviewed workflow code, not in a mutable live marker or deployment input.
 
+Before candidate/schema changes, the guarded worker queries the exact stop
+permission with `sudo -n -l /usr/bin/systemctl stop auth-manager-queue.service`.
+This does not stop production. An unproven/denied rule aborts the deployment;
+restart permission alone is insufficient, and no queue-stop success is claimed.
+Provision any missing narrow service rule through reviewed host setup.
+
 The remote worker reads the **actual** previous artifact source while it owns
 the activation lock and restores it only if its bounded, regular revision marker
 matches an approved source exactly. A different previous revision winning a race
