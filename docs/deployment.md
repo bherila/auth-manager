@@ -166,6 +166,35 @@ use `BHERILA_AUTH_PASSWORD_RESET_URL`, which defaults to `APP_URL`, so check tha
    verify their health. Record failure even when recovery succeeds. Code rollback
    does not undo migrations, identity deletion or other database changes.
 
+### Guarded rollback across a security floor
+
+A hardened rollout must not restore an older, insecure provider merely because
+new-code health or worker checks fail. The isolated engine supports an opt-in
+`--require-safe-rollback` flag on both `start` and `worker`, with zero or more
+`--safe-rollback-revision <40-character-source-commit>` arguments. Existing
+callers without the flag keep their prior rollback behavior.
+
+The trusted operator workflow must verify the target contains its reviewed
+security floor using a full provider Git history. It may approve a previous
+source only after independently proving that same ancestry; unknown, malformed,
+missing or failed Git proof supplies no approved revision. Keep the floor fixed
+in reviewed workflow code, not in a mutable live marker or deployment input.
+
+The remote worker reads the **actual** previous artifact source while it owns
+the activation lock and restores it only if its bounded, regular revision marker
+matches an approved source exactly. A different previous revision winning a race
+with the workflow's earlier read is unapproved. Otherwise a migration/cache or
+activation failure leaves shared maintenance enabled and stops the dedicated
+queue; if maintenance cannot be established, the active pointer is removed.
+The next guarded activation clears prior shared maintenance after switching to
+its new candidate and before checking public health. Failure still records a
+failed deployment; no database rollback occurs.
+
+Source ancestry is a security-floor check, not proof of schema compatibility.
+Review additive/nullable migration compatibility separately and distinguish static
+reasoning from actually executed old-code/new-schema tests. Do not perform a
+production rollback into known-insecure code to collect compatibility evidence.
+
 Activation must survive loss of its initiating SSH connection. The CI job observes
 durable, deployment-bound status; a lost acknowledgement is not evidence of either
 success or failure. Inspect status and the active release before retrying an
