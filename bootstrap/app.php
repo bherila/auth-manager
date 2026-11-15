@@ -3,6 +3,7 @@
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\AuthManager\Http\Middleware\AddSecurityHeaders;
 use BWH\AuthManager\Http\Middleware\ApplicationAccessResponse;
+use BWH\AuthManager\Http\Middleware\AuthenticateBrowserSession;
 use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
 use BWH\AuthManager\Routing\ProviderRoutes;
 use Illuminate\Foundation\Application;
@@ -54,6 +55,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prepend(AddSecurityHeaders::class);
         // Provider subjects are opaque identifiers, not text fields to normalize.
         $middleware->trimStrings(except: [fn (Request $request): bool => $request->is('api/reconciliation/identity-status')]);
+        $middleware->alias(['auth.session' => AuthenticateBrowserSession::class]);
         $middleware->authenticateSessions();
         $middleware->appendToGroup('web', EnsureCredentialVersion::class);
         $middleware->redirectGuestsTo(static fn (): string => route('auth-manager.login'));

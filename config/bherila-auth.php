@@ -72,6 +72,7 @@ return [
         'route_name_prefix' => 'bherila-auth.two-factor.',
         'table' => 'auth_two_factor_attempts',
         'expires_minutes' => 15,
+        'max_wrong_codes' => 5,
         'allow_test_code' => env('BHERILA_AUTH_ALLOW_TEST_2FA_CODE', false),
         'test_code_environments' => ['local', 'testing'],
         'test_code' => '999999',
@@ -83,6 +84,7 @@ return [
 
     'passkeys' => [
         'table' => 'webauthn_credentials',
+        'require_password_confirmation' => true,
         'rp_name' => env('WEBAUTHN_RP_NAME', $appName),
         // Must be declared here, not only in the package default: mergeConfigFrom is a
         // shallow merge, so this file's `passkeys` array replaces the package's entirely.
