@@ -1125,6 +1125,9 @@ class AccessInvitationTest extends TestCase
 
     private function signIn(User $user): void
     {
+        // A different synthetic sign-in starts a fresh browser session; the old
+        // account's password hash and confirmation proof cannot follow it.
+        $this->signOutLocally();
         $this->actingAs($user)->withSession([EnsureCredentialVersion::SESSION_KEY => (int) $user->credential_version]);
     }
 

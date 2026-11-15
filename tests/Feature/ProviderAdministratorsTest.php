@@ -187,7 +187,8 @@ class ProviderAdministratorsTest extends TestCase
             ->postJson('/api/admin/confirm', ['password' => 'synthetic-current-password'])->assertOk();
         $this->assertSame($old, session(RequireRecentPasskeyAuthentication::SESSION_KEY));
         $this->assertSame((int) $admin->credential_version, session(ProviderAdministrators::CONFIRMATION_KEY)['credential_version']);
-        $this->postJson('/api/passkeys/register/options')->assertForbidden();
+        $this->postJson('/api/passkeys/register/options')->assertStatus(423)
+            ->assertJsonPath('error', 'password_confirmation_required');
         $this->putJson($this->url($target), $this->change($target, true))->assertOk();
     }
 

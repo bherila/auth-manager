@@ -3,4 +3,4 @@ enableGlobalVirtualStore: true
 
 allowBuilds:
   # Match the verified official release artifact source; other builds stay unapproved.
-  'bwh-auth@https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.4/bwh-auth-0.6.4.tgz': true
+  'bwh-auth@https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.5/bwh-auth-0.6.5.tgz': true

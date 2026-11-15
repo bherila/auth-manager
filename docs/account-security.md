@@ -29,6 +29,6 @@ The cookie and password together can still change the account's password, as a f
 
 ## Passkeys and return destinations
 
-The hub reuses the existing passkey page, routes, and recent-authentication protections. Passkeys stay bound to the relying-party domain where they were registered; no credentials are copied or rebound. The UI reminds people to keep email or password access before removing a passkey. Persistent passkey-login behavior remains the separate upstream work tracked in #21.
+The hub reuses the existing passkey page, routes, and recent-authentication protections. When enrollment needs fresh proof (HTTP 423), the shared form offers a current password or a user-verified existing passkey and retries the ceremony. The provider retains its ten-minute window and stronger removal/sign-in policy: password confirmation never replaces a skipped second factor or refreshes provider-administrator authority. Passkeys stay bound to the relying-party domain where they were registered; no credentials are copied or rebound. The UI reminds people to keep email or password access before removing a passkey. Persistent passkey-login behavior remains the separate upstream work tracked in #21.
 
 The hub's current navigation stays local. Arbitrary `return_url` input is ignored. A relying-application registry can later supply configured destinations; consumer-provided external URLs must never become redirects without that validation contract.

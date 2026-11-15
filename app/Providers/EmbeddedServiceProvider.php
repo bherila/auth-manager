@@ -13,6 +13,7 @@ use BWH\AuthManager\Embedded\EmbeddedContext;
 use BWH\AuthManager\Http\Controllers\EmbeddedAssetController;
 use BWH\AuthManager\Http\Middleware\AddSecurityHeaders;
 use BWH\AuthManager\Http\Middleware\ApplicationAccessResponse;
+use BWH\AuthManager\Http\Middleware\AuthenticateBrowserSession;
 use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
 use BWH\AuthManager\Http\Middleware\EnterEmbeddedContext;
 use BWH\AuthManager\Http\Middleware\PreventEmbeddedRequestForgery;
@@ -105,6 +106,7 @@ final class EmbeddedServiceProvider extends ServiceProvider
             EncryptCookies::class,
             AddQueuedCookiesToResponse::class,
             StartSession::class,
+            AuthenticateBrowserSession::class,
             ShareErrorsFromSession::class,
             PreventEmbeddedRequestForgery::class,
             SubstituteBindings::class,
@@ -146,7 +148,7 @@ final class EmbeddedServiceProvider extends ServiceProvider
                             if (($routes['passkeys'] ?? true) === true) {
                                 require EmbeddedConfig::authLaravelPath('routes/passkeys.php');
                             }
-                            if (($routes['password_resets'] ?? false) || ($routes['change_password'] ?? false) || ($routes['two_factor'] ?? false)) {
+                            if (($routes['password_resets'] ?? false) || ($routes['change_password'] ?? false) || ($routes['confirm_password'] ?? true) || ($routes['two_factor'] ?? false)) {
                                 require EmbeddedConfig::authLaravelPath('routes/auth.php');
                             }
                         });
