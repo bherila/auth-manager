@@ -154,15 +154,62 @@ def validate_target(root, environment, release_id, sha, url, database, engine_sh
     return root, policy
 
 
-def deploy(root, environment, release_id, sha, url, database, engine_sha, on_success=None):
+def validate_rollback_guard(required, revisions):
+    if type(required) is not bool or not isinstance(revisions, (list, tuple)):
+        raise ValueError('Invalid safe rollback configuration')
+    if any(not isinstance(value, str) or re.fullmatch(r'[a-f0-9]{40}', value) is None for value in revisions):
+        raise ValueError('Approved rollback revisions must be full source commits')
+    if revisions and not required:
+        raise ValueError('Approved rollback revisions require the safe rollback guard')
+    return tuple(dict.fromkeys(revisions))
+
+
+def previous_source_is_approved(previous, revisions):
+    if previous is None:
+        return False
+    marker = previous / 'public/deployment-revision.txt'
+    try:
+        if marker.is_symlink() or not marker.is_file() or marker.resolve() != marker:
+            return False
+        with marker.open('rb') as source:
+            value = source.read(43)
+        if re.fullmatch(rb'[a-f0-9]{40}(?:\r?\n)?', value) is None:
+            return False
+        return value.strip().decode('ascii') in revisions
+    except (OSError, UnicodeError):
+        return False
+
+
+def hold_in_maintenance(root, candidate):
+    try:
+        # Storage is shared by the candidate and previous code. This also covers
+        # an opted-in migration/cache failure before the current pointer moves.
+        run('php', 'artisan', 'down', '--retry=60', '--no-interaction', cwd=candidate)
+    except BaseException:
+        # If Laravel cannot enter maintenance, removing the active pointer must
+        # prevent either unproven code or a broken candidate from being served.
+        current = root / 'current'
+        if current.is_symlink():
+            current.unlink()
+        raise
+    finally:
+        run('sudo', '-n', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service')
+
+
+def deploy(root, environment, release_id, sha, url, database, engine_sha, on_success=None,
+           require_safe_rollback=False, safe_rollback_revisions=()):
+    safe_rollback_revisions = validate_rollback_guard(require_safe_rollback, safe_rollback_revisions)
     root = validate_location(root, release_id, sha, engine_sha)
     with (root / '.deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         root, policy = validate_target(root, environment, release_id, sha, url, database, engine_sha)
-        activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success)
+        activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success,
+                 require_safe_rollback, safe_rollback_revisions)
 
 
-def activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success=None):
+def activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success=None,
+             require_safe_rollback=False, safe_rollback_revisions=()):
+    safe_rollback_revisions = validate_rollback_guard(require_safe_rollback, safe_rollback_revisions)
     shared = root / 'shared'
     if not (shared / '.env').is_file() or (shared / '.env').is_symlink():
         raise RuntimeError('A server-owned environment file is required')
@@ -186,6 +233,10 @@ def activate(root, environment, release_id, sha, url, database, engine_sha, poli
     for child in storage.rglob('*'):
         if child.is_symlink():
             raise RuntimeError('Persistent storage must not contain aliases')
+    if require_safe_rollback:
+        # Query the exact sudo rule without stopping anything. A controller
+        # must not assume restart permission also permits guarded recovery.
+        run('sudo', '-n', '-l', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service')
     candidate = releases / release_id
     candidate.mkdir(exist_ok=False)
     archive = root / 'incoming' / (release_id + '.tar.gz')
@@ -267,17 +318,29 @@ exit($valid ? 0 : 1);
         'production' if environment == 'prod' else 'staging', json.dumps(policy), cwd=candidate)
     # Only reviewed backward-compatible migrations are eligible: failure here
     # leaves the old current symlink untouched. Schema rollback is never automatic.
-    run('php', 'artisan', 'migrate', '--force', '--no-interaction', cwd=candidate)
-    for command in ('config:cache', 'route:cache', 'view:cache'):
-        run('php', 'artisan', command, cwd=candidate)
+    activation_attempted = False
     try:
+        run('php', 'artisan', 'migrate', '--force', '--no-interaction', cwd=candidate)
+        for command in ('config:cache', 'route:cache', 'view:cache'):
+            run('php', 'artisan', command, cwd=candidate)
+        activation_attempted = True
         point_current(root, candidate)
+        if require_safe_rollback:
+            # A previous guarded failure can have left shared maintenance set.
+            run('php', 'artisan', 'up', '--no-interaction', cwd=candidate)
         health(url, sha, release_id)
         restart_queue()
         if on_success is not None:
             on_success()
     except BaseException:
         ignore_termination()
+        if not activation_attempted and not require_safe_rollback:
+            raise
+        if require_safe_rollback and not previous_source_is_approved(previous, safe_rollback_revisions):
+            # Read the actual previous artifact while holding the activation
+            # lock: a caller's pre-read pointer is not rollback authorization.
+            hold_in_maintenance(root, candidate)
+            raise
         if previous is not None:
             point_current(root, previous)
             restart_queue()
@@ -349,7 +412,12 @@ def reserve_status(root, release_id, sha, engine_sha):
             pass
 
 
-def launch_worker(root, environment, release_id, sha, url, database, engine_sha):
+def launch_worker(root, environment, release_id, sha, url, database, engine_sha,
+                  require_safe_rollback=False, safe_rollback_revisions=()):
+    safe_rollback_revisions = validate_rollback_guard(require_safe_rollback, safe_rollback_revisions)
+    guard_arguments = ['--require-safe-rollback'] if require_safe_rollback else []
+    for revision in safe_rollback_revisions:
+        guard_arguments.extend(['--safe-rollback-revision', revision])
     root, _policy = validate_target(root, environment, release_id, sha, url, database, engine_sha)
     engine = validate_engine(root, release_id, engine_sha)
     os.umask(0o077)
@@ -373,7 +441,7 @@ def launch_worker(root, environment, release_id, sha, url, database, engine_sha)
             '--property=StandardError=append:' + str(log),
             sys.executable, str(engine), 'worker', '--root', str(root), '--environment', environment,
             '--release-id', release_id, '--app-sha', sha, '--engine-sha', engine_sha,
-            '--url', url, '--database', database,
+            '--url', url, '--database', database, *guard_arguments,
         ], check=True, stdin=subprocess.DEVNULL, timeout=30)
     except OSError:
         # exec/spawn failed locally: no manager acknowledgement is ambiguous.
@@ -421,7 +489,9 @@ def publish_failure(root, release_id, sha, engine_sha):
             continue
 
 
-def worker(root, environment, release_id, sha, url, database, engine_sha):
+def worker(root, environment, release_id, sha, url, database, engine_sha,
+           require_safe_rollback=False, safe_rollback_revisions=()):
+    safe_rollback_revisions = validate_rollback_guard(require_safe_rollback, safe_rollback_revisions)
     root = validate_location(root, release_id, sha, engine_sha)
     validate_engine(root, release_id, engine_sha)
     def terminate(_signal, _frame):
@@ -442,7 +512,8 @@ def worker(root, environment, release_id, sha, url, database, engine_sha):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             root, policy = validate_target(root, environment, release_id, sha, url, database, engine_sha)
             write_status(root, release_id, sha, 'running', engine_sha)
-            activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success=complete)
+            activate(root, environment, release_id, sha, url, database, engine_sha, policy, on_success=complete,
+                     require_safe_rollback=require_safe_rollback, safe_rollback_revisions=safe_rollback_revisions)
     except BaseException:
         if not committed:
             publish_failure(root, release_id, sha, engine_sha)
@@ -455,6 +526,8 @@ if __name__ == '__main__':
     for name in ('root', 'environment', 'release-id', 'engine-sha', 'url', 'database'):
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--app-sha', dest='sha', required=True)
+    parser.add_argument('--require-safe-rollback', action='store_true')
+    parser.add_argument('--safe-rollback-revision', dest='safe_rollback_revisions', action='append', default=[])
     args = vars(parser.parse_args())
     mode = args.pop('mode')
     (launch_worker if mode == 'start' else worker)(**args)

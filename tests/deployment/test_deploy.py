@@ -77,8 +77,148 @@ class IdentityDeployTest(unittest.TestCase):
                 entry.size = 9
                 bundle.addfile(entry, io.BytesIO(b'synthetic'))
 
-    def deploy(self):
-        MODULE.deploy(self.root, 'staging', self.release_id, self.sha, self.url, 'auth_manager_staging', self.engine_sha)
+    def deploy(self, **options):
+        MODULE.deploy(self.root, 'staging', self.release_id, self.sha, self.url, 'auth_manager_staging', self.engine_sha, **options)
+
+    def test_guarded_stop_permission_is_proved_without_stopping_before_any_schema_or_pointer_change(self):
+        commands = []
+        def runner(*args, cwd=None):
+            commands.append(args)
+            if args == ('sudo', '-n', '-l', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service'):
+                raise PermissionError('synthetic denied stop rule')
+        with patch.object(MODULE, 'run', runner), patch.object(MODULE, 'health') as health:
+            with self.assertRaises(PermissionError):
+                self.deploy(require_safe_rollback=True)
+        self.assertEqual((self.root / 'current').resolve(), self.previous)
+        self.assertFalse((self.root / 'releases' / self.release_id).exists())
+        self.assertEqual(commands, [('sudo', '-n', '-l', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service')])
+        health.assert_not_called()
+
+    def test_guarded_health_failure_never_restores_an_unapproved_previous_source(self):
+        with patch.object(MODULE, 'run') as run, patch.object(MODULE, 'health', side_effect=RuntimeError('synthetic health failure')) as health:
+            with self.assertRaises(RuntimeError):
+                self.deploy(require_safe_rollback=True, safe_rollback_revisions=['d' * 40])
+        self.assertEqual((self.root / 'current').resolve().name, self.release_id)
+        health.assert_called_once_with(self.url, self.sha, self.release_id)
+        run.assert_any_call('php', 'artisan', 'down', '--retry=60', '--no-interaction', cwd=self.root / 'releases' / self.release_id)
+        run.assert_any_call('sudo', '-n', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service')
+
+    def test_guarded_failure_restores_only_the_exact_approved_previous_source(self):
+        with patch.object(MODULE, 'run') as run, patch.object(MODULE, 'health', side_effect=[RuntimeError('synthetic failure'), None]) as health:
+            with self.assertRaises(RuntimeError):
+                self.deploy(require_safe_rollback=True, safe_rollback_revisions=[self.old_sha])
+        self.assertEqual((self.root / 'current').resolve(), self.previous)
+        self.assertEqual(health.call_args_list[-1].args, (self.url, self.old_sha, self.previous.name))
+        self.assertFalse(any('down' in call.args for call in run.call_args_list))
+
+    def test_guarded_missing_malformed_or_oversized_previous_markers_keep_maintenance(self):
+        marker = self.previous / 'public/deployment-revision.txt'
+        for content in [None, 'unknown', 'A' * 40, self.old_sha + '\nextra', self.old_sha * 5]:
+            with self.subTest(content=content):
+                if content is None:
+                    marker.unlink()
+                else:
+                    marker.write_text(content)
+                with patch.object(MODULE, 'run') as run, patch.object(MODULE, 'health', side_effect=RuntimeError('synthetic failure')):
+                    with self.assertRaises(RuntimeError):
+                        self.deploy(require_safe_rollback=True, safe_rollback_revisions=[self.old_sha])
+                self.assertEqual((self.root / 'current').resolve().name, self.release_id)
+                run.assert_any_call('sudo', '-n', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service')
+                (self.root / 'current').unlink()
+                (self.root / 'current').symlink_to(self.previous)
+                shutil.rmtree(self.root / 'releases' / self.release_id)
+
+    def test_guarded_aliased_previous_marker_is_not_source_evidence(self):
+        marker = self.previous / 'public/deployment-revision.txt'
+        marker.unlink()
+        external = self.root / 'synthetic-source-marker'
+        external.write_text(self.old_sha)
+        marker.symlink_to(external)
+        with patch.object(MODULE, 'run'), patch.object(MODULE, 'health', side_effect=RuntimeError('synthetic failure')):
+            with self.assertRaises(RuntimeError):
+                self.deploy(require_safe_rollback=True, safe_rollback_revisions=[self.old_sha])
+        self.assertEqual((self.root / 'current').resolve().name, self.release_id)
+
+    def test_guarded_pointer_race_checks_the_actual_previous_under_the_activation_lock(self):
+        # The workflow approved A, then another activation made D current before
+        # this worker acquired its lock. An earlier workflow read cannot authorize D.
+        raced = self.root / 'releases' / ('d' * 40 + '-122-2')
+        (raced / 'public').mkdir(parents=True)
+        (raced / 'public/deployment-revision.txt').write_text('d' * 40)
+        MODULE.point_current(self.root, raced)
+        with patch.object(MODULE, 'run') as run, patch.object(MODULE, 'health', side_effect=RuntimeError('synthetic failure')) as health:
+            with self.assertRaises(RuntimeError):
+                self.deploy(require_safe_rollback=True, safe_rollback_revisions=[self.old_sha])
+        self.assertEqual((self.root / 'current').resolve().name, self.release_id)
+        health.assert_called_once_with(self.url, self.sha, self.release_id)
+        run.assert_any_call('sudo', '-n', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service')
+
+    def test_guarded_migration_failure_keeps_an_unapproved_old_pointer_in_maintenance(self):
+        commands = []
+        def runner(*args, cwd=None):
+            commands.append(args)
+            if 'migrate' in args:
+                raise RuntimeError('synthetic migration failure')
+        with patch.object(MODULE, 'run', runner), patch.object(MODULE, 'health') as health:
+            with self.assertRaises(RuntimeError):
+                self.deploy(require_safe_rollback=True)
+        self.assertEqual((self.root / 'current').resolve(), self.previous)
+        self.assertIn(('php', 'artisan', 'down', '--retry=60', '--no-interaction'), commands)
+        self.assertIn(('sudo', '-n', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service'), commands)
+        health.assert_not_called()
+
+    def test_guarded_failure_removes_the_active_pointer_if_maintenance_cannot_be_set(self):
+        commands = []
+        def runner(*args, cwd=None):
+            commands.append(args)
+            if 'down' in args:
+                raise RuntimeError('synthetic maintenance failure')
+        with patch.object(MODULE, 'run', runner), patch.object(MODULE, 'health', side_effect=RuntimeError('synthetic health failure')):
+            with self.assertRaises(RuntimeError):
+                self.deploy(require_safe_rollback=True)
+        self.assertFalse((self.root / 'current').exists())
+        self.assertFalse((self.root / 'current').is_symlink())
+        self.assertIn(('sudo', '-n', '/usr/bin/systemctl', 'stop', 'auth-manager-queue.service'), commands)
+
+    def test_guarded_success_clears_prior_shared_maintenance_before_health(self):
+        maintenance = self.root / 'shared/storage/framework/down'
+        maintenance.parent.mkdir(parents=True)
+        maintenance.write_text('synthetic prior maintenance')
+        def runner(*args, cwd=None):
+            if 'up' in args:
+                maintenance.unlink()
+        def health(*_args):
+            self.assertFalse(maintenance.exists(), 'A recovery attempt must not fail solely on its prior maintenance marker.')
+        with patch.object(MODULE, 'run', runner), patch.object(MODULE, 'health', health):
+            self.deploy(require_safe_rollback=True)
+        self.assertEqual((self.root / 'current').resolve().name, self.release_id)
+
+    def test_guarded_detached_worker_enforces_the_source_guard_and_publishes_failure(self):
+        MODULE.reserve_status(self.root, self.release_id, self.sha, self.engine_sha)
+        with patch.object(MODULE, 'run'), patch.object(MODULE.signal, 'signal'), patch.object(MODULE, 'health', side_effect=RuntimeError('synthetic failure')):
+            with self.assertRaises(RuntimeError):
+                MODULE.worker(self.root, 'staging', self.release_id, self.sha, self.url, 'auth_manager_staging', self.engine_sha,
+                              require_safe_rollback=True, safe_rollback_revisions=['d' * 40])
+        self.assertEqual((self.root / 'current').resolve().name, self.release_id)
+        status = json.loads(MODULE.status_path(self.root, self.release_id).read_text())
+        self.assertEqual(status['state'], 'failed')
+
+    def test_guarded_launch_carries_the_approved_source_list_to_the_detached_worker(self):
+        with patch.object(MODULE.subprocess, 'run') as process:
+            MODULE.launch_worker(self.root, 'staging', self.release_id, self.sha, self.url, 'auth_manager_staging', self.engine_sha,
+                                 require_safe_rollback=True, safe_rollback_revisions=[self.old_sha])
+        command = process.call_args.args[0]
+        self.assertIn('--require-safe-rollback', command)
+        self.assertEqual(command[command.index('--safe-rollback-revision') + 1], self.old_sha)
+
+    def test_guarded_invalid_or_unarmed_allowlists_fail_before_activation(self):
+        for options in [dict(require_safe_rollback=True, safe_rollback_revisions=['invalid']),
+                        dict(safe_rollback_revisions=[self.old_sha])]:
+            with self.subTest(options=options), patch.object(MODULE, 'run') as run:
+                with self.assertRaises(ValueError):
+                    self.deploy(**options)
+                run.assert_not_called()
+        self.assertEqual((self.root / 'current').resolve(), self.previous)
 
     def test_migrations_and_caches_finish_before_public_switch(self):
         commands = []
