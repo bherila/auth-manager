@@ -179,6 +179,16 @@ class IdentityDeployTest(unittest.TestCase):
             self.deploy(require_safe_rollback=True)
         self.assertEqual((self.root / 'current').resolve().name, self.release_id)
 
+    def test_guarded_detached_worker_enforces_the_source_guard_and_publishes_failure(self):
+        MODULE.reserve_status(self.root, self.release_id, self.sha, self.engine_sha)
+        with patch.object(MODULE, 'run'), patch.object(MODULE.signal, 'signal'), patch.object(MODULE, 'health', side_effect=RuntimeError('synthetic failure')):
+            with self.assertRaises(RuntimeError):
+                MODULE.worker(self.root, 'staging', self.release_id, self.sha, self.url, 'auth_manager_staging', self.engine_sha,
+                              require_safe_rollback=True, safe_rollback_revisions=['d' * 40])
+        self.assertEqual((self.root / 'current').resolve().name, self.release_id)
+        status = json.loads(MODULE.status_path(self.root, self.release_id).read_text())
+        self.assertEqual(status['state'], 'failed')
+
     def test_guarded_launch_carries_the_approved_source_list_to_the_detached_worker(self):
         with patch.object(MODULE.subprocess, 'run') as process:
             MODULE.launch_worker(self.root, 'staging', self.release_id, self.sha, self.url, 'auth_manager_staging', self.engine_sha,
