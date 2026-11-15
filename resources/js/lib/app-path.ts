@@ -23,6 +23,9 @@ export function authEndpoints(csrfToken: string): AuthEndpointConfig {
   return {
     csrfToken,
     changePassword: appPath('/api/change-password'),
+    confirmPassword: appPath('/api/auth/confirm-password'),
+    passkeyConfirmOptions: appPath('/api/passkeys/confirm/options'),
+    passkeyConfirm: appPath('/api/passkeys/confirm'),
     twoFactorVerify: appPath('/api/auth/two-factor/verify'),
     twoFactorResend: appPath('/api/auth/two-factor/resend'),
     passkeyList: appPath('/api/passkeys'),
