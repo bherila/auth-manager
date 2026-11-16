@@ -74,6 +74,10 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // Pin the session to UTC to match config('app.timezone'). Left unset, MariaDB uses
+            // the server's SYSTEM zone (the host clock, not UTC), so TIMESTAMP columns and
+            // CURRENT_TIMESTAMP defaults would drift an hour from app-written values during DST.
+            'timezone' => '+00:00',
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
@@ -94,6 +98,10 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // Pin the session to UTC to match config('app.timezone'). Left unset, MariaDB uses
+            // the server's SYSTEM zone (the host clock, not UTC), so TIMESTAMP columns and
+            // CURRENT_TIMESTAMP defaults would drift an hour from app-written values during DST.
+            'timezone' => '+00:00',
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
