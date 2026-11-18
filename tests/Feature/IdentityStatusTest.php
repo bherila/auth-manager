@@ -93,10 +93,59 @@ class IdentityStatusTest extends TestCase
         foreach ([[], ['subject' => 1], ['subject' => ['invalid']], ['subject' => str_repeat('x', 256)]] as $body) {
             $this->postJson(self::ENDPOINT, $body)->assertUnprocessable()->assertHeader('Cache-Control', 'no-store, private');
         }
-        for ($i = 0; $i < 56; $i++) {
+        config(['auth-manager.reconciliation.status_per_client_per_minute' => 10]);
+        for ($i = 0; $i < 6; $i++) {
             $this->postJson(self::ENDPOINT, ['subject' => 'unknown'])->assertOk();
         }
         $this->postJson(self::ENDPOINT, ['subject' => 'unknown'])->assertTooManyRequests()->assertHeader('Cache-Control', 'no-store, private');
+    }
+
+    public function test_each_client_has_its_own_status_budget_behind_a_shared_ip(): void
+    {
+        config(['auth-manager.reconciliation.status_per_client_per_minute' => 3]);
+        [$busy, $busySecret] = $this->client();
+        [$quiet, $quietSecret] = $this->client();
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->withBasicAuth((string) $busy->id, $busySecret)->postJson(self::ENDPOINT, ['subject' => 'unknown'])->assertOk();
+        }
+        $this->withBasicAuth((string) $busy->id, $busySecret)->postJson(self::ENDPOINT, ['subject' => 'unknown'])->assertTooManyRequests();
+
+        $this->withBasicAuth((string) $quiet->id, $quietSecret)->postJson(self::ENDPOINT, ['subject' => 'unknown'])->assertOk();
+    }
+
+    public function test_a_tombstone_backlog_does_not_spend_a_clients_status_budget(): void
+    {
+        config([
+            'auth-manager.reconciliation.status_per_client_per_minute' => 2,
+            'auth-manager.reconciliation.tombstones_per_client_per_minute' => 2,
+        ]);
+        [$client, $secret] = $this->client();
+        $this->withBasicAuth((string) $client->id, $secret);
+
+        for ($i = 0; $i < 2; $i++) {
+            $this->getJson('/api/reconciliation/identity-tombstones')->assertSuccessful();
+        }
+        $this->getJson('/api/reconciliation/identity-tombstones')->assertTooManyRequests();
+
+        $this->postJson(self::ENDPOINT, ['subject' => 'unknown'])->assertOk();
+    }
+
+    public function test_unauthenticated_traffic_is_bounded_per_ip_before_any_client_is_checked(): void
+    {
+        config(['auth-manager.reconciliation.per_ip_per_minute' => 3]);
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->withBasicAuth('not-a-client', 'wrong')->postJson(self::ENDPOINT, ['subject' => 'unknown'])->assertUnauthorized();
+        }
+        $this->withBasicAuth('not-a-client', 'wrong')->postJson(self::ENDPOINT, ['subject' => 'unknown'])->assertTooManyRequests();
+    }
+
+    public function test_the_default_budgets_leave_room_for_consumers_sharing_an_egress_ip(): void
+    {
+        $this->assertGreaterThan(60, config('auth-manager.reconciliation.per_ip_per_minute'));
+        $this->assertGreaterThanOrEqual(60, config('auth-manager.reconciliation.status_per_client_per_minute'));
+        $this->assertGreaterThanOrEqual(30, config('auth-manager.reconciliation.tombstones_per_client_per_minute'), 'A tombstone consumer polls at 30 requests a minute by default.');
     }
 
     public function test_oauth_identity_exposes_generation_but_never_disabled_identity(): void

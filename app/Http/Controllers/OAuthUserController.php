@@ -37,6 +37,11 @@ class OAuthUserController extends Controller
             'credential_version' => $generation,
             'name' => $user->name,
             'email' => $user->email,
+            // Present only as true, while the person has proven they receive mail at this
+            // address (EmailProof). An unproven address omits it rather than sending false,
+            // which consumers refuse by default and which would lock out accounts that never
+            // had a way to prove theirs. A consumer that needs proof requires an explicit true.
+            ...($user->email_verified_at !== null ? ['email_verified' => true] : []),
             // The applications this person can move between. Sent with the identity rather
             // than from an endpoint of its own so a relying application can cache it in the
             // session it is already establishing, and never has to call back here to render

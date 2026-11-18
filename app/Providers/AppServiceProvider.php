@@ -118,6 +118,11 @@ class AppServiceProvider extends ServiceProvider
             });
         }
 
+        // Reconciliation: a coarse per-IP budget before client authentication. The per-client
+        // budgets are enforced by AuthenticateReconciliationClient once the client is known.
+        RateLimiter::for('auth-manager.reconciliation-ip', static fn (Request $request): Limit => Limit::perMinute((int) config('auth-manager.reconciliation.per_ip_per_minute', 600))
+            ->by('reconciliation-ip:'.$request->ip()));
+
         // Invitation links, per client IP: opening one, accepting one, signing in or out from one.
         RateLimiter::for('auth-manager.invitations', static fn (Request $request): Limit => Limit::perMinute(30)->by('invitations:'.$request->ip()));
 
@@ -150,6 +155,10 @@ class AppServiceProvider extends ServiceProvider
                 $afterPassword ? ['pwd', 'otp', 'mfa'] : ['otp'],
                 $afterPassword ? AuthenticationRequirement::ACR_MFA : AuthenticationRequirement::ACR_SINGLE,
             );
+
+            // A verified code is not recorded as proof of the address: the attempt does not store
+            // where its code was mailed, and a challenge created while an administrator changes the
+            // address can mail the former one. Proof waits for destination-bound attempts.
 
             // Only this session's own password challenge confirms a browser: a code alone never does.
             if ($afterPassword && TrustedDevices::enabled() && request()->boolean('trust_device')) {
