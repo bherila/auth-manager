@@ -7,7 +7,6 @@ use BWH\Auth\Events\TwoFactorLoginSucceeded;
 use BWH\Auth\OAuth\AuthenticationRequirement;
 use BWH\Auth\OAuth\Server\ResourceAccessToken;
 use BWH\AuthManager\Http\Controllers\LoginController;
-use BWH\AuthManager\Http\Middleware\AuthenticateReconciliationClient;
 use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
 use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\User;
@@ -120,21 +119,10 @@ class AppServiceProvider extends ServiceProvider
             });
         }
 
-        // Reconciliation: a coarse per-IP budget before client authentication, then one budget
-        // per authenticated client and operation, so consumers sharing an egress IP don't share
-        // a budget and a tombstone backlog can't starve status checks.
+        // Reconciliation: a coarse per-IP budget before client authentication. The per-client
+        // budgets are enforced by AuthenticateReconciliationClient once the client is known.
         RateLimiter::for('auth-manager.reconciliation-ip', static fn (Request $request): Limit => Limit::perMinute((int) config('auth-manager.reconciliation.per_ip_per_minute', 600))
             ->by('reconciliation-ip:'.$request->ip()));
-        $reconciliationClient = static function (Request $request): string {
-            $client = $request->attributes->get(AuthenticateReconciliationClient::CLIENT_ATTRIBUTE);
-
-            // Routed only behind AuthenticateReconciliationClient; the IP is a fail-closed fallback.
-            return $client instanceof PassportClient ? 'client:'.$client->getKey() : 'ip:'.$request->ip();
-        };
-        RateLimiter::for('auth-manager.reconciliation-status', static fn (Request $request): Limit => Limit::perMinute((int) config('auth-manager.reconciliation.status_per_client_per_minute', 300))
-            ->by('reconciliation-status:'.$reconciliationClient($request)));
-        RateLimiter::for('auth-manager.reconciliation-tombstones', static fn (Request $request): Limit => Limit::perMinute((int) config('auth-manager.reconciliation.tombstones_per_client_per_minute', 120))
-            ->by('reconciliation-tombstones:'.$reconciliationClient($request)));
 
         // Invitation links, per client IP: opening one, accepting one, signing in or out from one.
         RateLimiter::for('auth-manager.invitations', static fn (Request $request): Limit => Limit::perMinute(30)->by('invitations:'.$request->ip()));

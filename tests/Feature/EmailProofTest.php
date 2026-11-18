@@ -206,6 +206,11 @@ final class EmailProofTest extends TestCase
     /** The identity response for a fresh authorization-code login by `$user`. */
     private function identityFor(User $user): TestResponse
     {
+        // A fresh browser: nothing carried over from an earlier request in the test (an admin's
+        // session, its recorded sign-in context) may decide this person's authorization.
+        Auth::forgetGuards();
+        $this->flushSession();
+
         $client = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Example Application '.Str::random(6), [self::CALLBACK]);
         app(OAuthClientGrantService::class)->grant((string) $user->getKey(), (string) $client->getKey());
 
