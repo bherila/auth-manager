@@ -37,6 +37,7 @@ class DirectoryAdminService
         private readonly DirectoryAdminAuditLogger $audit,
         private readonly ProviderAdministrators $administrators,
         private readonly IdentityRetirement $retirement,
+        private readonly EmailProof $emailProof,
     ) {}
 
     /**
@@ -93,10 +94,14 @@ class DirectoryAdminService
             $locked = $this->lock($request, $actor, $target);
 
             if ($locked->email !== $email) {
+                $formerEmail = (string) $locked->email;
                 $locked->forceFill([
                     'email' => $email,
                     'email_verified_at' => null,
                 ])->save();
+                // Codes and reset links mailed to the former address must neither finish a
+                // sign-in nor prove the new one.
+                $this->emailProof->forgetAddress($locked, $formerEmail);
                 $this->audit->record($request, $actor, $locked, self::EVENT_EMAIL_CHANGED);
             }
 

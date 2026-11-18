@@ -217,6 +217,23 @@ assertions, secrets or unrelated directory/domain data.
 
 The login identity response adds `credential_version`. The shared consumer
 client validates and preserves it as the session's immutable login generation.
+
+It also carries `email_verified: true` while the person has proven they receive
+mail at the account's current address, and omits the claim otherwise; it never
+sends `false`. Proof is recorded when a secret mailed to that address is
+presented: a verified emailed sign-in code, a completed password reset, or an
+accepted invitation opened from its emailed link. It is bound to the address.
+Changing an account's address clears proof and withdraws every code and reset
+link still outstanding for the former address, and proof is written only while
+the account still has the address the secret was mailed to. A password or a
+passkey alone proves nothing about the mailbox. Accounts created by an
+administrator, or imported, start unproven unless their source recorded proof;
+an imported `email_verified_at` is only as trustworthy as the system it came
+from. A consumer that keys provisioning, invitations or notifications on the
+address should require an explicit `true` (auth-laravel's
+`oauth_login.require_verified_email`) rather than treat an absent claim as
+proof. The status response carries no profile, so it is not evidence of a
+current mailbox.
 An authenticated status read must never silently replace that baseline with a
 newer generation and thereby extend an old session.
 

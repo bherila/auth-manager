@@ -15,6 +15,7 @@ use BWH\AuthManager\OAuth\GrantAwareAccessTokenRepository;
 use BWH\AuthManager\OAuth\GrantAwareAuthCodeRepository;
 use BWH\AuthManager\OAuth\GrantAwareRefreshTokenRepository;
 use BWH\AuthManager\Services\AuthenticationContext;
+use BWH\AuthManager\Services\EmailProof;
 use BWH\AuthManager\Services\OAuthAuthenticationContextCarrier;
 use BWH\AuthManager\Services\OAuthCredentialGenerationContext;
 use BWH\AuthManager\Services\TrustedDevices;
@@ -150,6 +151,10 @@ class AppServiceProvider extends ServiceProvider
                 $afterPassword ? ['pwd', 'otp', 'mfa'] : ['otp'],
                 $afterPassword ? AuthenticationRequirement::ACR_MFA : AuthenticationRequirement::ACR_SINGLE,
             );
+
+            // The code went to the account's address, and an address change withdraws codes
+            // still outstanding, so a verified code proves the person receives mail there.
+            app(EmailProof::class)->proveCurrentAddress($event->user);
 
             // Only this session's own password challenge confirms a browser: a code alone never does.
             if ($afterPassword && TrustedDevices::enabled() && request()->boolean('trust_device')) {

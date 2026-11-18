@@ -8,6 +8,7 @@ use BWH\Auth\Mail\PasswordResetConfirmationMail;
 use BWH\Auth\Mail\PasswordResetNoticeMail;
 use BWH\Auth\Models\TwoFactorAttempt;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\EmailProof;
 use BWH\AuthManager\Services\OAuthTokenRevocationService;
 use BWH\AuthManager\Support\Mount;
 use Closure;
@@ -46,6 +47,7 @@ final class PasswordResetController
         private readonly AuthAuditLogger $audit,
         private readonly LocalCredentialPolicy $localCredentials,
         private readonly OAuthTokenRevocationService $tokens,
+        private readonly EmailProof $emailProof,
     ) {}
 
     public function request(): View
@@ -129,6 +131,11 @@ final class PasswordResetController
                 DB::table('sessions')->where('user_id', $locked->getKey())->delete();
                 // A code requested with the old password must not finish a sign-in now.
                 TwoFactorAttempt::query()->where('user_id', $locked->getKey())->delete();
+                // The broker found the token under this address, so the link mailed there was
+                // opened: proof the person receives mail at it.
+                if ($locked->email === $user->email) {
+                    $this->emailProof->proveCurrentAddress($locked);
+                }
                 $this->audit->passwordResetCompleted($request, $locked);
 
                 $resetUser = $locked;
