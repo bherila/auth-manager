@@ -19,7 +19,7 @@ matching built assets before these commands become available.
 | --- | --- |
 | Users, exact numeric subjects, password hashes, roles, credential generations, disabled and soft-deleted state | Remember tokens, sessions, trusted browsers, password-reset and sign-in codes |
 | Compatible passkey IDs, original user IDs/user handles, key bytes, counters, RP IDs and backup eligibility | OAuth authorization/device codes, access tokens and refresh tokens |
-| OAuth client IDs, recognized secret hashes, redirect/grant metadata, provider client grants | Source `APP_KEY`, OAuth private signing keys, runtime secrets and private integration keys |
+| OAuth client IDs, recognized secret hashes, redirect/grant metadata, provider client grants and whether each is direct, [access groups](access-groups.md) with their members and applications | Source `APP_KEY`, OAuth private signing keys, runtime secrets and private integration keys |
 | Application registrations and client mappings | Replay/nonce stores, invitation email-verification codes and audit history |
 | Invitation business state, token hashes and delegated-operation IDs | Source cache, queues and imported-directory receipts |
 | Tombstones and client acknowledgement records | Automatic configuration changes or source deletion |
@@ -44,6 +44,10 @@ client third-party; clearing them would incorrectly make Passport trust it as
 first-party. `historical_client_owners` reports these preserved references.
 
 ## Protect the material
+
+Archive version 2 adds access groups and each grant's `direct` flag. A version 1
+archive is refused as an unsupported format; make a new archive with the current
+provider version on the source.
 
 The format is a versioned JSON envelope with SHA-256 over the exact decoded
 payload JSON bytes; those bytes travel in a base64 field. Row values are also

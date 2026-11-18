@@ -212,18 +212,29 @@ class DirectoryAdminController extends Controller
      *     administration_revision:string,
      *     disabled_at:?string,
      *     last_login_date:?string,
-     *     client_ids:list<string>
+     *     client_ids:list<string>,
+     *     direct_client_ids:list<string>,
+     *     group_ids:list<int>
      * }
      */
     private function userPayload(User $user): array
     {
-        $clientIds = DB::table('oauth_client_grants')
+        $grants = DB::table('oauth_client_grants')
             ->join('oauth_clients', 'oauth_clients.id', '=', 'oauth_client_grants.oauth_client_id')
             ->where('subject', $user->getKey())
             ->where('oauth_clients.revoked', false)
             ->orderBy('oauth_client_id')
-            ->pluck('oauth_client_grants.oauth_client_id')
-            ->map(static fn (mixed $id): string => (string) $id)
+            ->get(['oauth_client_grants.oauth_client_id', 'oauth_client_grants.direct']);
+        $clientIds = $grants->map(static fn (object $grant): string => (string) $grant->oauth_client_id)->all();
+        $directClientIds = $grants->filter(static fn (object $grant): bool => (bool) $grant->direct)
+            ->map(static fn (object $grant): string => (string) $grant->oauth_client_id)
+            ->values()
+            ->all();
+        $groupIds = DB::table('access_group_members')
+            ->where('subject', $user->getKey())
+            ->orderBy('access_group_id')
+            ->pluck('access_group_id')
+            ->map(static fn (mixed $id): int => (int) $id)
             ->all();
 
         return [
@@ -236,6 +247,8 @@ class DirectoryAdminController extends Controller
             'disabled_at' => $user->disabled_at?->toISOString(),
             'last_login_date' => $user->last_login_date?->toISOString(),
             'client_ids' => $clientIds,
+            'direct_client_ids' => $directClientIds,
+            'group_ids' => $groupIds,
         ];
     }
 }

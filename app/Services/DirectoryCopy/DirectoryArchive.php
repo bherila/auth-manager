@@ -9,7 +9,8 @@ final class DirectoryArchive
 {
     public const FORMAT = 'auth-manager.directory-copy';
 
-    public const VERSION = 1;
+    /** 2: access groups and the direct-grant flag. */
+    public const VERSION = 2;
 
     public const MAX_BYTES = 67108864;
 

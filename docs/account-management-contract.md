@@ -11,7 +11,7 @@ from the remaining integration work.
 | --- | --- | --- |
 | Identity name, email, verified-email state | Provider directory | Provider administrator edits; self-service displays read-only |
 | Password, passkeys, recovery, provider disable/delete | Provider | Account/security hub and provider administration |
-| Static OAuth client grant | Provider | Coarse permission to authorize a client, not an application role |
+| Static OAuth client grant, direct or through an [access group](access-groups.md) | Provider | Coarse permission to authorize a client, not an application role |
 | Application administrator, workspace membership, read/write access | Application | Delegated controls backed by application authorization APIs |
 | Application approval, invitations, onboarding, legal acceptance | Application | Existing application journeys |
 | Notification settings and other domain preferences | Application | Existing application settings |

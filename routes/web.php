@@ -1,6 +1,7 @@
 <?php
 
 use BWH\Auth\Http\Middleware\RequireActiveUser;
+use BWH\AuthManager\Http\Controllers\AccessGroupAdminController;
 use BWH\AuthManager\Http\Controllers\AccessInvitationController;
 use BWH\AuthManager\Http\Controllers\AccountSettingsController;
 use BWH\AuthManager\Http\Controllers\ApplicationAccessController;
@@ -78,6 +79,14 @@ Route::middleware([Authenticate::class, RequireProviderAdmin::class])->group(fun
         Route::delete('/users/{user}', [DirectoryAdminController::class, 'destroy']);
         Route::put('/users/{user}/clients/{client}', [DirectoryAdminController::class, 'grantClient']);
         Route::delete('/users/{user}/clients/{client}', [DirectoryAdminController::class, 'revokeClient']);
+        Route::get('/groups', [AccessGroupAdminController::class, 'index']);
+        Route::post('/groups', [AccessGroupAdminController::class, 'store']);
+        Route::patch('/groups/{group}', [AccessGroupAdminController::class, 'update'])->whereNumber('group');
+        Route::delete('/groups/{group}', [AccessGroupAdminController::class, 'destroy'])->whereNumber('group');
+        Route::put('/groups/{group}/members/{user}', [AccessGroupAdminController::class, 'addMember'])->whereNumber('group');
+        Route::delete('/groups/{group}/members/{user}', [AccessGroupAdminController::class, 'removeMember'])->whereNumber('group');
+        Route::put('/groups/{group}/clients/{client}', [AccessGroupAdminController::class, 'addClient'])->whereNumber('group');
+        Route::delete('/groups/{group}/clients/{client}', [AccessGroupAdminController::class, 'removeClient'])->whereNumber('group');
     });
 });
 

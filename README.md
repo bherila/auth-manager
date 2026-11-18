@@ -36,6 +36,11 @@ Provider state deliberately stops at the OAuth boundary: creating a person or
 granting an OAuth client here never creates an account or permissions inside a
 connected application.
 
+[Access groups](docs/access-groups.md) grant applications to every member, so an
+administrator can give a set of people sign-in to the same applications at once. A
+group grants sign-in only; a person keeps an application while a direct grant or any
+of their groups still grants it.
+
 The relying-application contract for deletion feeds, acknowledgements, and the
 30-day provider retention rule is documented in
 [`docs/identity-deletion.md`](docs/identity-deletion.md).
