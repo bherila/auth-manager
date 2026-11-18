@@ -47,6 +47,10 @@ class OAuthClientGrantService
         return $grant->exists();
     }
 
+    /**
+     * Record a direct grant. True when the person had no direct grant before, including when
+     * they already reached the application through a group.
+     */
     public function grant(string $subject, string $clientId): bool
     {
         if (User::query()->find($subject)?->isTestLogin()) {
@@ -56,20 +60,46 @@ class OAuthClientGrantService
             }
         }
 
-        return DB::table('oauth_client_grants')->insertOrIgnore([
+        $inserted = DB::table('oauth_client_grants')->insertOrIgnore([
             'subject' => $subject,
             'oauth_client_id' => $clientId,
+            'direct' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]) === 1;
+
+        return $inserted || DB::table('oauth_client_grants')
+            ->where('subject', $subject)
+            ->where('oauth_client_id', $clientId)
+            ->where('direct', false)
+            ->update(['direct' => true, 'updated_at' => now()]) === 1;
     }
 
     /**
-     * Remove a grant through this boundary so its existing tokens are revoked atomically.
+     * Remove a direct grant through this boundary so its existing tokens are revoked atomically.
+     * While a group still grants the application, the person keeps access and their tokens:
+     * only the direct grant goes. A grant held only through a group is not changed here.
      */
     public function revoke(string $subject, string $clientId): bool
     {
         return DB::transaction(function () use ($subject, $clientId): bool {
+            $grant = DB::table('oauth_client_grants')
+                ->where('subject', $subject)
+                ->where('oauth_client_id', $clientId)
+                ->lockForUpdate()
+                ->first();
+
+            if ($grant !== null && ! (bool) $grant->direct) {
+                return false;
+            }
+
+            if ($grant !== null && $this->grantedByGroup($subject, $clientId)) {
+                return DB::table('oauth_client_grants')
+                    ->where('subject', $subject)
+                    ->where('oauth_client_id', $clientId)
+                    ->update(['direct' => false, 'updated_at' => now()]) === 1;
+            }
+
             $removed = DB::table('oauth_client_grants')
                 ->where('subject', $subject)
                 ->where('oauth_client_id', $clientId)
@@ -79,6 +109,61 @@ class OAuthClientGrantService
 
             return $removed === 1 || $revokedTokens;
         });
+    }
+
+    /**
+     * Bring the person's grant for one application in line with their direct grant and their
+     * groups, after a group's members or applications changed. Adds a group-sourced grant, or
+     * removes a grant nothing stands behind any longer and revokes its tokens.
+     *
+     * @return 'granted'|'revoked'|null
+     */
+    public function reconcile(string $subject, string $clientId): ?string
+    {
+        return DB::transaction(function () use ($subject, $clientId): ?string {
+            $grant = DB::table('oauth_client_grants')
+                ->where('subject', $subject)
+                ->where('oauth_client_id', $clientId)
+                ->lockForUpdate()
+                ->first();
+            $byGroup = $this->grantedByGroup($subject, $clientId);
+
+            if ($grant === null) {
+                if (! $byGroup) {
+                    return null;
+                }
+                DB::table('oauth_client_grants')->insertOrIgnore([
+                    'subject' => $subject,
+                    'oauth_client_id' => $clientId,
+                    'direct' => false,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                return 'granted';
+            }
+
+            if ((bool) $grant->direct || $byGroup) {
+                return null;
+            }
+
+            DB::table('oauth_client_grants')
+                ->where('subject', $subject)
+                ->where('oauth_client_id', $clientId)
+                ->delete();
+            $this->tokens->forSubjectAndClient($subject, $clientId);
+
+            return 'revoked';
+        });
+    }
+
+    public function grantedByGroup(string $subject, string $clientId): bool
+    {
+        return DB::table('access_group_members')
+            ->join('access_group_clients', 'access_group_clients.access_group_id', '=', 'access_group_members.access_group_id')
+            ->where('access_group_members.subject', $subject)
+            ->where('access_group_clients.oauth_client_id', $clientId)
+            ->exists();
     }
 
     private function eligibleTestClient(PassportClient $client): bool

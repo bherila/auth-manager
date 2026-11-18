@@ -25,11 +25,25 @@ interface DirectoryUser {
   disabled_at: string | null;
   last_login_date: string | null;
   client_ids: string[];
+  direct_client_ids: string[];
+  group_ids: number[];
 }
 
 interface DirectoryResponse {
   users: DirectoryUser[];
   clients: OAuthClient[];
+}
+
+interface AccessGroup {
+  id: number;
+  name: string;
+  description: string | null;
+  member_ids: number[];
+  client_ids: string[];
+}
+
+interface GroupsResponse {
+  groups: AccessGroup[];
 }
 
 function errorText(error: unknown): string {
@@ -39,11 +53,13 @@ function errorText(error: unknown): string {
 function UserCard({
   user,
   clients,
+  groups,
   onChanged,
   onError,
 }: {
   user: DirectoryUser;
   clients: OAuthClient[];
+  groups: AccessGroup[];
   onChanged: (message: string) => Promise<void>;
   onError: (message: string) => void;
 }) {
@@ -101,12 +117,13 @@ function UserCard({
     setPasswordConfirmation('');
   }
 
-  async function toggleClient(client: OAuthClient, granted: boolean): Promise<void> {
+  async function toggleClient(client: OAuthClient, direct: boolean, throughGroups: string[]): Promise<void> {
+    const remaining = throughGroups.length > 0 ? ` ${user.name} keeps access through ${throughGroups.join(', ')}.` : '';
     await run(
-      () => granted
+      () => direct
         ? fetchWrapper.delete(appPath(`/api/admin/users/${user.id}/clients/${client.id}`), {})
         : fetchWrapper.put(appPath(`/api/admin/users/${user.id}/clients/${client.id}`), {}),
-      `${client.name} OAuth grant was ${granted ? 'removed' : 'added'}. Application permissions are managed separately.`,
+      `${client.name} direct grant was ${direct ? `removed.${remaining}` : 'added.'} Application permissions are managed separately.`,
     );
   }
 
@@ -206,23 +223,32 @@ function UserCard({
           <legend className="text-sm font-medium">OAuth client grants</legend>
           <p className="text-muted-foreground text-xs">
             A grant allows this person to request a token. It does not create their account or permissions in that application.
+            A checked box is a direct grant; access through a group is shown beside it and is changed in Groups.
           </p>
           {clients.length === 0 ? (
             <p className="text-muted-foreground text-sm">No active OAuth applications are registered.</p>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2">
               {clients.map((client) => {
-                const granted = user.client_ids.includes(client.id);
+                const direct = user.direct_client_ids.includes(client.id);
+                const throughGroups = groups
+                  .filter((group) => user.group_ids.includes(group.id) && group.client_ids.includes(client.id))
+                  .map((group) => group.name);
 
                 return (
                   <label className="border-border flex items-center gap-3 rounded-md border p-3 text-sm" key={client.id}>
                     <input
                       type="checkbox"
-                      checked={granted}
+                      checked={direct}
                       disabled={busy}
-                      onChange={() => void toggleClient(client, granted)}
+                      onChange={() => void toggleClient(client, direct, throughGroups)}
                     />
-                    {client.name}
+                    <span>
+                      {client.name}
+                      {throughGroups.length > 0 ? (
+                        <span className="text-muted-foreground block text-xs">Through {throughGroups.join(', ')}</span>
+                      ) : null}
+                    </span>
                   </label>
                 );
               })}
@@ -300,8 +326,182 @@ function UserCard({
   );
 }
 
+function GroupCard({
+  group,
+  users,
+  clients,
+  onChanged,
+  onError,
+}: {
+  group: AccessGroup;
+  users: DirectoryUser[];
+  clients: OAuthClient[];
+  onChanged: (message: string) => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [name, setName] = useState(group.name);
+  const [description, setDescription] = useState(group.description ?? '');
+  const [candidate, setCandidate] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => setName(group.name), [group.name]);
+  useEffect(() => setDescription(group.description ?? ''), [group.description]);
+
+  const members = users.filter((user) => group.member_ids.includes(user.id));
+  const candidates = users.filter((user) => !group.member_ids.includes(user.id));
+
+  async function run(action: () => Promise<unknown>, message: string): Promise<void> {
+    setBusy(true);
+    try {
+      await action();
+      await onChanged(message);
+    } catch (caught) {
+      onError(errorText(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function save(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    await run(
+      () => fetchWrapper.patch(appPath(`/api/admin/groups/${group.id}`), { name, description: description.trim() === '' ? null : description }),
+      `Group ${name} was updated.`,
+    );
+  }
+
+  async function addMember(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    const person = users.find((user) => String(user.id) === candidate);
+    if (!person) return;
+    await run(
+      () => fetchWrapper.put(appPath(`/api/admin/groups/${group.id}/members/${person.id}`), {}),
+      `${person.name} joined ${group.name} and can sign in to its applications.`,
+    );
+    setCandidate('');
+  }
+
+  async function deleteGroup(): Promise<void> {
+    if (!window.confirm(
+      `Delete ${group.name}? Its members lose each of its applications that no direct grant or other group still gives them, and their tokens for those applications are revoked.`,
+    )) return;
+    await run(() => fetchWrapper.delete(appPath(`/api/admin/groups/${group.id}`), {}), `Group ${group.name} was deleted.`);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{group.name}</CardTitle>
+        <CardDescription>{group.description ?? 'Members can sign in to every application selected below.'}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => void save(event)}>
+          <div className="space-y-2">
+            <Label htmlFor={`group-name-${group.id}`}>Group name</Label>
+            <Input id={`group-name-${group.id}`} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`group-description-${group.id}`}>Description</Label>
+            <Input id={`group-description-${group.id}`} value={description} maxLength={500} onChange={(event) => setDescription(event.target.value)} />
+          </div>
+          <Button className="self-end" type="submit" variant="outline"
+            disabled={busy || name.trim() === '' || (name === group.name && description === (group.description ?? ''))}>
+            Save group
+          </Button>
+        </form>
+
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">Applications</legend>
+          <p className="text-muted-foreground text-xs">
+            Every member can sign in to a selected application. Removing one revokes it from members who have no direct grant or other group for it.
+          </p>
+          {clients.length === 0 ? (
+            <p className="text-muted-foreground text-sm">No active OAuth applications are registered.</p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {clients.map((client) => {
+                const selected = group.client_ids.includes(client.id);
+
+                return (
+                  <label className="border-border flex items-center gap-3 rounded-md border p-3 text-sm" key={client.id}>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      disabled={busy}
+                      onChange={() => void run(
+                        () => selected
+                          ? fetchWrapper.delete(appPath(`/api/admin/groups/${group.id}/clients/${client.id}`), {})
+                          : fetchWrapper.put(appPath(`/api/admin/groups/${group.id}/clients/${client.id}`), {}),
+                        `${client.name} was ${selected ? 'removed from' : 'added to'} ${group.name}.`,
+                      )}
+                    />
+                    {client.name}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </fieldset>
+
+        <fieldset className="space-y-3">
+          <legend className="text-sm font-medium">Members</legend>
+          {members.length === 0 ? (
+            <p className="text-muted-foreground text-sm">No members yet.</p>
+          ) : (
+            <ul className="divide-border divide-y rounded-md border">
+              {members.map((member) => (
+                <li className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm" key={member.id}>
+                  <span>
+                    {member.name} <span className="text-muted-foreground">· {member.email}</span>
+                  </span>
+                  <Button type="button" variant="outline" disabled={busy} onClick={() => void run(
+                    () => fetchWrapper.delete(appPath(`/api/admin/groups/${group.id}/members/${member.id}`), {}),
+                    `${member.name} left ${group.name}.`,
+                  )}>
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form className="flex flex-wrap items-end gap-3" onSubmit={(event) => void addMember(event)}>
+            <div className="space-y-2">
+              <Label htmlFor={`group-candidate-${group.id}`}>Add a person</Label>
+              <select
+                id={`group-candidate-${group.id}`}
+                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+                value={candidate}
+                onChange={(event) => setCandidate(event.target.value)}
+              >
+                <option value="">Choose a person</option>
+                {candidates.map((user) => (
+                  <option key={user.id} value={String(user.id)}>{user.name} ({user.email})</option>
+                ))}
+              </select>
+            </div>
+            <Button type="submit" variant="outline" disabled={busy || candidate === ''}>Add to group</Button>
+          </form>
+        </fieldset>
+
+        <div className="border-destructive/40 flex flex-wrap items-center justify-between gap-3 rounded-md border p-4">
+          <p className="text-muted-foreground max-w-2xl text-xs">
+            Deleting the group keeps its members' accounts and direct grants.
+          </p>
+          <Button type="button" variant="destructive" disabled={busy} onClick={() => void deleteGroup()}>
+            Delete group
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function DirectoryAdminPage() {
   const [data, setData] = useState<DirectoryResponse>({ users: [], clients: [] });
+  const [groups, setGroups] = useState<AccessGroup[]>([]);
+  const [groupName, setGroupName] = useState('');
+  const [groupDescription, setGroupDescription] = useState('');
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -316,8 +516,12 @@ function DirectoryAdminPage() {
   const [confirming, setConfirming] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
-    const response = await fetchWrapper.get(appPath('/api/admin/users')) as DirectoryResponse;
+    const [response, groupResponse] = await Promise.all([
+      fetchWrapper.get(appPath('/api/admin/users')) as Promise<DirectoryResponse>,
+      fetchWrapper.get(appPath('/api/admin/groups')) as Promise<GroupsResponse>,
+    ]);
     setData(response);
+    setGroups(groupResponse.groups);
   }, []);
 
   useEffect(() => {
@@ -378,6 +582,31 @@ function DirectoryAdminPage() {
       setCreating(false);
     }
   }
+
+  async function createGroup(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setCreatingGroup(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await fetchWrapper.post(appPath('/api/admin/groups'), {
+        name: groupName,
+        description: groupDescription.trim() === '' ? null : groupDescription,
+      });
+      setGroupName('');
+      setGroupDescription('');
+      await changed('The group was created. Add applications and members to grant access.');
+    } catch (caught) {
+      setError(errorText(caught));
+    } finally {
+      setCreatingGroup(false);
+    }
+  }
+
+  const reportError = (nextError: string): void => {
+    setMessage(null);
+    setError(nextError);
+  };
 
   if (loading) {
     return <main className="mx-auto max-w-6xl px-4 py-10">Loading directory…</main>;
@@ -485,6 +714,39 @@ function DirectoryAdminPage() {
       </Card>
 
       <section className="space-y-4">
+        <div>
+          <h2 className="text-2xl font-semibold">Groups</h2>
+          <p className="text-muted-foreground mt-1 max-w-3xl text-sm">
+            A group grants its applications to every member. It decides who can sign in, never what they can do inside an application.
+          </p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Create a group</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => void createGroup(event)}>
+              <div className="space-y-2">
+                <Label htmlFor="new-group-name">Group name</Label>
+                <Input id="new-group-name" value={groupName} maxLength={100} onChange={(event) => setGroupName(event.target.value)} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-group-description">Description</Label>
+                <Input id="new-group-description" value={groupDescription} maxLength={500}
+                  onChange={(event) => setGroupDescription(event.target.value)} />
+              </div>
+              <Button className="self-end" type="submit" disabled={creatingGroup || groupName.trim() === ''}>
+                {creatingGroup ? 'Creating…' : 'Create group'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+        {groups.map((group) => (
+          <GroupCard key={group.id} group={group} users={data.users} clients={data.clients} onChanged={changed} onError={reportError} />
+        ))}
+      </section>
+
+      <section className="space-y-4">
         <h2 className="text-2xl font-semibold">People</h2>
         {data.users.length === 0 ? (
           <p className="text-muted-foreground">No provider accounts exist.</p>
@@ -493,11 +755,9 @@ function DirectoryAdminPage() {
             key={user.id}
             user={user}
             clients={data.clients}
+            groups={groups}
             onChanged={changed}
-            onError={(nextError) => {
-              setMessage(null);
-              setError(nextError);
-            }}
+            onError={reportError}
           />
         ))}
       </section>
