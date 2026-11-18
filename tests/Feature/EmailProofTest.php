@@ -72,26 +72,18 @@ final class EmailProofTest extends TestCase
         $this->identityFor($user)->assertOk()->assertJsonMissingPath('email_verified');
     }
 
-    public function test_a_verified_emailed_code_proves_the_address(): void
+    public function test_a_verified_emailed_code_does_not_yet_prove_the_address(): void
     {
+        // The attempt records no destination, so a challenge raced with an address change could
+        // have mailed the former address; a code sign-in proves nothing until it does.
         $user = $this->person(verified: false);
         $token = $this->postJson('/login/email-code', ['email' => $user->email])->json('attempt_token');
 
         $this->postJson('/api/auth/two-factor/verify', ['attempt_token' => $token, 'code' => TwoFactorAttempt::where('token', $token)->value('code')])->assertOk();
 
-        $this->assertNotNull($user->fresh()->email_verified_at);
-        $this->identityFor($user->fresh())->assertJsonPath('email_verified', true);
-    }
-
-    public function test_a_wrong_code_proves_nothing(): void
-    {
-        $user = $this->person(verified: false);
-        $token = $this->postJson('/login/email-code', ['email' => $user->email])->json('attempt_token');
-        $code = (string) TwoFactorAttempt::where('token', $token)->value('code');
-
-        $this->postJson('/api/auth/two-factor/verify', ['attempt_token' => $token, 'code' => $code === '000000' ? '111111' : '000000']);
-
+        $this->assertAuthenticatedAs($user);
         $this->assertNull($user->fresh()->email_verified_at);
+        $this->identityFor($user->fresh())->assertJsonMissingPath('email_verified');
     }
 
     public function test_a_password_alone_proves_nothing(): void
@@ -105,7 +97,7 @@ final class EmailProofTest extends TestCase
         $this->assertNull($user->fresh()->email_verified_at);
     }
 
-    public function test_a_code_mailed_before_an_address_change_neither_finishes_nor_proves_the_new_address(): void
+    public function test_an_address_change_withdraws_codes_mailed_to_the_former_address(): void
     {
         $user = $this->person(verified: false);
         $token = $this->postJson('/login/email-code', ['email' => $user->email])->json('attempt_token');

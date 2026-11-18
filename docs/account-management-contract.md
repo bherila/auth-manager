@@ -221,12 +221,15 @@ client validates and preserves it as the session's immutable login generation.
 It also carries `email_verified: true` while the person has proven they receive
 mail at the account's current address, and omits the claim otherwise; it never
 sends `false`. Proof is recorded when a secret mailed to that address is
-presented: a verified emailed sign-in code, a completed password reset, or an
-accepted invitation opened from its emailed link. It is bound to the address.
-Changing an account's address clears proof and withdraws every code and reset
-link still outstanding for the former address, and proof is written only while
-the account still has the address the secret was mailed to. A password or a
-passkey alone proves nothing about the mailbox. Accounts created by an
+presented and the secret is bound to the address it went to: a completed
+password reset (its token is keyed by the address), or an accepted invitation
+opened from its emailed link. Changing an account's address clears proof and
+withdraws every code and reset link still outstanding for the former address,
+and proof is written only while the account still has the address the secret
+was mailed to. A verified sign-in code does not yet count: its attempt does not
+record where the code was mailed, so a challenge created while an administrator
+changes the address could have reached the former one. A password or a passkey
+alone proves nothing about the mailbox. Accounts created by an
 administrator, or imported, start unproven unless their source recorded proof;
 an imported `email_verified_at` is only as trustworthy as the system it came
 from. A consumer that keys provisioning, invitations or notifications on the
