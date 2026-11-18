@@ -73,6 +73,15 @@ return [
         'trusted_devices' => $signInSetting('AUTH_MANAGER_ALLOW_TRUSTED_DEVICES', false),
         'trusted_device_days' => $trustedDeviceDays,
     ],
+    // Identity-status and tombstone reads by relying applications. Every consumer behind one
+    // egress IP shares the per-IP budget, so it only bounds unauthenticated traffic; each
+    // authenticated client then has its own budget per operation, so one busy or broken
+    // consumer cannot starve another's status checks.
+    'reconciliation' => [
+        'per_ip_per_minute' => max(1, (int) env('AUTH_MANAGER_RECONCILIATION_PER_IP_PER_MINUTE', 600)),
+        'status_per_client_per_minute' => max(1, (int) env('AUTH_MANAGER_RECONCILIATION_STATUS_PER_CLIENT_PER_MINUTE', 300)),
+        'tombstones_per_client_per_minute' => max(1, (int) env('AUTH_MANAGER_RECONCILIATION_TOMBSTONES_PER_CLIENT_PER_MINUTE', 120)),
+    ],
     'profile' => $profile->value,
     'issuer' => $issuer,
     'resource' => $resource,
