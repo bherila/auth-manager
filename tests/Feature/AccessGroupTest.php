@@ -185,7 +185,7 @@ class AccessGroupTest extends TestCase
     public function test_test_logins_revoked_applications_and_duplicate_names_are_refused(): void
     {
         $group = $this->group('Staff');
-        $synthetic = User::factory()->create(['user_role' => 'user']);
+        $synthetic = User::factory()->make(['email' => 'synthetic@example.test', 'user_role' => 'user']);
         $synthetic->forceFill(['is_test_login' => true, 'test_login_expires_at' => now()->addHour()])->save();
         $revoked = $this->client('Retired Application', revoked: true);
 
