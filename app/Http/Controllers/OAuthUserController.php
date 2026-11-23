@@ -3,6 +3,7 @@
 namespace BWH\AuthManager\Http\Controllers;
 
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\RecoveryHighWater;
 use BWH\AuthManager\Support\RelyingApplications;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -12,7 +13,7 @@ use Laravel\Passport\Passport;
 
 class OAuthUserController extends Controller
 {
-    public function __construct(private readonly RelyingApplications $applications) {}
+    public function __construct(private readonly RelyingApplications $applications, private readonly RecoveryHighWater $recovery) {}
 
     public function __invoke(Request $request): JsonResponse
     {
@@ -34,6 +35,9 @@ class OAuthUserController extends Controller
             'sub' => $user->providerSubject(),
             // Always preserve the authenticated token's generation, never adopt a reset.
             'credential_version' => $generation,
+            // Raised by the operator after restoring the database (docs/recovery.md). A consumer
+            // records it with the session and treats a later, higher one as a reason to end it.
+            'recovery_epoch' => $this->recovery->epoch(),
             'name' => $user->name,
             'email' => $user->email,
             // Present only as true, while the person has proven they receive mail at this

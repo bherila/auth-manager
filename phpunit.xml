@@ -42,5 +42,8 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Every test starts from an empty audit log, so a high-water file shared between tests would
+             look like a restore. Tests of the guard turn it on with a file of their own. -->
+        <env name="AUTH_MANAGER_RECOVERY_HIGH_WATER_GUARD" value="false"/>
     </php>
 </phpunit>

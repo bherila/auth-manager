@@ -60,8 +60,30 @@ if ($testLoginHours === false) {
     throw new InvalidArgumentException('AUTH_MANAGER_TEST_LOGIN_MAX_HOURS must be an integer from 1 to 168.');
 }
 
+// Raised by the operator after restoring the database from a backup (docs/recovery.md). Sent to
+// relying applications with every identity, so a consumer can tell that the provider's state was
+// rolled back and stop trusting sessions it established before.
+$recoveryEpoch = filter_var(env('AUTH_MANAGER_RECOVERY_EPOCH', 1), FILTER_VALIDATE_INT, [
+    'options' => ['min_range' => 1],
+]);
+if ($recoveryEpoch === false) {
+    throw new InvalidArgumentException('AUTH_MANAGER_RECOVERY_EPOCH must be a positive integer.');
+}
+$highWaterPath = env('AUTH_MANAGER_RECOVERY_HIGH_WATER_PATH', storage_path('app/private/auth-manager/recovery-high-water.json'));
+if (! is_string($highWaterPath) || $highWaterPath === '' || preg_match('#^(/|[A-Za-z]:[\\\\/])#', $highWaterPath) !== 1) {
+    throw new InvalidArgumentException('AUTH_MANAGER_RECOVERY_HIGH_WATER_PATH must be an absolute file path.');
+}
+
 return [
     'password_min_length' => $passwordMinLength,
+    'recovery' => [
+        'epoch' => $recoveryEpoch,
+        // Answer identity status with a retryable 503 while the database is behind the highest
+        // audit record this instance has seen, until the operator raises the epoch.
+        'high_water_guard' => $signInSetting('AUTH_MANAGER_RECOVERY_HIGH_WATER_GUARD', true),
+        // Must survive a database restore: never inside the database or anything restored with it.
+        'high_water_path' => $highWaterPath,
+    ],
     'test_logins' => [
         'allowed_domains' => TestLoginAddresses::configuredDomains((string) env('AUTH_MANAGER_TEST_LOGIN_DOMAINS', '')),
         'max_lifetime_hours' => $testLoginHours,
