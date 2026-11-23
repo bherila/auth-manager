@@ -30,9 +30,9 @@
         "bwh-auth": "https://github.com/bherila/auth-react/releases/download/bwh-auth-v0.6.5/bwh-auth-0.6.5.tgz",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
-        "lucide-react": "^1.73.0",
+        "lucide-react": "^1.77.0",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",
-        "tailwind-merge": "^3.7.0"
+        "tailwind-merge": "^3.7.1"
     }
 }
