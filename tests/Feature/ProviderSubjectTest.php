@@ -27,7 +27,7 @@ class ProviderSubjectTest extends TestCase
 
     private const STATUS = '/api/reconciliation/identity-status';
 
-    /** A synthetic ULID-shaped subject, unrelated to any id. */
+    /** A synthetic opaque subject, unrelated to any id. */
     private const OPAQUE = '01JSYNTHETICSUBJECTAAAAAAA';
 
     public function test_a_new_account_is_known_by_its_own_id_and_its_subject_never_changes(): void
@@ -40,6 +40,39 @@ class ProviderSubjectTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $user->forceFill(['subject' => 'SomethingElse1'])->save();
+    }
+
+    public function test_opaque_subjects_are_off_by_default_and_give_new_accounts_a_random_ulid_when_on(): void
+    {
+        $this->assertFalse(config('auth-manager.subjects.opaque'));
+        $before = User::factory()->create(['user_role' => 'user']);
+        $this->assertSame((string) $before->id, $before->providerSubject());
+
+        config(['auth-manager.subjects.opaque' => true]);
+        $first = User::factory()->create(['user_role' => 'user']);
+        $second = User::factory()->create(['user_role' => 'user']);
+        foreach ([$first, $second] as $user) {
+            $this->assertMatchesRegularExpression('/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/D', $user->providerSubject());
+            $this->assertTrue(Str::isUlid($user->providerSubject()));
+            $this->assertNotSame((string) $user->id, $user->providerSubject());
+            $this->assertSame($user->providerSubject(), DB::table('users')->where('id', $user->id)->value('subject'));
+        }
+        $this->assertNotSame($first->providerSubject(), $second->providerSubject());
+        // Existing accounts keep theirs, and a carried subject is still kept.
+        $this->assertSame((string) $before->id, $before->fresh()->providerSubject());
+        $this->assertSame(self::OPAQUE, User::factory()->create(['subject' => self::OPAQUE])->providerSubject());
+
+        // The ULID is what every edge sends and what identity status finds.
+        $client = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Example Application', ['https://app.example.test/oauth/callback']);
+        app(OAuthClientGrantService::class)->grant((string) $first->id, (string) $client->id);
+        $this->withBasicAuth((string) $client->id, (string) $client->plainSecret);
+        $this->postJson(self::STATUS, ['subject' => $first->providerSubject()])->assertOk()
+            ->assertJsonPath('active', true)->assertJsonPath('subject', $first->providerSubject());
+        $this->postJson(self::STATUS, ['subject' => (string) $first->id])->assertOk()->assertJsonPath('active', false);
+
+        config(['auth-manager.subjects.opaque' => false]);
+        $after = User::factory()->create();
+        $this->assertSame((string) $after->id, $after->providerSubject());
     }
 
     public function test_an_account_written_without_a_subject_is_still_known_by_its_id(): void

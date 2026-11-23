@@ -76,6 +76,12 @@ if (! is_string($highWaterPath) || $highWaterPath === '' || preg_match('#^(/|[A-
 
 return [
     'password_min_length' => $passwordMinLength,
+    // New accounts get a random ULID as their subject instead of their id (docs/identity-subjects.md).
+    // Turn on only once every application signing in through this instance accepts non-numeric
+    // subjects. Existing accounts keep theirs either way.
+    'subjects' => [
+        'opaque' => $signInSetting('AUTH_MANAGER_OPAQUE_SUBJECTS', false),
+    ],
     'recovery' => [
         'epoch' => $recoveryEpoch,
         // Answer identity status with a retryable 503 while the database is behind the highest

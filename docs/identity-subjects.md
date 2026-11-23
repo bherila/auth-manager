@@ -34,9 +34,25 @@ The account is inserted and its subject issued in one transaction (`User::perfor
 - A subject carried from another instance (a directory archive, an identity copy, a legacy import)
   is kept. It is refused, and nothing is written, if another account holds it or a deleted identity
   held it.
-- Otherwise the instance's generator decides (`ProviderSubjects::forNewAccount()`). Without one the
-  account takes its own id, as before.
+- Otherwise, with [opaque subjects](#opaque-subjects) on, it gets a random ULID; with them off it
+  takes its own id, as before.
 - A subject a tombstone records is never issued again, and a subject never changes once issued.
+
+## Opaque subjects
+
+`AUTH_MANAGER_OPAQUE_SUBJECTS` (default `false`) is set per instance. When it is on, every account
+created from then on gets a random [ULID](https://github.com/ulid/spec) as its subject: 26
+characters of Crockford base32, for example `01JD3Q4ZK8V5W6X7Y8Z9ABCDEF`. It is never derived from
+the row id, so restoring or copying the database, which can hand out an id again, cannot hand out a
+subject again. When it is off, a new account takes its own id, as before. Accounts that already
+exist keep their subject either way, and turning the setting off again changes nothing already
+issued.
+
+Turn it on for an instance only after every application signing in through it runs the
+`bherila/auth-laravel` release that accepts non-numeric subjects (the sign-in identity, identity
+status, delegated access and application invitations). An application that still requires a
+numeric subject would refuse every person created afterwards. An identity copy cannot carry an
+opaque subject; use the directory archive to move such accounts.
 
 ## Rollout
 

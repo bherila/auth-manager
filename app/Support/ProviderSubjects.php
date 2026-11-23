@@ -4,6 +4,7 @@ namespace BWH\AuthManager\Support;
 
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * The subject this provider sends to relying applications: `users.subject`, never the row id.
@@ -45,10 +46,21 @@ final class ProviderSubjects
     /**
      * The subject a new account receives before it is inserted, or null when it takes its own id
      * once the row exists.
+     *
+     * With opaque subjects on, a random ULID: 26 characters, never derived from the id, so a
+     * restored or copied database that reissues an id cannot reissue a subject with it. A ULID
+     * that happened to be all digits would read as somebody's id, so it is drawn again.
      */
     public function forNewAccount(): ?string
     {
-        return null;
+        if (! (bool) config('auth-manager.subjects.opaque', false)) {
+            return null;
+        }
+        do {
+            $subject = (string) Str::ulid();
+        } while (self::numeric($subject));
+
+        return $subject;
     }
 
     /**
