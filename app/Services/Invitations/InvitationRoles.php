@@ -98,7 +98,7 @@ final class InvitationRoles
             return $notApplied('roles_not_offered');
         }
 
-        $subject = (string) $person->getKey();
+        $subject = $person->providerSubject();
         $state = $this->transport->sendForInvitation($inviter, $recorded, $application, ['operation' => 'read', 'subject' => $subject]);
         if (! $this->contract->fitsCapabilities($capabilities, $state)) {
             return $notApplied('invalid_response');

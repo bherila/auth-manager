@@ -29,10 +29,9 @@ class OAuthUserController extends Controller
         $user = User::query()->find($authenticated->getAuthIdentifier());
         abort_unless($user instanceof User && $user->canLogin() && $generation === (int) $user->credential_version, 401);
 
-        $subject = (string) $user->getKey();
-
         return response()->json([
-            'sub' => $subject,
+            // The account's subject column, never its row id (docs/identity-subjects.md).
+            'sub' => $user->providerSubject(),
             // Always preserve the authenticated token's generation, never adopt a reset.
             'credential_version' => $generation,
             'name' => $user->name,
@@ -46,7 +45,7 @@ class OAuthUserController extends Controller
             // than from an endpoint of its own so a relying application can cache it in the
             // session it is already establishing, and never has to call back here to render
             // a page. Older clients ignore the key.
-            'apps' => $this->applications->forSubject($subject),
+            'apps' => $this->applications->forSubject((string) $user->getKey()),
             // How the person authenticated when this token's grant began. Absent when unknown.
             ...$this->authenticationContext($token),
         ])->header('Cache-Control', 'private, no-store');

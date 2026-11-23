@@ -389,6 +389,82 @@ class DirectoryCopyTest extends TestCase
         $this->assertSame(1, DB::table('webauthn_credentials')->count());
     }
 
+    public function test_version_3_carries_subjects_and_the_target_never_reissues_a_tombstoned_one(): void
+    {
+        User::factory()->create(['id' => 31, 'subject' => '01JSYNTHETICSUBJECTBBBBBBB']);
+        User::factory()->create(['id' => 32]);
+        DB::table('identity_tombstones')->insert(['id' => 6, 'public_id' => (string) Str::uuid(), 'subject' => 40, 'provider_subject' => 'SyntheticGone01', 'tombstoned_at' => now(), 'purge_after' => now()->addMonth(), 'created_at' => now(), 'updated_at' => now()]);
+        $archive = $this->archive();
+        $this->assertSame(3, json_decode(DirectoryArchive::encode(app(DirectoryTransfer::class)->snapshot()), true)['version']);
+        $this->target();
+
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
+
+        $this->assertSame('01JSYNTHETICSUBJECTBBBBBBB', User::findOrFail(31)->providerSubject());
+        $this->assertSame('32', DB::table('users')->where('id', 32)->value('subject'));
+        $this->assertSame('SyntheticGone01', DB::table('identity_tombstones')->value('provider_subject'));
+        $this->expectException(\RuntimeException::class);
+        User::factory()->create(['subject' => 'SyntheticGone01']);
+    }
+
+    public function test_an_archive_that_would_reissue_a_used_or_tombstoned_subject_is_refused(): void
+    {
+        User::factory()->create(['id' => 33, 'subject' => '01JSYNTHETICSUBJECTCCCCCCC']);
+        User::factory()->create(['id' => 34]);
+        User::factory()->create(['id' => 35, 'deleted_at' => now()]);
+        DB::table('identity_tombstones')->insert(['id' => 7, 'public_id' => (string) Str::uuid(), 'subject' => 35, 'tombstoned_at' => now(), 'purge_after' => now()->addMonth(), 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('identity_tombstones')->insert(['id' => 8, 'public_id' => (string) Str::uuid(), 'subject' => 41, 'provider_subject' => 'SyntheticGone02', 'tombstoned_at' => now(), 'purge_after' => now()->addMonth(), 'created_at' => now(), 'updated_at' => now()]);
+        $snapshot = app(DirectoryTransfer::class)->snapshot();
+        // A deleted account awaiting purge and its own tombstone legitimately share a subject.
+        $this->target();
+        $this->assertSame(3, app(DirectoryTransfer::class)->import(hash('sha256', 'synthetic-valid'), $snapshot, false)['users']);
+
+        $tampered = [
+            'already in use' => [1, '01JSYNTHETICSUBJECTCCCCCCC', 'already in use'],
+            'tombstoned' => [1, 'SyntheticGone02', 'already in use'],
+            'another account\'s id' => [0, '35', 'invalid subject'],
+            'all digits but not its own id' => [1, '33', 'invalid subject'],
+            'not a subject' => [0, 'has-a-dash', 'invalid subject'],
+        ];
+        foreach ($tampered as $case => [$row, $subject, $message]) {
+            $payload = $snapshot;
+            $payload['tables']['users'][$row]['subject'] = base64_encode($subject);
+            try {
+                app(DirectoryTransfer::class)->import(hash('sha256', $case), $payload, false);
+                $this->fail("An archive whose subject is {$case} was accepted.");
+            } catch (\InvalidArgumentException $refusal) {
+                $this->assertStringContainsString($message, $refusal->getMessage(), $case);
+            }
+        }
+        $this->assertSame(0, DB::table('users')->count());
+    }
+
+    public function test_a_version_2_archive_still_imports_with_every_subject_its_id(): void
+    {
+        User::factory()->create(['id' => 36]);
+        DB::table('identity_tombstones')->insert(['id' => 9, 'public_id' => (string) Str::uuid(), 'subject' => 42, 'tombstoned_at' => now(), 'purge_after' => now()->addMonth(), 'created_at' => now(), 'updated_at' => now()]);
+        $payload = app(DirectoryTransfer::class)->snapshot();
+        foreach ($payload['tables']['users'] as &$row) {
+            unset($row['subject']);
+        }
+        unset($row);
+        foreach ($payload['tables']['identity_tombstones'] as &$row) {
+            unset($row['provider_subject']);
+        }
+        unset($row);
+        $bytes = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        $version2 = json_encode(['format' => DirectoryArchive::FORMAT, 'version' => 2, 'sha256' => hash('sha256', $bytes), 'payload' => base64_encode($bytes)], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        $archive = DirectoryArchive::decode($version2);
+        $this->target();
+
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
+
+        $this->assertSame('36', DB::table('users')->where('id', 36)->value('subject'));
+        $this->assertSame('42', DB::table('identity_tombstones')->value('provider_subject'));
+        $this->expectException(\InvalidArgumentException::class);
+        DirectoryArchive::decode(str_replace('"version":2', '"version":1', $version2));
+    }
+
     /** @return array{checksum: string, payload: array<string, mixed>} */
     private function archive(): array
     {

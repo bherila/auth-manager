@@ -280,6 +280,17 @@ class ApplicationInvitationTest extends TestCase
         $this->assertSame(1, AccessInvitation::query()->count());
     }
 
+    public function test_the_actor_is_named_by_their_subject_which_need_not_be_numeric(): void
+    {
+        $opaque = User::factory()->create(['name' => 'Opaque Manager', 'email' => 'opaque-manager@example.test', 'user_role' => 'user', 'subject' => '01JSYNTHETICACTORBBBBBBBBB']);
+        $this->grant($opaque, 'example-app');
+
+        // The row id is not this person's subject.
+        $this->create('person@example.test', actor: (string) $opaque->id)->assertForbidden()->assertJsonPath('error', 'actor_not_eligible');
+        $this->create('person@example.test', actor: '01JSYNTHETICACTORBBBBBBBBB')->assertCreated();
+        $this->assertSame($opaque->id, AccessInvitation::query()->sole()->inviter_id);
+    }
+
     public function test_used_assertion_ids_need_durable_storage(): void
     {
         // The default test connection is in-memory and inside the test's transaction.

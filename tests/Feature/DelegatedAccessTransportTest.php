@@ -147,6 +147,26 @@ class DelegatedAccessTransportTest extends TestCase
         $this->assertNull($unprovisioned['revision']);
     }
 
+    public function test_the_actor_assertion_names_the_actor_by_subject_not_row_id(): void
+    {
+        $subject = '01JSYNTHETICACTORAAAAAAAAA';
+        $actor = User::factory()->create(['user_role' => 'user,access-manage:example-app', 'subject' => $subject]);
+        DB::table('oauth_client_grants')->insert(['oauth_client_id' => $this->client->id, 'subject' => $actor->id, 'created_at' => now(), 'updated_at' => now()]);
+        $this->account($subject, false, ['workspace-a']);
+        $request = Request::create('/synthetic-delegated-ui', 'POST');
+        $request->setUserResolver(fn (): User => $actor);
+        $request->setLaravelSession(app('session.store'));
+        $request->session()->put(EnsureCredentialVersion::SESSION_KEY, 0);
+        RequireRecentPasskeyAuthentication::recordCredentialVerification($request);
+        $transport = app(DelegatedAccessTransport::class);
+
+        $read = $transport->send($request, 'example-app', ['operation' => 'read', 'subject' => 'target-a']);
+        $saved = $transport->send($request, 'example-app', $this->update($read['revision']));
+
+        // The reference application found the actor only because the assertion carried the subject.
+        $this->assertDatabaseHas('reference_access_audit', ['actor' => $subject, 'target' => 'target-a', 'revision' => $saved['revision']]);
+    }
+
     public function test_consumer_rejects_cross_workspace_and_provider_only_authority_and_bound_cursors(): void
     {
         $transport = app(DelegatedAccessTransport::class);

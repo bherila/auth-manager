@@ -60,7 +60,8 @@ assignments for that client:
 ```
 
 The subject is a string because it is the exact OAuth `sub` value applications
-already store. The feed contains no name, email address, credentials, grants,
+already store: the deleted account's `users.subject` ([provider subjects](identity-subjects.md)),
+which is not necessarily numeric. The feed contains no name, email address, credentials, grants,
 or application-owned data.
 
 When `has_more` is true, `next_cursor` is a non-null opaque string. The client

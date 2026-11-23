@@ -91,9 +91,10 @@ class AuthenticateApplicationInvitationRequest
         }
         $claims = $this->verifier()->verify($assertion, $clientId, $this->audience($request), $request->getContent(), $publicKeys);
 
-        $actor = User::query()->whereKey($claims['sub'])->first();
-        if (! $actor instanceof User || (string) $actor->getKey() !== $claims['sub'] || ! $actor->canLogin()
-            || ! $this->grants->allows($claims['sub'], $clientId)) {
+        // The assertion names the actor by the subject this provider issued; grants are keyed by id.
+        $actor = User::query()->whereProviderSubject($claims['sub'])->first();
+        if (! $actor instanceof User || ! hash_equals($actor->providerSubject(), $claims['sub']) || ! $actor->canLogin()
+            || ! $this->grants->allows((string) $actor->getKey(), $clientId)) {
             throw new ApplicationInvitationRefused('actor_not_eligible', 403, 'The actor cannot sign in to this application.');
         }
 

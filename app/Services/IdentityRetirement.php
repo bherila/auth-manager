@@ -28,6 +28,7 @@ final class IdentityRetirement
         $tombstone = IdentityTombstone::query()->create([
             'public_id' => (string) Str::uuid(),
             'subject' => (int) $locked->getKey(),
+            'provider_subject' => $locked->providerSubject(),
             'tombstoned_at' => $now,
             'purge_after' => $now->copy()->addDays(max(1, (int) config('identity-deletion.retention_days', 30))),
         ]);

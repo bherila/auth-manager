@@ -5,6 +5,7 @@ namespace BWH\AuthManager\Services\DirectoryCopy;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\IdentityCopy\TableSequence;
 use BWH\AuthManager\Support\Mount;
+use BWH\AuthManager\Support\ProviderSubjects;
 use Illuminate\Database\Connection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -16,7 +17,7 @@ final class DirectoryTransfer
 {
     /** No session, live OAuth credential, recovery token or APP_KEY material is included. */
     public const COLUMNS = [
-        'users' => ['id', 'name', 'email', 'email_verified_at', 'password', 'user_role', 'last_login_date', 'disabled_at', 'credential_version', 'deleted_at', 'created_at', 'updated_at'],
+        'users' => ['id', 'subject', 'name', 'email', 'email_verified_at', 'password', 'user_role', 'last_login_date', 'disabled_at', 'credential_version', 'deleted_at', 'created_at', 'updated_at'],
         'oauth_clients' => ['id', 'owner_type', 'owner_id', 'name', 'secret', 'provider', 'redirect_uris', 'grant_types', 'revoked', 'dynamically_registered_at', 'last_used_at', 'scopes', 'created_at', 'updated_at'],
         'passkeys' => ['id', 'user_id', 'credential_id', 'credential_id_hash', 'public_key', 'counter', 'aaguid', 'name', 'transports', 'last_used_at', 'rp_id', 'backup_eligible', 'created_at', 'updated_at'],
         'oauth_client_grants' => ['oauth_client_id', 'subject', 'direct', 'created_at', 'updated_at'],
@@ -26,7 +27,7 @@ final class DirectoryTransfer
         'registered_applications' => ['id', 'key', 'name', 'launch_url', 'enabled', 'created_at', 'updated_at'],
         'registered_application_clients' => ['id', 'registered_application_id', 'oauth_client_id'],
         'access_invitations' => ['id', 'application', 'email', 'email_normalized', 'token_hash', 'pending_key', 'inviter_id', 'inviter_credential_version', 'access', 'expires_at', 'last_sent_at', 'link_handed_over', 'send_count', 'revoked_at', 'revoked_by', 'accepted_at', 'accepted_user_id', 'roles_status', 'roles_outcome', 'roles_request_id', 'roles_operation_id', 'roles_checked_at', 'requesting_client_id', 'created_at', 'updated_at'],
-        'identity_tombstones' => ['id', 'public_id', 'subject', 'tombstoned_at', 'purge_after', 'provider_purged_at', 'purge_reason', 'unacknowledged_clients', 'created_at', 'updated_at'],
+        'identity_tombstones' => ['id', 'public_id', 'subject', 'provider_subject', 'tombstoned_at', 'purge_after', 'provider_purged_at', 'purge_reason', 'unacknowledged_clients', 'created_at', 'updated_at'],
         'identity_tombstone_clients' => ['id', 'identity_tombstone_id', 'oauth_client_id', 'oauth_client_name', 'acknowledged_at', 'created_at', 'updated_at'],
     ];
 
@@ -58,11 +59,20 @@ final class DirectoryTransfer
                 }
                 if ($name === 'users') {
                     foreach ($rows as &$row) {
+                        // An account the previous release created while the column was being
+                        // added is still known by its id.
+                        $row['subject'] ??= (string) $row['id'];
                         if ((password_get_info((string) $row['password'])['algoName'] ?? 'unknown') === 'unknown') {
                             // Unknown legacy material could even be plaintext. Carry only
                             // the need for recovery, never an unrecognized credential value.
                             $row['password'] = null;
                         }
+                    }
+                    unset($row);
+                }
+                if ($name === 'identity_tombstones') {
+                    foreach ($rows as &$row) {
+                        $row['provider_subject'] ??= (string) $row['subject'];
                     }
                     unset($row);
                 }
@@ -246,9 +256,43 @@ final class DirectoryTransfer
                 throw new InvalidArgumentException('Directory archive would reuse a tombstoned subject.');
             }
         }
+        $this->assertSubjects($tables);
         $this->assertReferences($tables, $payload['sequence_floors']['users']);
 
         return $tables;
+    }
+
+    /**
+     * Every subject is issued once. An account's subject is used by nobody else and was held by no
+     * deleted identity, except its own tombstone while the deleted account awaits purge. An
+     * all-digit subject is only ever the holder's own id, so an id allocated later can never
+     * produce it again. The target is fresh (assertFresh), so the archive is all there is to check.
+     *
+     * @param  array<string, list<array<string, string|null>>>  $tables
+     */
+    private function assertSubjects(array $tables): void
+    {
+        $retired = [];
+        foreach ($tables['identity_tombstones'] as $row) {
+            $subject = $row['provider_subject'];
+            if (! ProviderSubjects::valid($subject) || (ProviderSubjects::numeric($subject) && $subject !== (string) $row['subject'])
+                || isset($retired[$subject])) {
+                throw new InvalidArgumentException('Directory archive has an invalid or repeated tombstoned subject.');
+            }
+            $retired[$subject] = (string) $row['subject'];
+        }
+        $issued = [];
+        foreach ($tables['users'] as $row) {
+            $subject = $row['subject'];
+            if (! ProviderSubjects::valid($subject) || (ProviderSubjects::numeric($subject) && $subject !== (string) $row['id'])) {
+                throw new InvalidArgumentException('Directory archive has an invalid subject.');
+            }
+            $ownTombstone = isset($retired[$subject]) && $retired[$subject] === (string) $row['id'] && $row['deleted_at'] !== null;
+            if (isset($issued[$subject]) || (isset($retired[$subject]) && ! $ownTombstone)) {
+                throw new InvalidArgumentException('Directory archive would issue a subject that is already in use or was held by a deleted identity.');
+            }
+            $issued[$subject] = true;
+        }
     }
 
     /** @param array<string, mixed> $row @return array<string, mixed> */

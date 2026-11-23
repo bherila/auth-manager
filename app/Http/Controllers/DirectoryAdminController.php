@@ -157,7 +157,7 @@ class DirectoryAdminController extends Controller
         return response()->json([
             'tombstone' => [
                 'id' => $tombstone->public_id,
-                'subject' => (string) $tombstone->subject,
+                'subject' => $tombstone->providerSubject(),
                 'tombstoned_at' => $tombstone->tombstoned_at->toISOString(),
                 'purge_after' => $tombstone->purge_after->toISOString(),
                 'expected_application_count' => $tombstone->clients->count(),

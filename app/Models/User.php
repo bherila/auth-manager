@@ -3,12 +3,14 @@
 namespace BWH\AuthManager\Models;
 
 use BWH\AuthManager\Database\Factories\UserFactory;
+use BWH\AuthManager\Support\ProviderSubjects;
 use BWH\AuthManager\Support\TestLoginAddresses;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -18,6 +20,7 @@ use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
+use RuntimeException;
 
 #[Fillable(['name', 'email', 'password', 'user_role', 'disabled_at', 'last_login_date'])]
 #[Hidden(['password', 'remember_token', 'is_test_login', 'test_login_expires_at'])]
@@ -40,6 +43,11 @@ class User extends Authenticatable implements OAuthenticatable
             if ($user->isTestLogin() && $user->isDirty('email') && ! TestLoginAddresses::allows((string) $user->email)) {
                 throw ValidationException::withMessages(['email' => 'Test logins must keep an allowed synthetic email address.']);
             }
+            // Applications are bound to the subject; changing it would hand one person's
+            // bindings to whoever is given the old value, or detach them all.
+            if ($user->exists && $user->isDirty('subject') && $user->getOriginal('subject') !== null) {
+                throw new RuntimeException('A provider subject never changes once issued.');
+            }
         });
 
         // Reset tokens are found by address alone, so an outstanding link must not outlive the
@@ -50,6 +58,79 @@ class User extends Authenticatable implements OAuthenticatable
                     ->whereIn('email', [$user->getOriginal('email'), $user->email])
                     ->delete();
             }
+        });
+    }
+
+    /**
+     * The subject relying applications know this account by. Never the row id: a restore or a
+     * copy can reissue an id, and an opaque subject cannot be guessed from one. An account the
+     * previous release created while the column was being added has none yet and is still known
+     * by its id, exactly as before.
+     */
+    public function providerSubject(): string
+    {
+        $subject = $this->attributes['subject'] ?? null;
+
+        return is_string($subject) && $subject !== '' ? $subject : (string) $this->getKey();
+    }
+
+    /**
+     * Accounts holding exactly this subject. Callers compare providerSubject() afterwards, so a
+     * database's collation or numeric coercion can never stand in for an exact match.
+     *
+     * @param  Builder<User>  $query
+     */
+    public function scopeWhereProviderSubject(Builder $query, string $subject): void
+    {
+        if (! ProviderSubjects::valid($subject)) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+        $query->where(fn (Builder $inner) => $inner->where('subject', $subject)
+            ->when(ProviderSubjects::canonicalId($subject), fn (Builder $legacy) => $legacy
+                ->orWhere(fn (Builder $unassigned) => $unassigned->whereNull('subject')->whereKey((int) $subject))));
+    }
+
+    /**
+     * Insert the account and issue its subject in one transaction, so no account is ever left
+     * known by anything but the subject it was issued, and a refused subject leaves no row.
+     *
+     * A subject carried from another instance (set with forceFill) is kept; otherwise the
+     * instance's generator decides (ProviderSubjects::forNewAccount()), and without one the
+     * account takes its own id. Either way a subject a deleted identity held is refused, as is an
+     * all-digit subject other than the account's own id.
+     *
+     * @param  Builder<User>  $query
+     */
+    protected function performInsert(Builder $query): bool
+    {
+        return $this->getConnection()->transaction(function () use ($query): bool {
+            if (($this->attributes['subject'] ?? null) === '') {
+                $this->attributes['subject'] = null;
+            }
+            $this->attributes['subject'] ??= app(ProviderSubjects::class)->forNewAccount();
+            $subject = $this->attributes['subject'] ?? null;
+            if ($subject !== null && (! ProviderSubjects::valid($subject) || app(ProviderSubjects::class)->retired($subject, $this->getConnection()))) {
+                throw new RuntimeException('That provider subject cannot be issued.');
+            }
+
+            if (! parent::performInsert($query)) {
+                return false;
+            }
+
+            $own = (string) $this->getKey();
+            if ($subject === null) {
+                if (app(ProviderSubjects::class)->retired($own, $this->getConnection())) {
+                    throw new RuntimeException('This account\'s id was issued to a deleted identity; it cannot be a subject again.');
+                }
+                $this->newQueryWithoutScopes()->toBase()->where($this->getKeyName(), $this->getKey())->update(['subject' => $own]);
+                $this->attributes['subject'] = $own;
+            } elseif (ProviderSubjects::numeric($subject) && $subject !== $own) {
+                throw new RuntimeException('An all-digit provider subject must be the account\'s own id.');
+            }
+
+            return true;
         });
     }
 

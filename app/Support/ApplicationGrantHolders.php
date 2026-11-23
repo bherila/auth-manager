@@ -60,7 +60,7 @@ final class ApplicationGrantHolders
         $people = [];
         foreach ($users->take(self::PAGE_SIZE) as $user) {
             if ($user->canLogin()) {
-                $people[] = ['subject' => (string) $user->getKey(), 'name' => (string) $user->name, 'email' => (string) $user->email];
+                $people[] = ['subject' => $user->providerSubject(), 'name' => (string) $user->name, 'email' => (string) $user->email];
             }
         }
 
@@ -76,15 +76,15 @@ final class ApplicationGrantHolders
     public function person(RegisteredApplication $application, string $subject): ?User
     {
         $clientIds = $this->clientIds($application);
-        if ($clientIds === [] || ! ctype_digit($subject)) {
+        if ($clientIds === []) {
             return null;
         }
 
-        $user = $this->holders($clientIds)->whereKey((int) $subject)->first();
+        $user = $this->holders($clientIds)->whereProviderSubject($subject)->first();
 
-        // Only the subject this provider issues. "001" finds user 1 too, and the application would
-        // bind an account to a subject no sign-in ever presents.
-        return $user instanceof User && (string) $user->getKey() === $subject && $user->canLogin() ? $user : null;
+        // Only the exact subject this provider issues: the application would bind an account to
+        // whatever it is sent, and a value no sign-in ever presents binds nobody.
+        return $user instanceof User && hash_equals($user->providerSubject(), $subject) && $user->canLogin() ? $user : null;
     }
 
     /**

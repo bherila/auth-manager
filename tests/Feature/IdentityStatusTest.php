@@ -171,10 +171,18 @@ class IdentityStatusTest extends TestCase
                 $subjectQueries[] = $query->sql;
             }
         });
-        foreach (['unknown-subject', '1suffix', '01', '0', '-1', '1.0', '1e0', ' 1 ', '9223372036854775808', str_repeat('9', 255)] as $subject) {
+        foreach (['unknown-subject', '01', '0', '-1', '1.0', '1e0', ' 1 ', '9223372036854775808', str_repeat('9', 255), str_repeat('x', 65)] as $subject) {
             $this->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson(['contract_version' => 1, 'active' => false]);
         }
         $this->assertSame([], $subjectQueries);
+
+        // An opaque subject is looked up by the text subject column only, never by the bigint id.
+        $this->postJson(self::ENDPOINT, ['subject' => '1suffix'])->assertOk()->assertExactJson(['contract_version' => 1, 'active' => false]);
+        $this->assertNotSame([], $subjectQueries);
+        foreach ($subjectQueries as $sql) {
+            $this->assertStringNotContainsString('"users"."id"', $sql);
+            $this->assertStringNotContainsString('oauth_client_grants', $sql);
+        }
     }
 
     private function attachToken(User $user, int $generation): void

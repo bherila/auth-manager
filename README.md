@@ -43,7 +43,8 @@ of their groups still grants it.
 
 The relying-application contract for deletion feeds, acknowledgements, and the
 30-day provider retention rule is documented in
-[`docs/identity-deletion.md`](docs/identity-deletion.md).
+[`docs/identity-deletion.md`](docs/identity-deletion.md). What a subject is, and how one
+is never issued twice, is in [`docs/identity-subjects.md`](docs/identity-subjects.md).
 
 ## Stack
 

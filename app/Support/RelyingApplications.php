@@ -11,7 +11,8 @@ use Illuminate\Support\Str;
 class RelyingApplications
 {
     /**
-     * Applications the given subject may use, in display order.
+     * Applications the given account may use, in display order. Grants are keyed by the
+     * account's row id (`oauth_client_grants.subject`), not by the subject sent to applications.
      *
      * @return list<array{key: string, name: string, url: string}>
      */
