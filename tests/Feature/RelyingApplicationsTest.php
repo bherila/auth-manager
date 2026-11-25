@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use BWH\AuthManager\Http\Controllers\OAuthUserController;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\RecoveryHighWater;
 use BWH\AuthManager\Support\RelyingApplications;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -131,7 +132,7 @@ class RelyingApplicationsTest extends TestCase
 
         // Invoked directly rather than over HTTP: the route is guarded by `auth:api`, and
         // standing up Passport's signing keys would test its crypto rather than this payload.
-        $payload = (new OAuthUserController(new RelyingApplications))($request)->getData(true);
+        $payload = (new OAuthUserController(new RelyingApplications, app(RecoveryHighWater::class)))($request)->getData(true);
 
         $this->assertSame((string) $user->getKey(), $payload['sub']);
         $this->assertSame(

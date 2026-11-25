@@ -171,13 +171,16 @@ class IdentityStatusTest extends TestCase
                 $subjectQueries[] = $query->sql;
             }
         });
-        foreach (['unknown-subject', '01', '0', '-1', '1.0', '1e0', ' 1 ', '9223372036854775808', str_repeat('9', 255), str_repeat('x', 65)] as $subject) {
+        foreach (['unknown-subject', '01', '0', '-1', '1.0', ' 1 ', '9223372036854775808', str_repeat('9', 255), str_repeat('x', 65)] as $subject) {
             $this->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson(['contract_version' => 1, 'active' => false, 'recovery_epoch' => 1]);
         }
         $this->assertSame([], $subjectQueries);
 
-        // An opaque subject is looked up by the text subject column only, never by the bigint id.
-        $this->postJson(self::ENDPOINT, ['subject' => '1suffix'])->assertOk()->assertExactJson(['contract_version' => 1, 'active' => false, 'recovery_epoch' => 1]);
+        // An opaque subject, including one that reads as a number elsewhere ('1e0'), is looked up
+        // by the text subject column only, never by the bigint id.
+        foreach (['1suffix', '1e0'] as $subject) {
+            $this->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson(['contract_version' => 1, 'active' => false, 'recovery_epoch' => 1]);
+        }
         $this->assertNotSame([], $subjectQueries);
         foreach ($subjectQueries as $sql) {
             $this->assertStringNotContainsString('"users"."id"', $sql);
