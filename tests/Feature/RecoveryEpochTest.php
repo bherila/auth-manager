@@ -91,12 +91,19 @@ class RecoveryEpochTest extends TestCase
                 ->assertHeader('Retry-After', '60')->assertHeader('Cache-Control', 'no-store, private')
                 ->assertJsonMissingPath('active')->assertJsonMissingPath('recovery_epoch');
         }
-        $this->assertSame(['epoch' => 1, 'high_water' => $highest], $this->recorded());
+        $this->assertSame(['epoch' => 1, 'high_water' => $highest, 'rolled_back' => true], $this->recorded());
+
+        // New sign-ins carry the restored log back to the mark and past it: the rollback stays declared.
+        $this->audit(4);
+        $this->assertGreaterThan($highest, (int) DB::table('auth_audit_log')->max('id'));
+        $this->postJson(self::STATUS, ['subject' => $this->user->providerSubject()])->assertStatus(503);
+        $this->assertSame(['epoch' => 1, 'high_water' => $highest, 'rolled_back' => true], $this->recorded());
+        $highest = (int) DB::table('auth_audit_log')->max('id');
 
         // Raising the epoch is the operator's declaration; it starts a new record.
         $this->guard(epoch: 2);
         $this->postJson(self::STATUS, ['subject' => $this->user->providerSubject()])->assertOk()->assertJsonPath('recovery_epoch', 2);
-        $this->assertSame(['epoch' => 2, 'high_water' => $highest - 2], $this->recorded());
+        $this->assertSame(['epoch' => 2, 'high_water' => $highest], $this->recorded());
 
         // A configuration that lowers the epoch again is refused too.
         $this->guard(epoch: 1);
@@ -115,7 +122,7 @@ class RecoveryEpochTest extends TestCase
         $this->postJson(self::STATUS, ['subject' => $this->user->providerSubject()])->assertOk()->assertJsonPath('active', true);
 
         config(['auth-manager.recovery.high_water_guard' => true]);
-        foreach (['not json', '{"epoch":1}', '{"epoch":"1","high_water":1}', '{"epoch":0,"high_water":1}'] as $malformed) {
+        foreach (['not json', '{"epoch":1}', '{"epoch":"1","high_water":1}', '{"epoch":1,"high_water":1,"rolled_back":false}', '{"epoch":0,"high_water":1}'] as $malformed) {
             file_put_contents($this->highWater, $malformed);
             $this->postJson(self::STATUS, ['subject' => $this->user->providerSubject()])->assertStatus(503);
         }

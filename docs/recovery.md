@@ -29,8 +29,10 @@ compares that id with a small file holding the highest id it has seen and the ep
 under, and records any growth.
 
 - If the database is **behind** the file at the same epoch, it was rolled back: identity status
-  answers HTTP 503 with `Retry-After: 60` until the operator raises the epoch. Consumers treat that
-  as the provider being unavailable, which ends nobody's access wrongly and grants nothing stale.
+  answers HTTP 503 with `Retry-After: 60` until the operator raises the epoch. The file records that
+  the rollback was seen, so the refusal holds even after new sign-ins carry the restored log past
+  the mark again. Consumers treat that as the provider being unavailable, which ends nobody's access
+  wrongly and grants nothing stale.
 - Raising the epoch resets the guard: the next request records the current database under the new
   epoch.
 - A configured epoch **below** the recorded one (a stale environment file, a configuration
