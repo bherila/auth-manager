@@ -311,7 +311,7 @@ class ApplicationAccessController extends Controller
      */
     private function provisionPerson(Request $request, string $application, User $person, array $capabilities, array $access, array $operationId, bool $byEmail, string $back, Closure $quietly): RedirectResponse
     {
-        $subject = (string) $person->getKey();
+        $subject = $person->providerSubject();
 
         $state = $this->transport->send($request, $application, ['operation' => 'read', 'subject' => $subject]);
         if (($capabilities['controls']['provisioning'] ?? false) !== true || $state['provisioned'] || ! $state['allowed_edits']['provision']) {

@@ -184,7 +184,7 @@ final class AccessInvitationService
     {
         return $via === null ? [] : [
             'via' => 'application', 'oauth_client_id' => $via->clientId,
-            'actor_subject' => (string) $actor->getKey(), 'link_returned' => true,
+            'actor_subject' => $actor->providerSubject(), 'link_returned' => true,
         ];
     }
 
@@ -379,7 +379,7 @@ final class AccessInvitationService
                 'account_created' => $created, 'oauth_client_ids' => $granted, 'link_handed_over' => $locked->link_handed_over,
                 ...($locked->requesting_client_id === null ? [] : [
                     'via' => 'application', 'oauth_client_id' => $locked->requesting_client_id,
-                    'actor_subject' => $locked->inviter_id === null ? null : (string) $locked->inviter_id, 'link_returned' => true,
+                    'actor_subject' => $locked->inviter_id === null ? null : (User::withTrashed()->find($locked->inviter_id)?->providerSubject() ?? (string) $locked->inviter_id), 'link_returned' => true,
                     'address_verified' => $created ? $verified : null,
                 ]),
             ]);

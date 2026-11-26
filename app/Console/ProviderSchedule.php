@@ -22,6 +22,12 @@ final class ProviderSchedule
             ->hourly()
             ->withoutOverlapping();
 
+        // The off-box audit copy a restore reapplies changes from (docs/recovery.md), only once
+        // a destination is configured.
+        if (is_string(config('auth-manager.recovery.audit_export.disk')) && config('auth-manager.recovery.audit_export.disk') !== '') {
+            $schedule->command('auth-manager:audit-export')->hourly()->withoutOverlapping();
+        }
+
         // Expiry is enforced by the model immediately; this revokes residual
         // credentials and marks a bounded batch disabled if the scheduler runs.
         $schedule->command('auth-manager:test-logins expire')->everyMinute()->withoutOverlapping();

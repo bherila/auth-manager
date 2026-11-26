@@ -160,7 +160,7 @@ Claims:
 | Claim | Value |
 |---|---|
 | `iss` | The calling client's OAuth client id, the same client as the token |
-| `sub` | The actor's provider subject: the `sub` the provider's user endpoint returned for them (a decimal string, no leading zeros) |
+| `sub` | The actor's provider subject: the `sub` the provider's user endpoint returned for them (1 to 64 ASCII letters and digits, case-sensitive; see [provider subjects](identity-subjects.md)) |
 | `aud` | The exact URL being called: `ISSUER` + path, for example `https://identity.example.test/api/application-invitations/42/resend` (a string, or an array of that one string) |
 | `iat`, `exp` | Integer seconds. `exp` within 60 seconds of `iat`. Five seconds of clock skew are allowed. |
 | `jti` | 64 lowercase hex characters, new for every request. Each is accepted once. |

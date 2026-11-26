@@ -183,7 +183,7 @@ An illustrative update body (signed as exact UTF-8 bytes):
   "contract_version": 1,
   "operation": "update",
   "application": "example-app",
-  "subject": "subject-example",
+  "subject": "42",
   "expected_revision": "revision-example",
   "access": {
     "application_admin": false,
@@ -251,7 +251,7 @@ clients are rejected. An active response has this shape:
 {
   "contract_version": 1,
   "active": true,
-  "subject": "subject-example",
+  "subject": "42",
   "credential_version": 7
 }
 ```

@@ -239,7 +239,7 @@ final class DelegatedAccessTransport
                 throw new DelegatedAccessException('invalid_configuration');
             }
             $correlation ??= bin2hex(random_bytes(32));
-            $assertion = $this->assertions->issue($issuer, (string) $actor->id, $endpoint, $application, $body, $keyId, $key, $correlation);
+            $assertion = $this->assertions->issue($issuer, $actor->providerSubject(), $endpoint, $application, $body, $keyId, $key, $correlation);
         } catch (DelegatedAccessException $exception) {
             throw $exception;
         } catch (Throwable) {

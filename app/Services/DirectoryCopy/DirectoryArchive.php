@@ -9,8 +9,11 @@ final class DirectoryArchive
 {
     public const FORMAT = 'auth-manager.directory-copy';
 
-    /** 2: access groups and the direct-grant flag. */
-    public const VERSION = 2;
+    /** 2: access groups and the direct-grant flag. 3: `users.subject` and `identity_tombstones.provider_subject`. */
+    public const VERSION = 3;
+
+    /** Versions still read. A version 2 archive's subjects were its account ids. */
+    public const READABLE = [2, 3];
 
     public const MAX_BYTES = 67108864;
 
@@ -36,7 +39,7 @@ final class DirectoryArchive
         try {
             $envelope = json_decode($bytes, true, 64, JSON_THROW_ON_ERROR);
             if (! is_array($envelope) || array_keys($envelope) !== ['format', 'version', 'sha256', 'payload']
-                || $envelope['format'] !== self::FORMAT || $envelope['version'] !== self::VERSION
+                || $envelope['format'] !== self::FORMAT || ! in_array($envelope['version'], self::READABLE, true)
                 || ! is_string($envelope['payload']) || ! is_string($envelope['sha256'])) {
                 throw new InvalidArgumentException('Unsupported directory archive format.');
             }
@@ -52,7 +55,49 @@ final class DirectoryArchive
             throw new InvalidArgumentException('Directory archive is not valid JSON.');
         }
 
-        return ['checksum' => $envelope['sha256'], 'payload' => $payload];
+        return ['checksum' => $envelope['sha256'], 'payload' => $envelope['version'] === 2 ? self::fromVersion2($payload) : $payload];
+    }
+
+    /**
+     * Version 2 predates subjects as a column: every account's subject was its id, and every
+     * tombstone's its numeric subject. Add both in their version 3 positions, still packed, and
+     * leave anything malformed for the import's validation to refuse.
+     *
+     * @param  array<mixed>  $payload
+     * @return array<mixed>
+     */
+    private static function fromVersion2(array $payload): array
+    {
+        $upgrade = static function (mixed $rows, string $after, string $column, string $from): mixed {
+            if (! is_array($rows)) {
+                return $rows;
+            }
+
+            return array_map(static function (mixed $row) use ($after, $column, $from): mixed {
+                if (! is_array($row) || ! array_key_exists($after, $row) || ! array_key_exists($from, $row) || array_key_exists($column, $row)) {
+                    return $row;
+                }
+                $upgraded = [];
+                foreach ($row as $key => $value) {
+                    $upgraded[$key] = $value;
+                    if ($key === $after) {
+                        $upgraded[$column] = $row[$from];
+                    }
+                }
+
+                return $upgraded;
+            }, $rows);
+        };
+        if (isset($payload['tables']) && is_array($payload['tables'])) {
+            if (array_key_exists('users', $payload['tables'])) {
+                $payload['tables']['users'] = $upgrade($payload['tables']['users'], 'id', 'subject', 'id');
+            }
+            if (array_key_exists('identity_tombstones', $payload['tables'])) {
+                $payload['tables']['identity_tombstones'] = $upgrade($payload['tables']['identity_tombstones'], 'subject', 'provider_subject', 'subject');
+            }
+        }
+
+        return $payload;
     }
 
     /** @param array<string, mixed> $row @return array<string, string|null> */

@@ -3,6 +3,7 @@
 namespace BWH\AuthManager\Http\Controllers;
 
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\RecoveryHighWater;
 use BWH\AuthManager\Support\RelyingApplications;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -12,7 +13,7 @@ use Laravel\Passport\Passport;
 
 class OAuthUserController extends Controller
 {
-    public function __construct(private readonly RelyingApplications $applications) {}
+    public function __construct(private readonly RelyingApplications $applications, private readonly RecoveryHighWater $recovery) {}
 
     public function __invoke(Request $request): JsonResponse
     {
@@ -29,12 +30,14 @@ class OAuthUserController extends Controller
         $user = User::query()->find($authenticated->getAuthIdentifier());
         abort_unless($user instanceof User && $user->canLogin() && $generation === (int) $user->credential_version, 401);
 
-        $subject = (string) $user->getKey();
-
         return response()->json([
-            'sub' => $subject,
+            // The account's subject column, never its row id (docs/identity-subjects.md).
+            'sub' => $user->providerSubject(),
             // Always preserve the authenticated token's generation, never adopt a reset.
             'credential_version' => $generation,
+            // Raised by the operator after restoring the database (docs/recovery.md). A consumer
+            // records it with the session and treats a later, higher one as a reason to end it.
+            'recovery_epoch' => $this->recovery->epoch(),
             'name' => $user->name,
             'email' => $user->email,
             // Present only as true, while the person has proven they receive mail at this
@@ -46,7 +49,7 @@ class OAuthUserController extends Controller
             // than from an endpoint of its own so a relying application can cache it in the
             // session it is already establishing, and never has to call back here to render
             // a page. Older clients ignore the key.
-            'apps' => $this->applications->forSubject($subject),
+            'apps' => $this->applications->forSubject((string) $user->getKey()),
             // How the person authenticated when this token's grant began. Absent when unknown.
             ...$this->authenticationContext($token),
         ])->header('Cache-Control', 'private, no-store');

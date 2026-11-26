@@ -48,7 +48,7 @@ class ExportIdentities extends Command
         $rows = DB::table('users')
             ->whereIn('id', $subjects)
             ->orderBy('id')
-            ->get([...IdentityCopyDocument::COLUMNS, 'deleted_at']);
+            ->get([...IdentityCopyDocument::COLUMNS, 'subject', 'deleted_at']);
         if (DB::table('users')->whereIn('id', $subjects)->where('is_test_login', true)->exists()) {
             $this->errorLine('Managed test logins cannot be copied as permanent identities. Nothing was exported.');
 
@@ -58,6 +58,17 @@ class ExportIdentities extends Command
         $missing = array_values(array_diff($subjects, $rows->pluck('id')->map(static fn (mixed $id): int => (int) $id)->all()));
         if ($missing !== []) {
             $this->errorLine('No such subject: '.implode(', ', $missing).'. Nothing was exported.');
+
+            return self::FAILURE;
+        }
+
+        // This document carries each person's id as their subject. Someone known by an opaque
+        // subject would arrive known by an id no application has bound; the directory archive
+        // (directory:export) carries subjects of every form.
+        $opaque = $rows->filter(static fn (object $row): bool => $row->subject !== null && (string) $row->subject !== (string) $row->id)
+            ->pluck('id')->map(static fn (mixed $id): int => (int) $id)->all();
+        if ($opaque !== []) {
+            $this->errorLine('These accounts are known by an opaque subject, which an identity copy cannot carry: '.implode(', ', $opaque).'. Use directory:export instead. Nothing was exported.');
 
             return self::FAILURE;
         }

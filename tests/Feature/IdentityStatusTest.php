@@ -33,7 +33,7 @@ class IdentityStatusTest extends TestCase
         [$other] = $this->client();
         $user = User::factory()->create(['name' => 'Example Person', 'email' => 'person@example.test', 'user_role' => 'user', 'credential_version' => 4]);
         app(OAuthClientGrantService::class)->grant((string) $user->id, (string) $other->id);
-        $inactive = ['contract_version' => 1, 'active' => false];
+        $inactive = ['contract_version' => 1, 'active' => false, 'recovery_epoch' => 1];
         foreach ([(string) $user->id, 'unknown-subject'] as $subject) {
             $this->withBasicAuth((string) $client->id, $secret)->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson($inactive)->assertHeader('Cache-Control', 'no-store, private');
         }
@@ -42,7 +42,7 @@ class IdentityStatusTest extends TestCase
         // grants were backfilled to every client and subjects are sequential, so name/email
         // here would let one client secret enumerate the directory.
         $this->postJson(self::ENDPOINT, ['subject' => (string) $user->id])->assertOk()->assertExactJson([
-            'contract_version' => 1, 'active' => true, 'subject' => (string) $user->id, 'credential_version' => 4,
+            'contract_version' => 1, 'active' => true, 'subject' => (string) $user->id, 'credential_version' => 4, 'recovery_epoch' => 1,
         ])->assertHeader('Cache-Control', 'no-store, private')->assertJsonMissingPath('name')->assertJsonMissingPath('email');
         foreach (['0'.$user->id, $user->id.'suffix', ' '.$user->id.' '] as $subject) {
             $this->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson($inactive);
@@ -60,13 +60,13 @@ class IdentityStatusTest extends TestCase
         $user->forceFill(['credential_version' => 1])->save();
         $this->postJson(self::ENDPOINT, $payload)->assertJsonPath('credential_version', 1);
         $user->update(['disabled_at' => now()]);
-        $this->postJson(self::ENDPOINT, $payload)->assertExactJson(['contract_version' => 1, 'active' => false]);
+        $this->postJson(self::ENDPOINT, $payload)->assertExactJson(['contract_version' => 1, 'active' => false, 'recovery_epoch' => 1]);
         $user->update(['disabled_at' => null]);
         app(OAuthClientGrantService::class)->revoke((string) $user->id, (string) $client->id);
-        $this->postJson(self::ENDPOINT, $payload)->assertExactJson(['contract_version' => 1, 'active' => false]);
+        $this->postJson(self::ENDPOINT, $payload)->assertExactJson(['contract_version' => 1, 'active' => false, 'recovery_epoch' => 1]);
         app(OAuthClientGrantService::class)->grant((string) $user->id, (string) $client->id);
         $user->delete();
-        $this->postJson(self::ENDPOINT, $payload)->assertExactJson(['contract_version' => 1, 'active' => false]);
+        $this->postJson(self::ENDPOINT, $payload)->assertExactJson(['contract_version' => 1, 'active' => false, 'recovery_epoch' => 1]);
     }
 
     public function test_invalid_revoked_public_and_dynamic_clients_cannot_read_status(): void
@@ -171,10 +171,21 @@ class IdentityStatusTest extends TestCase
                 $subjectQueries[] = $query->sql;
             }
         });
-        foreach (['unknown-subject', '1suffix', '01', '0', '-1', '1.0', '1e0', ' 1 ', '9223372036854775808', str_repeat('9', 255)] as $subject) {
-            $this->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson(['contract_version' => 1, 'active' => false]);
+        foreach (['unknown-subject', '01', '0', '-1', '1.0', ' 1 ', '9223372036854775808', str_repeat('9', 255), str_repeat('x', 65)] as $subject) {
+            $this->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson(['contract_version' => 1, 'active' => false, 'recovery_epoch' => 1]);
         }
         $this->assertSame([], $subjectQueries);
+
+        // An opaque subject, including one that reads as a number elsewhere ('1e0'), is looked up
+        // by the text subject column only, never by the bigint id.
+        foreach (['1suffix', '1e0'] as $subject) {
+            $this->postJson(self::ENDPOINT, ['subject' => $subject])->assertOk()->assertExactJson(['contract_version' => 1, 'active' => false, 'recovery_epoch' => 1]);
+        }
+        $this->assertNotSame([], $subjectQueries);
+        foreach ($subjectQueries as $sql) {
+            $this->assertStringNotContainsString('"users"."id"', $sql);
+            $this->assertStringNotContainsString('oauth_client_grants', $sql);
+        }
     }
 
     private function attachToken(User $user, int $generation): void

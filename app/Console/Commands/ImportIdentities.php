@@ -7,6 +7,7 @@ use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\IdentityCopy\IdentityCopyDocument;
 use BWH\AuthManager\Services\IdentityCopy\TableSequence;
 use BWH\AuthManager\Services\OAuthClientGrantService;
+use BWH\AuthManager\Support\ProviderSubjects;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -106,7 +107,7 @@ class ImportIdentities extends Command
             if ($plan['create'] !== [] || $grants !== []) {
                 DB::transaction(function () use ($plan, $grants): void {
                     foreach ($plan['create'] as $user) {
-                        DB::table('users')->insert($user + ['credential_version' => 0]);
+                        DB::table('users')->insert($user + ['subject' => (string) $user['id'], 'credential_version' => 0]);
                         AuthAuditLog::create([
                             'user_id' => $user['id'], 'acting_user_id' => null,
                             'event' => 'identity_copied_in', 'auth_method' => 'console', 'succeeded' => true,
@@ -186,8 +187,15 @@ class ImportIdentities extends Command
         foreach ($document->users as $user) {
             $id = $user['id'];
 
-            if (DB::table('identity_tombstones')->where('subject', $id)->exists()) {
+            if (DB::table('identity_tombstones')->where('subject', $id)->exists() || app(ProviderSubjects::class)->retired((string) $id)) {
                 $conflicts[] = "Subject {$id} was deleted on this instance.";
+
+                continue;
+            }
+            // The document's subjects are its ids. Here one may already be another account's.
+            $holder = DB::table('users')->where('subject', (string) $id)->where('id', '!=', $id)->value('id');
+            if ($holder !== null) {
+                $conflicts[] = "Subject {$id} already belongs to another account on this instance.";
 
                 continue;
             }
@@ -217,6 +225,11 @@ class ImportIdentities extends Command
 
             if ($existing->deleted_at !== null) {
                 $conflicts[] = "Subject {$id} was deleted on this instance.";
+
+                continue;
+            }
+            if ($existing->subject !== null && (string) $existing->subject !== (string) $id) {
+                $conflicts[] = "Account {$id} is known by a different subject on this instance.";
 
                 continue;
             }

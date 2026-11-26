@@ -9,8 +9,10 @@ registrations/grants, invitations and tombstones, use
 [portable directory archives](portable-directory.md). The selected-person format
 below intentionally remains narrower and unchanged.
 
-Relying applications bind their accounts to `(provider key, subject)`, and the subject is the
-users-table id. A copy is only useful if every subject arrives unchanged, and it is only safe
+Relying applications bind their accounts to `(provider key, subject)`. This document carries the
+users-table id as the subject, which it is for every account known by a numeric subject; an account
+known by an opaque subject ([provider subjects](identity-subjects.md)) is refused at export, so copy
+those with the [portable directory archive](portable-directory.md). A copy is only useful if every subject arrives unchanged, and it is only safe
 if the receiving instance can never later give one of those subjects, or any other subject
 the sending instance used, to somebody else.
 

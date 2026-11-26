@@ -3,6 +3,7 @@
 namespace BWH\AuthManager\Console\Commands;
 
 use BWH\AuthManager\Services\ProviderAdministrators;
+use BWH\AuthManager\Support\ProviderSubjects;
 use Illuminate\Console\Command;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\QueryException;
@@ -189,7 +190,8 @@ class ImportLegacyIdentities extends Command
             // Identifiers are preserved deliberately. The OAuth subject claim is the user
             // key, and relying applications have already bound their local records to it;
             // reassigning identifiers here would silently detach every one of them.
-            if (DB::table('identity_tombstones')->where('subject', $row->id)->exists()) {
+            if (DB::table('identity_tombstones')->where('subject', $row->id)->exists()
+                || app(ProviderSubjects::class)->retired((string) $row->id)) {
                 $this->warn('A legacy user record was skipped because it has a provider deletion tombstone.');
                 $counts['skipped']++;
 
@@ -237,10 +239,21 @@ class ImportLegacyIdentities extends Command
                 continue;
             }
 
+            // The legacy subject is the id. Another account here may already be known by it, or
+            // this one by something else; either way the legacy bindings would reach the wrong person.
+            $subjectTaken = DB::table('users')->where('subject', (string) $row->id)->where('id', '!=', $row->id)->exists()
+                || ($existing !== null && $existing->subject !== null && (string) $existing->subject !== (string) $row->id);
+            if ($subjectTaken) {
+                $this->warn('A legacy user record was skipped because its subject belongs to another account.');
+                $counts['skipped']++;
+
+                continue;
+            }
+
             if ($existing === null) {
                 if ($apply) {
                     DB::transaction(function () use ($row, $attributes, $role): void {
-                        DB::table('users')->insert(['id' => $row->id] + $attributes);
+                        DB::table('users')->insert(['id' => $row->id, 'subject' => (string) $row->id] + $attributes);
 
                         if ($this->roleMaySignIn($role)) {
                             $this->grantCurrentClients((int) $row->id);

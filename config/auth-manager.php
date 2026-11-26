@@ -60,8 +60,64 @@ if ($testLoginHours === false) {
     throw new InvalidArgumentException('AUTH_MANAGER_TEST_LOGIN_MAX_HOURS must be an integer from 1 to 168.');
 }
 
+// Raised by the operator after restoring the database from a backup (docs/recovery.md). Sent to
+// relying applications with every identity, so a consumer can tell that the provider's state was
+// rolled back and stop trusting sessions it established before.
+$recoveryEpoch = filter_var(env('AUTH_MANAGER_RECOVERY_EPOCH', 1), FILTER_VALIDATE_INT, [
+    'options' => ['min_range' => 1],
+]);
+if ($recoveryEpoch === false) {
+    throw new InvalidArgumentException('AUTH_MANAGER_RECOVERY_EPOCH must be a positive integer.');
+}
+$highWaterPath = env('AUTH_MANAGER_RECOVERY_HIGH_WATER_PATH', storage_path('app/private/auth-manager/recovery-high-water.json'));
+if (! is_string($highWaterPath) || $highWaterPath === '' || preg_match('#^(/|[A-Za-z]:[\\\\/])#', $highWaterPath) !== 1) {
+    throw new InvalidArgumentException('AUTH_MANAGER_RECOVERY_HIGH_WATER_PATH must be an absolute file path.');
+}
+$auditExportDisk = env('AUTH_MANAGER_AUDIT_EXPORT_DISK');
+if ($auditExportDisk !== null && $auditExportDisk !== '' && (! is_string($auditExportDisk) || preg_match('/^[A-Za-z0-9._-]+$/', $auditExportDisk) !== 1)) {
+    throw new InvalidArgumentException('AUTH_MANAGER_AUDIT_EXPORT_DISK must be the name of a filesystem disk.');
+}
+$auditExportPrefix = env('AUTH_MANAGER_AUDIT_EXPORT_PREFIX', 'audit');
+if (! is_string($auditExportPrefix) || preg_match('#^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$#', $auditExportPrefix) !== 1) {
+    throw new InvalidArgumentException('AUTH_MANAGER_AUDIT_EXPORT_PREFIX must be a relative path of letters, digits, dots, dashes and underscores.');
+}
+$auditExportBatch = filter_var(env('AUTH_MANAGER_AUDIT_EXPORT_BATCH_SIZE', 5000), FILTER_VALIDATE_INT, [
+    'options' => ['min_range' => 1, 'max_range' => 50000],
+]);
+if ($auditExportBatch === false) {
+    throw new InvalidArgumentException('AUTH_MANAGER_AUDIT_EXPORT_BATCH_SIZE must be an integer from 1 to 50000.');
+}
+$auditExportState = env('AUTH_MANAGER_AUDIT_EXPORT_STATE_PATH', storage_path('app/private/auth-manager/audit-export-state.json'));
+if (! is_string($auditExportState) || $auditExportState === '' || preg_match('#^(/|[A-Za-z]:[\\\\/])#', $auditExportState) !== 1) {
+    throw new InvalidArgumentException('AUTH_MANAGER_AUDIT_EXPORT_STATE_PATH must be an absolute file path.');
+}
+
 return [
     'password_min_length' => $passwordMinLength,
+    // New accounts get a random ULID as their subject instead of their id (docs/identity-subjects.md).
+    // Turn on only once every application signing in through this instance accepts non-numeric
+    // subjects. Existing accounts keep theirs either way.
+    'subjects' => [
+        'opaque' => $signInSetting('AUTH_MANAGER_OPAQUE_SUBJECTS', false),
+    ],
+    'recovery' => [
+        'epoch' => $recoveryEpoch,
+        // Answer identity status with a retryable 503 while the database is behind the highest
+        // audit record this instance has seen, until the operator raises the epoch.
+        'high_water_guard' => $signInSetting('AUTH_MANAGER_RECOVERY_HIGH_WATER_GUARD', true),
+        // Must survive a database restore: never inside the database or anything restored with it.
+        'high_water_path' => $highWaterPath,
+        // The hourly off-box copy of the audit log that step 4 of a restore reads (docs/recovery.md):
+        // append-only objects on this filesystem disk, ideally an S3 bucket with Object Lock in
+        // another account. Unset, the export refuses and is not scheduled.
+        'audit_export' => [
+            'disk' => $auditExportDisk === '' ? null : $auditExportDisk,
+            'prefix' => $auditExportPrefix,
+            'batch_size' => $auditExportBatch,
+            // Where to resume when the destination lists nothing; the destination itself decides otherwise.
+            'state_path' => $auditExportState,
+        ],
+    ],
     'test_logins' => [
         'allowed_domains' => TestLoginAddresses::configuredDomains((string) env('AUTH_MANAGER_TEST_LOGIN_DOMAINS', '')),
         'max_lifetime_hours' => $testLoginHours,

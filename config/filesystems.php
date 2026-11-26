@@ -60,6 +60,21 @@ return [
             'report' => false,
         ],
 
+        // The off-box audit copy (docs/recovery.md): a dedicated bucket with Object Lock, ideally
+        // in another account than the database backups, written by a principal that may only put,
+        // get and list. Enable it with AUTH_MANAGER_AUDIT_EXPORT_DISK=audit-export. Without a key
+        // and secret the AWS SDK's default credential chain is used (an instance role, say). The
+        // s3 driver needs league/flysystem-aws-s3-v3, which this repository does not yet require.
+        'audit-export' => [
+            'driver' => 's3',
+            'key' => env('AUTH_MANAGER_AUDIT_EXPORT_S3_KEY'),
+            'secret' => env('AUTH_MANAGER_AUDIT_EXPORT_S3_SECRET'),
+            'region' => env('AUTH_MANAGER_AUDIT_EXPORT_S3_REGION'),
+            'bucket' => env('AUTH_MANAGER_AUDIT_EXPORT_S3_BUCKET'),
+            'throw' => true,
+            'report' => false,
+        ],
+
     ],
 
     /*

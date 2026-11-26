@@ -17,7 +17,7 @@ matching built assets before these commands become available.
 
 | Preserved | Excluded |
 | --- | --- |
-| Users, exact numeric subjects, password hashes, roles, credential generations, disabled and soft-deleted state | Remember tokens, sessions, trusted browsers, password-reset and sign-in codes |
+| Users, exact subjects, password hashes, roles, credential generations, disabled and soft-deleted state | Remember tokens, sessions, trusted browsers, password-reset and sign-in codes |
 | Compatible passkey IDs, original user IDs/user handles, key bytes, counters, RP IDs and backup eligibility | OAuth authorization/device codes, access tokens and refresh tokens |
 | OAuth client IDs, recognized secret hashes, redirect/grant metadata, provider client grants and whether each is direct, [access groups](access-groups.md) with their members and applications | Source `APP_KEY`, OAuth private signing keys, runtime secrets and private integration keys |
 | Application registrations and client mappings | Replay/nonce stores, invitation email-verification codes and audit history |
@@ -45,9 +45,12 @@ first-party. `historical_client_owners` reports these preserved references.
 
 ## Protect the material
 
-Archive version 2 adds access groups and each grant's `direct` flag. A version 1
-archive is refused as an unsupported format; make a new archive with the current
-provider version on the source.
+Archive version 3 carries each account's `subject` and each tombstone's
+`provider_subject` ([provider subjects](identity-subjects.md)); import refuses an archive
+that would issue a subject twice or reissue one a deleted identity held. Version 2
+(access groups and each grant's `direct` flag) still imports, with every subject
+taken to be its account id as it was then. A version 1 archive is refused as an
+unsupported format; make a new archive with the current provider version on the source.
 
 The format is a versioned JSON envelope with SHA-256 over the exact decoded
 payload JSON bytes; those bytes travel in a base64 field. Row values are also

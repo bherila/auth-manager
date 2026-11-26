@@ -47,7 +47,7 @@ class IdentityLifecycleController extends Controller
 
                 return [
                     'id' => $tombstone->public_id,
-                    'subject' => (string) $tombstone->subject,
+                    'subject' => $tombstone->providerSubject(),
                     'tombstoned_at' => $tombstone->tombstoned_at->toISOString(),
                     'purge_after' => $tombstone->purge_after->toISOString(),
                     'provider_purged_at' => $tombstone->provider_purged_at?->toISOString(),

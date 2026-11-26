@@ -43,7 +43,11 @@ of their groups still grants it.
 
 The relying-application contract for deletion feeds, acknowledgements, and the
 30-day provider retention rule is documented in
-[`docs/identity-deletion.md`](docs/identity-deletion.md).
+[`docs/identity-deletion.md`](docs/identity-deletion.md). What a subject is, and how one
+is never issued twice, is in [`docs/identity-subjects.md`](docs/identity-subjects.md).
+Restoring the provider database from a backup follows the
+[restore runbook](docs/recovery.md): raise the recovery epoch and reapply what the
+backup lost from the hourly off-box audit copy.
 
 ## Stack
 
