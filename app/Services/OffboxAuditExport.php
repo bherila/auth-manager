@@ -273,10 +273,17 @@ final class OffboxAuditExport
         return $metadata;
     }
 
-    /** @param array<string, mixed> $row */
+    /**
+     * What identifies an exported row in the database later: only fields nothing rewrites in place.
+     * Purging an identity nulls its rows' `email`, and deleting the account nulls `user_id` and
+     * `acting_user_id` (the foreign keys), so none of those may stand in for "the same row". A row a
+     * restore gives the same id to again carries its own, later `created_at`.
+     *
+     * @param  array<string, mixed>  $row
+     */
     private function fingerprint(array $row): string
     {
-        return json_encode([$row['id'], $row['created_at'], $row['event'], $row['user_id']], JSON_THROW_ON_ERROR);
+        return json_encode([$row['id'], $row['created_at'], $row['event']], JSON_THROW_ON_ERROR);
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use BWH\AuthManager\Console\ProviderSchedule;
+use BWH\AuthManager\Models\User;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -164,6 +165,25 @@ class OffboxAuditExportTest extends TestCase
         $after = $this->snapshot();
         $this->artisan(self::COMMAND)->expectsOutputToContain('No new audit rows to export.')->assertExitCode(0);
         $this->assertSame($after, $this->snapshot());
+    }
+
+    public function test_purging_the_identity_of_the_last_exported_row_is_not_a_rollback(): void
+    {
+        $user = (int) User::factory()->create(['email' => 'person@example.test'])->getKey();
+        $this->audit();
+        $this->audit(['user_id' => $user, 'acting_user_id' => $user, 'email' => 'person@example.test']);
+        $this->artisan(self::COMMAND)->assertExitCode(0);
+        $before = $this->snapshot();
+
+        // What a purge does to the account's audit rows (IdentityTombstonePurger and the foreign keys).
+        DB::table('auth_audit_log')->where('user_id', $user)->update(['email' => null]);
+        DB::table('auth_audit_log')->where('user_id', $user)->update(['user_id' => null, 'acting_user_id' => null]);
+        DB::table('users')->where('id', $user)->delete();
+
+        $this->artisan(self::COMMAND)->expectsOutputToContain('No new audit rows to export.')->assertExitCode(0);
+        $this->audit();
+        $this->artisan(self::COMMAND)->expectsOutputToContain('Exported 1 audit rows in 1 objects')->assertExitCode(0);
+        $this->assertSame($before['audit/2026/11/25/e1-1-2.jsonl.gz'], $this->snapshot()['audit/2026/11/25/e1-1-2.jsonl.gz']);
     }
 
     public function test_a_raised_epoch_without_a_rollback_continues_after_the_last_exported_row(): void
