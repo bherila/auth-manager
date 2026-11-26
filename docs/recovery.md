@@ -138,11 +138,11 @@ instance is in maintenance mode.
 | `AUTH_MANAGER_AUDIT_EXPORT_S3_BUCKET`, `_S3_REGION` | unset | The `audit-export` disk's bucket and region. |
 | `AUTH_MANAGER_AUDIT_EXPORT_S3_KEY`, `_S3_SECRET` | unset | The writer's access key. Unset, the AWS SDK's default credential chain is used (an instance role, say). |
 
-The `audit-export` disk uses Laravel's `s3` driver, which needs the
-`league/flysystem-aws-s3-v3` package. This repository does not require it yet; until it does, the
-disk cannot be used. Object Lock refuses an upload without an integrity checksum; current AWS SDK
-for PHP releases send one by default, and the first run shows whether yours does. Embedded in a
-host application, the disk is one of the host's.
+The `audit-export` disk uses Laravel's `s3` driver, through the `league/flysystem-aws-s3-v3`
+package this repository requires. Object Lock refuses an upload without an integrity checksum; the
+AWS SDK for PHP sends one by default on every upload, and the first run against the bucket confirms
+it. Embedded in a host application, the disk is one of the host's, and the host must require the
+same package.
 
 #### What it writes
 

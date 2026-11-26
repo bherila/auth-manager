@@ -307,11 +307,12 @@ the zip's `shasum` (SHA-1, which Composer verifies) and the exact version:
                     "shasum": "<sha1 of the zip>"
                 },
                 "require": {
-                    "php": "^8.4",
-                    "bherila/auth-laravel": "^0.28.6",
+                    "php": "^8.5",
+                    "bherila/auth-laravel": "^0.30",
                     "laravel/framework": "^13.17",
                     "laravel/passport": "^13.4",
                     "laravel/tinker": "^3.0",
+                    "league/flysystem-aws-s3-v3": "^3.0",
                     "symfony/brevo-mailer": "^8.0",
                     "symfony/http-client": "^8.0"
                 },
