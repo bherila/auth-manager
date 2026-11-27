@@ -139,6 +139,11 @@ return [
         'tombstones_per_client_per_minute' => max(1, (int) env('AUTH_MANAGER_RECONCILIATION_TOMBSTONES_PER_CLIENT_PER_MINUTE', 120)),
     ],
     'profile' => $profile->value,
+    'application_registration' => [
+        // Creating identities is a separate, operator-approved authority; off by default.
+        'applications' => array_values(array_filter(array_map('trim', explode(',', (string) env('AUTH_MANAGER_APPLICATION_REGISTRATION', ''))))),
+        'additional_client_grants' => json_decode((string) env('AUTH_MANAGER_APPLICATION_REGISTRATION_CLIENT_GRANTS', '{}'), true),
+    ],
     'issuer' => $issuer,
     'resource' => $resource,
     'scopes' => $profile->scopes(),
