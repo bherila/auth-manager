@@ -119,6 +119,7 @@ return [
         ],
     ],
     'test_logins' => [
+        'ticket_clients' => array_values(array_filter(array_map('trim', explode(',', (string) env('AUTH_MANAGER_TEST_LOGIN_TICKET_CLIENTS', ''))))),
         'allowed_domains' => TestLoginAddresses::configuredDomains((string) env('AUTH_MANAGER_TEST_LOGIN_DOMAINS', '')),
         'max_lifetime_hours' => $testLoginHours,
     ],

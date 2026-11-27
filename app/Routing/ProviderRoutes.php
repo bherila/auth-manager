@@ -24,5 +24,6 @@ final class ProviderRoutes
         Route::name(Mount::ROUTE_NAME_PREFIX)->group(Mount::packagePath('routes/reconciliation.php'));
         Route::name(Mount::ROUTE_NAME_PREFIX)->group(Mount::packagePath('routes/application-invitations.php'));
         Route::name(Mount::ROUTE_NAME_PREFIX)->group(Mount::packagePath('routes/application-identities.php'));
+        Route::name(Mount::ROUTE_NAME_PREFIX)->group(Mount::packagePath('routes/test-login-tickets.php'));
     }
 }
