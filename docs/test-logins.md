@@ -21,6 +21,7 @@ Creation remains an explicit operator action after reviewed schema deployment.
 | --- | --- | --- |
 | `AUTH_MANAGER_TEST_LOGIN_MAX_HOURS` | `24` | Maximum requested lifetime measured from now; integer `1`–`168` |
 | `AUTH_MANAGER_TEST_LOGIN_DOMAINS` | empty | Comma-separated additional exact ASCII domains, case insensitive; no wildcards, URLs or implicit subdomains |
+| `AUTH_MANAGER_TEST_LOGIN_TICKET_CLIENTS` | empty | Explicit confidential static client IDs permitted to request browser handoffs for flagged accounts |
 
 Reserved addresses on `example.com`, `example.net`, `example.org` and their
 subdomains, or domains under `.test`, `.example`, `.invalid` and `.localhost`,
@@ -70,6 +71,36 @@ request, and the password exemption supplies no second-factor enrollment proof.
 Ordinary identities retain their normal authentication policy. A relying
 application may still require its own account approval, permissions or stronger
 authentication; this command cannot override those decisions.
+
+## Optional application browser handoff
+
+A non-production developer helper can keep synthetic passwords server-side and
+request `POST /api/test-login-tickets` using its confidential client's HTTP Basic
+credentials. Supply `subject`, the synthetic `password`, and an `authorization`
+object from the application's normal pending OAuth flow: `client_id`, registered
+`redirect_uri`, `response_type=code`, random alphanumeric `state` (40–128
+characters), S256 `code_challenge`, `code_challenge_method=S256`, and optional
+`scope`. Other authorization parameters are refused. The client must be listed
+explicitly above and mapped to an enabled registered application. Ordinary users,
+administrators, expired accounts and accounts without the client's grant are
+always refused, even with a correct password. No account is created or adopted.
+
+The 201 response contains `contract_version=1`, `expires_at` and
+`confirmation_uri`. Validate the URI against the configured provider origin and
+`/test-logins/confirm` path (including its embedded prefix), then redirect the
+browser there. Its fragment carries a random, single-use credential valid for at
+most 60 seconds, further bounded by account expiry. Never log this URI or put it
+in analytics, browser storage or query strings. The provider stores only its hash.
+
+The provider clears the fragment and previews the synthetic name and application
+through a CSRF-protected POST. GET never signs in. An explicit confirmation POST
+consumes the ticket atomically and replaces the provider browser session, before
+continuing normal authorization with the application's original state and PKCE.
+Current account eligibility, credential generation, client metadata and grant are
+checked again at preview and confirmation. This records only `amr=pwd` and
+single-factor assurance; it supplies no email verification or passkey enrollment
+proof. Expired ticket rows are pruned hourly after one day. Keep the client list
+empty in environments that should not expose synthetic sign-in.
 
 ## Extend, disable and retire
 

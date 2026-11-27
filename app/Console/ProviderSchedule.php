@@ -4,6 +4,7 @@ namespace BWH\AuthManager\Console;
 
 use BWH\Auth\OAuth\DelegatedAccess\DatabaseNonceStore;
 use BWH\AuthManager\Models\InvitationAcceptanceCode;
+use BWH\AuthManager\Models\TestLoginTicket;
 use BWH\AuthManager\Models\TrustedDevice;
 use Closure;
 use Illuminate\Console\Scheduling\Schedule;
@@ -31,6 +32,9 @@ final class ProviderSchedule
         // Expiry is enforced by the model immediately; this revokes residual
         // credentials and marks a bounded batch disabled if the scheduler runs.
         $schedule->command('auth-manager:test-logins expire')->everyMinute()->withoutOverlapping();
+
+        $schedule->call(static fn () => $within(static fn () => TestLoginTicket::query()->where('expires_at', '<', now('UTC')->subDay())->delete()))
+            ->name('test-login-tickets:prune')->hourly()->withoutOverlapping();
 
         // Used actor assertion ids outlive their assertions by seconds; only expired ones are removed.
         $schedule->call(static fn () => $within(static function (): void {

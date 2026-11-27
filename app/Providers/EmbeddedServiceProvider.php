@@ -179,7 +179,7 @@ final class EmbeddedServiceProvider extends ServiceProvider
             }
 
             // One-time codes are credentials: a refused form must not keep one in the session.
-            $handler->dontFlash(['code']);
+            $handler->dontFlash(['code', 'ticket']);
 
             $handler->renderable(function (Throwable $exception, Request $request) use ($handler) {
                 if (! $this->app->make(EmbeddedContext::class)->active()) {
