@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use BWH\Auth\OAuth\Session\RememberedProviderLogins;
 use BWH\AuthManager\Http\Middleware\EnsureCredentialVersion;
 use BWH\AuthManager\Models\IdentityTombstone;
 use BWH\AuthManager\Models\PassportClient;
@@ -31,6 +32,11 @@ class IdentityDeletionTest extends TestCase
             'user_role' => 'user',
             'remember_token' => 'remember-me',
         ]);
+        $remembered = app(RememberedProviderLogins::class);
+        $hash = RememberedProviderLogins::tokenHash('synthetic-remember-token');
+        $remembered->put('web', (string) $target->id, 'synthetic-provider', 'target', 7, $hash, 2);
+        $remembered->put('another-guard', (string) $target->id, 'synthetic-provider', 'target', 7, $hash, 2);
+        $remembered->put('web', (string) $admin->id, 'synthetic-provider', 'other', 7, $hash, 2);
         [$client] = $this->authorizationCodeClient('Connected Application');
         [$secondClient] = $this->authorizationCodeClient('Second Application');
         $this->publicAuthorizationCodeClient();
@@ -85,6 +91,8 @@ class IdentityDeletionTest extends TestCase
         $this->assertDatabaseHas('oauth_auth_codes', ['id' => $authorizationCodeId, 'revoked' => true]);
         $this->assertDatabaseHas('oauth_device_codes', ['id' => $deviceCodeId, 'revoked' => true]);
         $this->assertDatabaseMissing('sessions', ['user_id' => $target->id]);
+        $this->assertDatabaseMissing(RememberedProviderLogins::TABLE, ['user_id' => (string) $target->id]);
+        $this->assertDatabaseHas(RememberedProviderLogins::TABLE, ['user_id' => (string) $admin->id, 'epoch' => 2]);
         $this->assertDatabaseMissing('password_reset_tokens', ['email' => $target->email]);
         $this->assertDatabaseHas('identity_tombstones', [
             'public_id' => $tombstoneId,
@@ -300,11 +308,24 @@ class IdentityDeletionTest extends TestCase
             ->putJson("/api/reconciliation/identity-tombstones/{$tombstoneId}/acknowledgement")
             ->assertOk();
 
+        // A tombstone created before remembered-login cleanup can still hold these rows.
+        $remembered = app(RememberedProviderLogins::class);
+        $hash = RememberedProviderLogins::tokenHash('synthetic-legacy-remember-token');
+        $remembered->put('web', (string) $target->id, 'synthetic-provider', 'target', 7, $hash, 2);
+        $remembered->put('another-guard', (string) $target->id, 'synthetic-provider', 'target', 7, $hash, 2);
+        $remembered->put('web', (string) $admin->id, 'synthetic-provider', 'other', 7, $hash, 2);
+
         $this->artisan('identities:purge-tombstones')
             ->expectsOutputToContain('Purged 1 identities')
             ->assertSuccessful();
 
         $this->assertNull(User::withTrashed()->find($target->id));
+        $this->assertDatabaseMissing(RememberedProviderLogins::TABLE, ['user_id' => (string) $target->id]);
+        $this->assertDatabaseHas(RememberedProviderLogins::TABLE, ['user_id' => (string) $admin->id, 'epoch' => 2]);
+        $this->artisan('identities:purge-tombstones')
+            ->expectsOutputToContain('Purged 0 identities')
+            ->assertSuccessful();
+        $this->assertDatabaseHas(RememberedProviderLogins::TABLE, ['user_id' => (string) $admin->id, 'epoch' => 2]);
         $this->assertDatabaseMissing('oauth_client_grants', ['subject' => $target->id]);
         $this->assertDatabaseMissing('oauth_access_tokens', ['id' => $accessTokenId]);
         $this->assertDatabaseMissing('oauth_refresh_tokens', ['id' => $refreshTokenId]);

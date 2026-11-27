@@ -2,6 +2,7 @@
 
 namespace BWH\AuthManager\Services;
 
+use BWH\Auth\OAuth\Session\RememberedProviderLogins;
 use BWH\AuthManager\Models\AccessInvitation;
 use BWH\AuthManager\Models\IdentityTombstone;
 use BWH\AuthManager\Models\User;
@@ -76,6 +77,7 @@ class IdentityTombstonePurger
 
             $subject = (string) $tombstone->subject;
             $user = User::withTrashed()->whereKey($subject)->lockForUpdate()->first();
+            app(RememberedProviderLogins::class)->forgetUser($subject);
 
             if ($user instanceof User) {
                 $this->tokens->purgeSubjectCredentials($subject);

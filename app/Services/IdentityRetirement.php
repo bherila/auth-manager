@@ -2,6 +2,7 @@
 
 namespace BWH\AuthManager\Services;
 
+use BWH\Auth\OAuth\Session\RememberedProviderLogins;
 use BWH\AuthManager\Models\IdentityTombstone;
 use BWH\AuthManager\Models\IdentityTombstoneClient;
 use BWH\AuthManager\Models\User;
@@ -41,6 +42,7 @@ final class IdentityRetirement
         }
         $locked->disabled_at ??= $now;
         $this->administrators->invalidateAuthority($locked);
+        app(RememberedProviderLogins::class)->forgetUser((string) $locked->getAuthIdentifier());
         $locked->delete();
 
         return $tombstone->load('clients');
