@@ -84,6 +84,27 @@ browser's RP-ID rules. Choose it before enrollment. Existing credentials cannot
 be relabeled for a different RP ID; provide fresh enrollment and a tested alternate
 sign-in/recovery path when changing that boundary. Keep staging enrollment separate.
 
+An optional compatibility path keeps an old RP unchanged through WebAuthn Related
+Origin Requests. With a release that includes assertion support, set
+`WEBAUTHN_RELATED_ORIGINS='{"app.example.test":["https://id.example.test"]}'`
+in the provider's persistent environment, then rebuild its configuration cache.
+Only exact HTTPS calling origins receive the additional **Use a passkey from…**
+choice on the sign-in page. New passkeys and autofill retain `WEBAUTHN_RP_ID`.
+The original RP must also serve `https://app.example.test/.well-known/webauthn`
+as public `application/json`, containing `{"origins":["https://id.example.test"]}`.
+The browser fetches that document without a session; it must not redirect to login
+or require an edge challenge. Do not authorize staging on the production RP.
+
+This authorization does not move a credential to a new RP. A compatible storage
+copy must preserve credential ID, public key, counter, backup eligibility and
+original user handle; confirm that its owner mapping is identical before copying.
+Do not infer missing historical RP metadata from the new login host. A valid
+signed assertion can establish it; no failed assertion fills it. Verify a real
+browser ceremony against the original RP and retain password/recovery for browsers
+without Related Origin Requests. Operator removal of the mapping also invalidates
+pending related-origin challenges. See the
+[WebAuthn specification](https://www.w3.org/TR/webauthn-3/#sctn-related-origins).
+
 ## Pin application and deployment tooling independently
 
 The application revision controls the code being deployed. The engine revision

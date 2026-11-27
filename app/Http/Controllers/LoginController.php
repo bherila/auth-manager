@@ -48,12 +48,32 @@ class LoginController extends Controller
         return view('login', [
             'reauthenticating' => is_array($reauthentication),
             'offeredMethods' => is_array($reauthentication) ? ($reauthentication['methods'] ?? null) : null,
+            'relatedPasskeyRps' => $this->relatedPasskeyRps($request),
             'passwordChallenge' => $attempt === null ? null : [
                 'attempt_token' => (string) $attempt->getAttribute('token'),
                 'email' => (string) $request->session()->get(self::PASSWORD_CHALLENGE_SESSION_KEY.'.email'),
                 'trust_days' => TrustedDevices::enabled() ? (int) config('auth-manager.sign_in.trusted_device_days') : null,
             ],
         ]);
+    }
+
+    /** @return list<string> */
+    private function relatedPasskeyRps(Request $request): array
+    {
+        $related = config('bherila-auth.passkeys.related_origins', []);
+        if (! $request->isSecure() || ! is_array($related)) {
+            return [];
+        }
+
+        $rps = [];
+        foreach ($related as $rp => $origins) {
+            if (is_string($rp) && $rp !== '' && filter_var($rp, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)
+                && is_array($origins) && in_array($request->getSchemeAndHttpHost(), $origins, true)) {
+                $rps[] = $rp;
+            }
+        }
+
+        return $rps;
     }
 
     public function login(Request $request, LoginThrottle $throttle, TwoFactorService $twoFactor, PasswordCredentials $passwords): RedirectResponse

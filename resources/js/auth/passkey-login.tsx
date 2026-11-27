@@ -26,7 +26,7 @@ function go(redirectUrl: string): void {
  * mediation) armed on load. The same server endpoints are used either way,
  * so the session freshness stamp for passkey management keeps working.
  */
-export function PasskeyLogin(): React.JSX.Element {
+export function PasskeyLogin({ relatedRps = [] }: { relatedRps?: string[] }): React.JSX.Element {
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const supported = passkeysSupported();
@@ -48,12 +48,12 @@ export function PasskeyLogin(): React.JSX.Element {
     };
   }, [supported]);
 
-  const signIn = useCallback(async () => {
+  const signIn = useCallback(async (relatedRp?: string) => {
     setError(null);
     setVerifying(true);
     abortPasskeyAutofill();
     try {
-      const { redirectUrl } = await authenticateWithPasskey({ endpoints: authEndpoints(getCsrfToken()), remember: rememberLogin });
+      const { redirectUrl } = await authenticateWithPasskey({ endpoints: authEndpoints(getCsrfToken(), relatedRp), remember: rememberLogin });
       go(redirectUrl);
     } catch (caught) {
       if (!isPasskeyCancellation(caught)) {
@@ -87,6 +87,19 @@ export function PasskeyLogin(): React.JSX.Element {
         <KeyRound aria-hidden="true" />
         {verifying ? 'Waiting for your passkey…' : 'Sign in with a passkey'}
       </Button>
+      {relatedRps.map((rp) => (
+        <Button
+          key={rp}
+          type="button"
+          variant="outline"
+          className="mt-2 w-full"
+          onClick={() => void signIn(rp)}
+          disabled={verifying}
+          aria-describedby={error ? ERROR_ID : undefined}
+        >
+          Use a passkey from {rp}
+        </Button>
+      ))}
       {error ? (
         <p id={ERROR_ID} role="alert" className="text-destructive mt-2 text-sm">
           {error}

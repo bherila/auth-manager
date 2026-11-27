@@ -54,6 +54,11 @@ to their original RP ID and subject/user handle. A
 credentials with those values unchanged; mismatches fail closed or require an
 explicit, reported omission and re-enrollment. The legacy selected-person copy
 does not copy passkeys. No migration relabels credentials for a different RP ID.
+An operator can explicitly authorize assertion-only Related Origin Requests to
+keep the original RP usable from a new sign-in origin in supporting browsers;
+both the server allow-list and the original RP's public well-known document are
+required. See [deployment prerequisites](deployment.md). This does not change
+the RP used for new enrollment or grant application access.
 
 ## Provider administrator management
 

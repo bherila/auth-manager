@@ -19,7 +19,7 @@ export function appPath(path: string): string {
 }
 
 /** auth-laravel's passkey and two-factor endpoints, below this provider's base path. */
-export function authEndpoints(csrfToken: string): AuthEndpointConfig {
+export function authEndpoints(csrfToken: string, relatedRp?: string): AuthEndpointConfig {
   return {
     csrfToken,
     changePassword: appPath('/api/change-password'),
@@ -32,7 +32,7 @@ export function authEndpoints(csrfToken: string): AuthEndpointConfig {
     passkeyRegisterOptions: appPath('/api/passkeys/register/options'),
     passkeyRegister: appPath('/api/passkeys/register'),
     passkeyDelete: (id) => appPath(`/api/passkeys/${encodeURIComponent(String(id))}`),
-    passkeyAuthOptions: appPath('/api/passkeys/auth/options'),
+    passkeyAuthOptions: appPath('/api/passkeys/auth/options') + (relatedRp ? `?rp_id=${encodeURIComponent(relatedRp)}` : ''),
     passkeyAuth: appPath('/api/passkeys/auth'),
   };
 }

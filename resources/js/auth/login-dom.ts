@@ -25,3 +25,13 @@ export function loginEl<T extends HTMLElement = HTMLElement>(id: string): T | nu
 export function rememberLogin(): boolean {
   return loginEl<HTMLInputElement>(LOGIN_DOM.rememberInput)?.checked ?? false;
 }
+
+/** Only the operator-approved RPs rendered for this origin are offered as choices. */
+export function relatedPasskeyRps(): string[] {
+  try {
+    const value: unknown = JSON.parse(loginEl(LOGIN_DOM.passkeyMount)?.dataset.relatedRps ?? '[]');
+    return Array.isArray(value) ? value.filter((rp): rp is string => typeof rp === 'string' && rp.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
