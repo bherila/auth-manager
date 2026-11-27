@@ -20,4 +20,14 @@ for (const base of ['/', '/auth/', '/identity/accounts/']) {
     assert.equal(endpoints.passkeyRegisterOptions, `${prefix}/api/passkeys/register/options`);
     assert.equal(endpoints.passkeyDelete('a/b'), `${prefix}/api/passkeys/a%2Fb`);
   });
+
+  test(`an old RP choice changes only authentication options under ${base}`, () => {
+    globalThis.document = { querySelector: () => ({ getAttribute: () => base }) };
+    const normal = authEndpoints('synthetic-csrf-token');
+    const related = authEndpoints('synthetic-csrf-token', 'app.example.test');
+    assert.equal(related.passkeyAuthOptions, `${base.replace(/\/+$/, '')}/api/passkeys/auth/options?rp_id=app.example.test`);
+    for (const key of ['passkeyAuth', 'passkeyRegisterOptions', 'passkeyRegister', 'passkeyConfirmOptions', 'passkeyConfirm', 'confirmPassword', 'csrfToken']) {
+      assert.equal(related[key], normal[key]);
+    }
+  });
 }

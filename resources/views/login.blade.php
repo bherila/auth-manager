@@ -98,7 +98,7 @@
             @endphp
 
             @if ($offers('passkey'))
-            <div id="passkey-login-mount" class="mt-6">
+            <div id="passkey-login-mount" class="mt-6" data-related-rps="{{ json_encode($relatedPasskeyRps) }}">
                 <div class="bg-muted h-10 w-full rounded-md motion-safe:animate-pulse" aria-hidden="true"></div>
             </div>
             @endif

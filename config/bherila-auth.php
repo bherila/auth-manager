@@ -18,6 +18,7 @@ $oauthEndpointBase = rtrim($issuer, '/').($passportPath === '' ? '' : '/'.$passp
 // URLs and users; the provider's are fixed below its prefix instead.
 $embedded = Mount::embedded();
 $appName = $embedded ? (string) (config('auth-manager-embedded.name') ?: config('app.name')) : env('APP_NAME', 'App');
+$relatedOrigins = json_decode((string) env('WEBAUTHN_RELATED_ORIGINS', '{}'), true);
 
 return [
     'routes' => [
@@ -91,6 +92,7 @@ return [
         // A key present only upstream silently resolves to null.
         'rp_id' => env('WEBAUTHN_RP_ID'),
         'allowed_origins' => array_filter(array_map('trim', explode(',', env('WEBAUTHN_ALLOWED_ORIGINS', '')))),
+        'related_origins' => is_array($relatedOrigins) ? $relatedOrigins : [],
         'timeout' => 60000,
         'resident_key' => env('WEBAUTHN_RESIDENT_KEY', 'preferred'),
         'user_verification' => env('WEBAUTHN_USER_VERIFICATION', 'preferred'),

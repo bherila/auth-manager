@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { LOGIN_DOM, rememberLogin } from '../../resources/js/auth/login-dom.ts';
+import { LOGIN_DOM, rememberLogin, relatedPasskeyRps } from '../../resources/js/auth/login-dom.ts';
 
 const originalDocument = globalThis.document;
 afterEach(() => {
@@ -22,4 +22,13 @@ test('a pending passkey ceremony reads the current checkbox rather than its init
   assert.equal(choiceAtVerification(), true);
   checkbox = { checked: false };
   assert.equal(choiceAtVerification(), false);
+});
+
+test('the server-rendered RP choices tolerate absent or malformed enhancement data', () => {
+  for (const data of [undefined, '', '{}', 'null', 'bad-json']) {
+    globalThis.document = { getElementById: () => ({ dataset: { relatedRps: data } }) };
+    assert.deepEqual(relatedPasskeyRps(), []);
+  }
+  globalThis.document = { getElementById: () => ({ dataset: { relatedRps: '["app.example.test",null,123,""]' } }) };
+  assert.deepEqual(relatedPasskeyRps(), ['app.example.test']);
 });
