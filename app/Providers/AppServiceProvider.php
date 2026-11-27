@@ -15,6 +15,7 @@ use BWH\AuthManager\OAuth\GrantAwareAccessTokenRepository;
 use BWH\AuthManager\OAuth\GrantAwareAuthCodeRepository;
 use BWH\AuthManager\OAuth\GrantAwareRefreshTokenRepository;
 use BWH\AuthManager\Services\AuthenticationContext;
+use BWH\AuthManager\Services\EmailProof;
 use BWH\AuthManager\Services\OAuthAuthenticationContextCarrier;
 use BWH\AuthManager\Services\OAuthCredentialGenerationContext;
 use BWH\AuthManager\Services\TrustedDevices;
@@ -68,6 +69,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('auth-manager.registration-ip', static fn (Request $request): Limit => Limit::perMinute(30)->by('registration-ip:'.$request->ip()));
         RateLimiter::for('auth-manager.email-code', static function (Request $request): array {
             $blocked = static fn (Request $request, array $headers) => response()->json([
                 'success' => false,
@@ -156,9 +158,11 @@ class AppServiceProvider extends ServiceProvider
                 $afterPassword ? AuthenticationRequirement::ACR_MFA : AuthenticationRequirement::ACR_SINGLE,
             );
 
-            // A verified code is not recorded as proof of the address: the attempt does not store
-            // where its code was mailed, and a challenge created while an administrator changes the
-            // address can mail the former one. Proof waits for destination-bound attempts.
+            // The stored destination and conditional write both have to name
+            // the current address. Legacy attempts supply no such evidence.
+            if ($event->attempt->wasMailedTo((string) $event->user->email)) {
+                app(EmailProof::class)->proveCurrentAddress($event->user);
+            }
 
             // Only this session's own password challenge confirms a browser: a code alone never does.
             if ($afterPassword && TrustedDevices::enabled() && request()->boolean('trust_device')) {

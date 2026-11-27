@@ -16,6 +16,13 @@ business data and authorization rules.
 Applications resolve their own fine-grained permissions locally. This service
 does not model any application's feature vocabulary.
 
+## Application-owned registration
+
+An explicitly enabled application can create a new identity for a committed local account,
+preserving its password hash and recording an idempotent provider-subject receipt. Existing
+addresses are never adopted. The protocol and operator controls are in
+[application-owned identity registration](docs/application-registration.md).
+
 ## Directory administration
 
 Active provider administrators can use `/admin/users` to create people, change
