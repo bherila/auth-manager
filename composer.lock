@@ -62,16 +62,16 @@
         },
         {
             "name": "aws/aws-sdk-php",
-            "version": "3.408.0",
+            "version": "3.408.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/aws/aws-sdk-php.git",
-                "reference": "6ef06d2fbda9570d766b4146e1dadc5e24f6bc78"
+                "reference": "3376270d16bcaa5dd9eaddb9bd72929e6d2040ce"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/aws/aws-sdk-php/zipball/6ef06d2fbda9570d766b4146e1dadc5e24f6bc78",
-                "reference": "6ef06d2fbda9570d766b4146e1dadc5e24f6bc78",
+                "url": "https://api.github.com/repos/aws/aws-sdk-php/zipball/3376270d16bcaa5dd9eaddb9bd72929e6d2040ce",
+                "reference": "3376270d16bcaa5dd9eaddb9bd72929e6d2040ce",
                 "shasum": ""
             },
             "require": {
@@ -153,9 +153,9 @@
             "support": {
                 "forum": "https://github.com/aws/aws-sdk-php/discussions",
                 "issues": "https://github.com/aws/aws-sdk-php/issues",
-                "source": "https://github.com/aws/aws-sdk-php/tree/3.408.0"
+                "source": "https://github.com/aws/aws-sdk-php/tree/3.408.1"
             },
-            "time": "2026-11-25T19:08:58+00:00"
+            "time": "2026-11-27T19:06:34+00:00"
         },
         {
             "name": "bherila/auth-laravel",
@@ -3951,16 +3951,16 @@
         },
         {
             "name": "phpstan/phpdoc-parser",
-            "version": "2.4.1",
+            "version": "2.4.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpstan/phpdoc-parser.git",
-                "reference": "af8e840551031d254cfdb3a18a62c3470a309c10"
+                "reference": "f80e753caa465ab4f93cb265ae32e2e8cb02c3f3"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpdoc-parser/zipball/af8e840551031d254cfdb3a18a62c3470a309c10",
-                "reference": "af8e840551031d254cfdb3a18a62c3470a309c10",
+                "url": "https://api.github.com/repos/phpstan/phpdoc-parser/zipball/f80e753caa465ab4f93cb265ae32e2e8cb02c3f3",
+                "reference": "f80e753caa465ab4f93cb265ae32e2e8cb02c3f3",
                 "shasum": ""
             },
             "require": {
@@ -3992,9 +3992,9 @@
             "description": "PHPDoc parser with support for nullable, intersection and generic types",
             "support": {
                 "issues": "https://github.com/phpstan/phpdoc-parser/issues",
-                "source": "https://github.com/phpstan/phpdoc-parser/tree/2.4.1"
+                "source": "https://github.com/phpstan/phpdoc-parser/tree/2.4.2"
             },
-            "time": "2026-10-30T19:36:28+00:00"
+            "time": "2026-11-25T13:45:51+00:00"
         },
         {
             "name": "psr/clock",
@@ -5571,16 +5571,16 @@
         },
         {
             "name": "symfony/filesystem",
-            "version": "v8.1.12",
+            "version": "v8.1.13",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/filesystem.git",
-                "reference": "a8f7a3cf9d3140902eaee85baf1f8e98666d336a"
+                "reference": "5215ed1c40d7f5532dc109f53f0defd3478ac6ea"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/filesystem/zipball/a8f7a3cf9d3140902eaee85baf1f8e98666d336a",
-                "reference": "a8f7a3cf9d3140902eaee85baf1f8e98666d336a",
+                "url": "https://api.github.com/repos/symfony/filesystem/zipball/5215ed1c40d7f5532dc109f53f0defd3478ac6ea",
+                "reference": "5215ed1c40d7f5532dc109f53f0defd3478ac6ea",
                 "shasum": ""
             },
             "require": {
@@ -5618,7 +5618,7 @@
             "description": "Provides basic utilities for the filesystem",
             "homepage": "https://symfony.com",
             "support": {
-                "source": "https://github.com/symfony/filesystem/tree/v8.1.12"
+                "source": "https://github.com/symfony/filesystem/tree/v8.1.13"
             },
             "funding": [
                 {
@@ -5638,7 +5638,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-11-24T15:59:55+00:00"
+            "time": "2026-11-27T13:27:33+00:00"
         },
         {
             "name": "symfony/finder",
@@ -5710,16 +5710,16 @@
         },
         {
             "name": "symfony/http-client",
-            "version": "v8.1.12",
+            "version": "v8.1.13",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/http-client.git",
-                "reference": "f9d980e61181c3d642f630d082e89f9e1266c4ec"
+                "reference": "8ca86a4c1ccc90e077706ce99fd447dcbe7a13b9"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/http-client/zipball/f9d980e61181c3d642f630d082e89f9e1266c4ec",
-                "reference": "f9d980e61181c3d642f630d082e89f9e1266c4ec",
+                "url": "https://api.github.com/repos/symfony/http-client/zipball/8ca86a4c1ccc90e077706ce99fd447dcbe7a13b9",
+                "reference": "8ca86a4c1ccc90e077706ce99fd447dcbe7a13b9",
                 "shasum": ""
             },
             "require": {
@@ -5784,7 +5784,7 @@
                 "http"
             ],
             "support": {
-                "source": "https://github.com/symfony/http-client/tree/v8.1.12"
+                "source": "https://github.com/symfony/http-client/tree/v8.1.13"
             },
             "funding": [
                 {
@@ -5804,7 +5804,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-11-25T07:24:17+00:00"
+            "time": "2026-11-27T13:27:33+00:00"
         },
         {
             "name": "symfony/http-client-contracts",
@@ -7384,16 +7384,16 @@
         },
         {
             "name": "symfony/property-access",
-            "version": "v8.1.12",
+            "version": "v8.1.13",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/property-access.git",
-                "reference": "9fa222376100d95cf2fbd3219bbf2c66e2165461"
+                "reference": "feb1be8b51598b548cb18abe7f473980a3dbf80b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/property-access/zipball/9fa222376100d95cf2fbd3219bbf2c66e2165461",
-                "reference": "9fa222376100d95cf2fbd3219bbf2c66e2165461",
+                "url": "https://api.github.com/repos/symfony/property-access/zipball/feb1be8b51598b548cb18abe7f473980a3dbf80b",
+                "reference": "feb1be8b51598b548cb18abe7f473980a3dbf80b",
                 "shasum": ""
             },
             "require": {
@@ -7441,7 +7441,7 @@
                 "reflection"
             ],
             "support": {
-                "source": "https://github.com/symfony/property-access/tree/v8.1.12"
+                "source": "https://github.com/symfony/property-access/tree/v8.1.13"
             },
             "funding": [
                 {
@@ -7461,7 +7461,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-11-23T20:28:13+00:00"
+            "time": "2026-11-27T13:27:33+00:00"
         },
         {
             "name": "symfony/property-info",
@@ -7718,16 +7718,16 @@
         },
         {
             "name": "symfony/serializer",
-            "version": "v8.1.12",
+            "version": "v8.1.13",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/serializer.git",
-                "reference": "0d8d656317c5213a0858ad7868fe19e0072f094f"
+                "reference": "64876a1e359955e31b7de07d795249e49bc4e7d0"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/serializer/zipball/0d8d656317c5213a0858ad7868fe19e0072f094f",
-                "reference": "0d8d656317c5213a0858ad7868fe19e0072f094f",
+                "url": "https://api.github.com/repos/symfony/serializer/zipball/64876a1e359955e31b7de07d795249e49bc4e7d0",
+                "reference": "64876a1e359955e31b7de07d795249e49bc4e7d0",
                 "shasum": ""
             },
             "require": {
@@ -7793,7 +7793,7 @@
             "description": "Handles serializing and deserializing data structures, including object graphs, into array structures or other formats like XML and JSON.",
             "homepage": "https://symfony.com",
             "support": {
-                "source": "https://github.com/symfony/serializer/tree/v8.1.12"
+                "source": "https://github.com/symfony/serializer/tree/v8.1.13"
             },
             "funding": [
                 {
@@ -7813,7 +7813,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-11-24T18:01:43+00:00"
+            "time": "2026-11-27T14:07:58+00:00"
         },
         {
             "name": "symfony/service-contracts",
@@ -11900,16 +11900,16 @@
         },
         {
             "name": "symfony/yaml",
-            "version": "v8.1.12",
+            "version": "v8.1.13",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/yaml.git",
-                "reference": "deb300ddc3ef3eab0476569fd88d14e3b194881a"
+                "reference": "644371830ee15c591d6ee184738723cc58ca3de6"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/yaml/zipball/deb300ddc3ef3eab0476569fd88d14e3b194881a",
-                "reference": "deb300ddc3ef3eab0476569fd88d14e3b194881a",
+                "url": "https://api.github.com/repos/symfony/yaml/zipball/644371830ee15c591d6ee184738723cc58ca3de6",
+                "reference": "644371830ee15c591d6ee184738723cc58ca3de6",
                 "shasum": ""
             },
             "require": {
@@ -11952,7 +11952,7 @@
             "description": "Loads and dumps YAML files",
             "homepage": "https://symfony.com",
             "support": {
-                "source": "https://github.com/symfony/yaml/tree/v8.1.12"
+                "source": "https://github.com/symfony/yaml/tree/v8.1.13"
             },
             "funding": [
                 {
@@ -11972,7 +11972,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-11-16T12:51:10+00:00"
+            "time": "2026-11-27T13:27:33+00:00"
         }
     ],
     "aliases": [],
