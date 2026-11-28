@@ -76,6 +76,8 @@ Route::middleware([Authenticate::class, RequireProviderAdmin::class])->group(fun
         Route::post('/users/{user}/disable', [DirectoryAdminController::class, 'disable']);
         Route::post('/users/{user}/enable', [DirectoryAdminController::class, 'enable']);
         Route::put('/users/{user}/password', [DirectoryAdminController::class, 'resetPassword']);
+        Route::delete('/users/{user}/passkeys', [DirectoryAdminController::class, 'removePasskeys']);
+        Route::post('/users/{user}/recovery', [DirectoryAdminController::class, 'sendRecovery'])->middleware('throttle:10,1');
         Route::delete('/users/{user}', [DirectoryAdminController::class, 'destroy']);
         Route::put('/users/{user}/clients/{client}', [DirectoryAdminController::class, 'grantClient']);
         Route::delete('/users/{user}/clients/{client}', [DirectoryAdminController::class, 'revokeClient']);

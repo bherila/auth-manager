@@ -60,6 +60,35 @@ both the server allow-list and the original RP's public well-known document are
 required. See [deployment prerequisites](deployment.md). This does not change
 the RP used for new enrollment or grant application access.
 
+## Helping someone back in
+
+Directory administration (`/admin/users`) offers two recovery actions for
+another person. Neither is available for the acting administrator's own account:
+they manage their own passkeys from account settings.
+
+- **Remove passkeys** (`DELETE /api/admin/users/{user}/passkeys` with the
+  `expected_revision`) deletes every passkey the person holds, for a lost device
+  or a passkey that may be in someone else's hands. It needs the same recent proof
+  as an administrator change. Like any authority change, it advances the person's
+  credential generation and ends their sessions, remember cookies, trusted
+  devices, OAuth credentials and pending sign-in or reset attempts. Removing
+  passkeys from someone who has none changes nothing and records nothing.
+- **Email a password reset link** (`POST /api/admin/users/{user}/recovery`)
+  sends the link and mail that self-service reset sends, to the person's current
+  address. It is offered only on an instance that enables self-service reset
+  (`AUTH_MANAGER_ALLOW_PASSWORD_RESET`), because the link opens that page. It is
+  refused for a disabled person and for an account that may not hold a local
+  password. The reset broker's per-person throttle applies. Elsewhere, set a
+  temporary password instead.
+
+Both actions are audited with the acting administrator. `GET /api/admin/users`
+reports each person's `subject` and `passkey_count`, and
+`password_reset_available` for the instance.
+
+A relying application can link an administrator straight to one person with
+`/admin/users?subject=<subject>`: the provider subject it already stores, never
+an email address. The page shows only that person, with a link back to everyone.
+
 ## Provider administrator management
 
 The directory's **Provider administrator authority** control grants or removes the

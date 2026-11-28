@@ -2,13 +2,20 @@
 
 namespace BWH\AuthManager\Services;
 
+use BWH\Auth\Contracts\LocalCredentialPolicy;
+use BWH\Auth\Mail\PasswordResetConfirmationMail;
+use BWH\Auth\Models\PasskeyCredential;
 use BWH\AuthManager\Models\IdentityTombstone;
 use BWH\AuthManager\Models\IdentityTombstoneClient;
 use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Support\Mount;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class DirectoryAdminService
 {
@@ -31,6 +38,10 @@ class DirectoryAdminService
     public const EVENT_USER_TOMBSTONED = 'directory_user_tombstoned';
 
     public const EVENT_ADMINISTRATOR_CHANGED = 'provider_administrator_changed';
+
+    public const EVENT_PASSKEYS_REMOVED = 'directory_passkeys_removed';
+
+    public const EVENT_RECOVERY_SENT = 'directory_recovery_sent';
 
     public function __construct(
         private readonly OAuthClientGrantService $grants,
@@ -197,6 +208,83 @@ class DirectoryAdminService
 
             return $locked;
         }, 3);
+    }
+
+    /**
+     * Remove every passkey a person holds, for someone who lost the device or whose passkey may be
+     * in someone else's hands. Sessions, remember cookies, trusted devices and OAuth credentials
+     * end with them, since any of those may have been established with the passkey. Needs proof
+     * from a credential presented in the last five minutes. A person's own passkeys are managed
+     * from their account settings, never here.
+     */
+    public function removePasskeys(Request $request, User $actor, User $target, ?string $expectedRevision = null): User
+    {
+        return DB::transaction(function () use ($request, $actor, $target, $expectedRevision): User {
+            $users = $this->administrators->lockDirectory();
+            $this->administrators->actor($users, $actor, $request, recent: true);
+            $locked = $this->administrators->target($users, $target);
+            $this->administrators->expectRevision($locked, $expectedRevision);
+            if ($locked->getKey() === $actor->getKey()) {
+                throw ValidationException::withMessages(['user' => 'Manage your own passkeys from your account settings.']);
+            }
+
+            $removed = PasskeyCredential::query()->where('user_id', $locked->getKey())->delete();
+            if ($removed === 0) {
+                return $locked;
+            }
+
+            $this->administrators->invalidateAuthority($locked);
+            $this->audit->record($request, $actor, $locked, self::EVENT_PASSKEYS_REMOVED, ['passkeys_removed' => $removed]);
+
+            return $locked;
+        }, 3);
+    }
+
+    /**
+     * Mail a password reset link to the person's current address, the same link and mail
+     * self-service reset sends. Only on an instance that offers self-service reset, since the
+     * link opens that page, and only to an active account that may hold a local password.
+     * The broker's per-person throttle applies.
+     */
+    public function sendRecovery(Request $request, User $actor, User $target): User
+    {
+        $locked = DB::transaction(fn (): User => $this->lock($request, $actor, $target), 3);
+
+        if (! config('auth-manager.sign_in.password_reset')) {
+            throw ValidationException::withMessages(['user' => 'Self-service password reset is off on this instance. Set a temporary password instead.']);
+        }
+        if (! $locked->canLogin()) {
+            throw ValidationException::withMessages(['user' => 'Re-enable this person before sending a recovery link.']);
+        }
+        if (! app(LocalCredentialPolicy::class)->mayUseLocalCredentials($locked, $request)) {
+            throw ValidationException::withMessages(['user' => 'This account cannot hold a password, so there is nothing to recover by email.']);
+        }
+
+        $failed = false;
+        $status = Password::broker(Mount::embedded() ? Mount::EMBEDDED_USER_PROVIDER : null)
+            ->sendResetLink(['email' => $locked->email], function (User $user, string $token) use (&$failed): void {
+                $url = strtr((string) config('bherila-auth.password_resets.reset_url'), [
+                    '{token}' => rawurlencode($token),
+                    '{email}' => rawurlencode($user->email),
+                ]);
+                try {
+                    Mail::to($user->email)->send(new PasswordResetConfirmationMail($user, $url, (string) config('app.name')));
+                } catch (Throwable $exception) {
+                    report($exception);
+                    $failed = true;
+                }
+            });
+
+        if ($status === Password::RESET_THROTTLED) {
+            throw ValidationException::withMessages(['user' => 'A recovery link was sent to this person moments ago. Wait a minute before sending another.']);
+        }
+        if ($status !== Password::RESET_LINK_SENT || $failed) {
+            throw ValidationException::withMessages(['user' => 'The recovery email could not be sent. Try again, or set a temporary password.']);
+        }
+
+        $this->audit->record($request, $actor, $locked, self::EVENT_RECOVERY_SENT);
+
+        return $locked;
     }
 
     public function tombstone(Request $request, User $actor, User $target, ?string $expectedRevision = null): IdentityTombstone
