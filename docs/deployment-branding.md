@@ -12,6 +12,8 @@ AUTH_BRANDING_LOGO_LIGHT=/branding/logo-light.svg
 AUTH_BRANDING_LOGO_DARK=/branding/logo-dark.svg
 AUTH_BRANDING_FAVICON=/branding/favicon.ico
 AUTH_BRANDING_STYLESHEET=/branding/theme.css
+# The logo is a wordmark that already spells out APP_NAME.
+AUTH_BRANDING_LOGO_INCLUDES_NAME=true
 ```
 
 For a cPanel deployment, keep the canonical files in a private server directory such as
@@ -29,7 +31,7 @@ In either mode, verify that the files are served with the correct MIME types aft
 
 Only root-relative `/branding/` paths are accepted. Each path segment permits letters, digits, underscores and hyphens; extensions are restricted to image types for logos/icons and `.css` for stylesheets. External URLs, query strings, fragments, encoded paths and traversal are ignored. Files are maintained by deployment operators: there is no asset-upload endpoint, inline SVG inclusion, custom JavaScript or HTML theme mechanism. Review SVG and CSS as trusted deployment material; omit scripts, remote imports, tracking and external font dependencies.
 
-The common layout places a visible application name alongside decorative logo images, so the provider remains identifiable to assistive technology and when images fail. It covers login and the emailed-code recovery island, passkeys, account/security pages, administration and OAuth consent. Existing password forms, CSRF fields, DOM IDs and consent controls are retained. Dark mode follows the existing validated theme preference and its system fallback; the light logo is reused if a dark logo is absent. Without a logo, the application name remains visible. Invalid or missing optional asset settings simply omit that element.
+The common layout places a visible application name alongside decorative logo images, so the provider remains identifiable to assistive technology and when images fail. When the logo is a wordmark that already spells out the name, set `AUTH_BRANDING_LOGO_INCLUDES_NAME=true`: the name is then carried as both logo images' alt text, shown if the image fails, instead of being printed a second time beside it. The setting has no effect without a valid light logo. It covers login and the emailed-code recovery island, passkeys, account/security pages, administration and OAuth consent. Existing password forms, CSRF fields, DOM IDs and consent controls are retained. Dark mode follows the existing validated theme preference and its system fallback; the light logo is reused if a dark logo is absent. Without a logo, the application name remains visible. Invalid or missing optional asset settings simply omit that element.
 
 The stylesheet loads after the application bundle and can override existing raw HSL CSS variables in `:root` and `.dark`, for example `--primary`, `--primary-foreground`, `--background`, `--foreground`, `--card`, `--card-foreground`, `--border` and `--ring`. Choose sufficient contrast in both themes; do not hide authentication controls or error messages. Prefer versioned filenames such as `/branding/theme-v2.css` to invalidate browser caches when replacing assets.
 

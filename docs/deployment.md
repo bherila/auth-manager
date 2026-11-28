@@ -88,8 +88,8 @@ An optional compatibility path keeps an old RP unchanged through WebAuthn Relate
 Origin Requests. With a release that includes assertion support, set
 `WEBAUTHN_RELATED_ORIGINS='{"app.example.test":["https://id.example.test"]}'`
 in the provider's persistent environment, then rebuild its configuration cache.
-Only exact HTTPS calling origins receive the additional **Use a passkey from…**
-choice on the sign-in page. New passkeys and autofill retain `WEBAUTHN_RP_ID`.
+Only exact HTTPS calling origins receive the additional choice on the sign-in page: a
+small **Made your passkey on app.example.test? Use that one** link under the passkey button. New passkeys and autofill retain `WEBAUTHN_RP_ID`.
 The original RP must also serve `https://app.example.test/.well-known/webauthn`
 as public `application/json`, containing `{"origins":["https://id.example.test"]}`.
 The browser fetches that document without a session; it must not redirect to login

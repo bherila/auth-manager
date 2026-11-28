@@ -88,17 +88,19 @@ export function PasskeyLogin({ relatedRps = [] }: { relatedRps?: string[] }): Re
         {verifying ? 'Waiting for your passkey…' : 'Sign in with a passkey'}
       </Button>
       {relatedRps.map((rp) => (
-        <Button
-          key={rp}
-          type="button"
-          variant="outline"
-          className="mt-2 w-full"
-          onClick={() => void signIn(rp)}
-          disabled={verifying}
-          aria-describedby={error ? ERROR_ID : undefined}
-        >
-          Use a passkey from {rp}
-        </Button>
+        <p key={rp} className="text-muted-foreground mt-3 text-center text-sm">
+          Made your passkey on {rp}?{' '}
+          <button
+            type="button"
+            className="text-foreground underline underline-offset-4 hover:no-underline disabled:opacity-50"
+            onClick={() => void signIn(rp)}
+            disabled={verifying}
+            aria-label={`Use a passkey from ${rp}`}
+            aria-describedby={error ? ERROR_ID : undefined}
+          >
+            Use that one
+          </button>
+        </p>
       ))}
       {error ? (
         <p id={ERROR_ID} role="alert" className="text-destructive mt-2 text-sm">

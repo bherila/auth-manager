@@ -9,6 +9,15 @@ final class DeploymentBranding
         return config('branding.enabled') === true;
     }
 
+    /**
+     * Whether the logo stands in for the application name: the deployment says its artwork is a
+     * wordmark, and a valid light logo is configured. Otherwise the name stays visible as text.
+     */
+    public function logoIncludesName(): bool
+    {
+        return config('branding.logo_includes_name') === true && $this->asset('logo_light') !== null;
+    }
+
     /** Only deployment-owned root-relative files below the mount, never browser or client input. */
     public function asset(string $key): ?string
     {
