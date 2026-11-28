@@ -62,6 +62,19 @@ final class DirectoryAdminListingTest extends TestCase
         $this->assertSame([$byEmail->id], array_column($this->getJson('/api/admin/users?search='.rawurlencode($subject))->json('users'), 'id'));
     }
 
+    public function test_a_name_outside_ascii_is_found_by_the_text_it_is_stored_as(): void
+    {
+        $admin = User::factory()->create(['user_role' => 'admin']);
+        $accented = User::factory()->create(['name' => 'Élodie Synthetic']);
+        $cyrillic = User::factory()->create(['name' => 'Иван Synthetic']);
+
+        $ids = fn (string $search): array => array_column($this->actingAs($admin)->getJson('/api/admin/users?search='.rawurlencode($search))->assertOk()->json('users'), 'id');
+
+        $this->assertSame([$accented->id], $ids('Élodie'));
+        $this->assertSame([$accented->id], $ids('ÉLODIE SYNTH'));
+        $this->assertSame([$cyrillic->id], $ids('Иван'));
+    }
+
     public function test_a_subject_opens_exactly_one_person(): void
     {
         $admin = User::factory()->create(['user_role' => 'admin']);

@@ -244,10 +244,12 @@ class DirectoryAdminController extends Controller
     {
         $search = trim((string) ($input['search'] ?? ''));
         if ($search !== '') {
-            $term = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($search)).'%';
+            // Folded by the database on both sides, so a term always matches the text it copies.
+            // SQLite's lower() folds only ASCII; MariaDB's folds by the column's collation.
+            $term = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search).'%';
             $query->where(function (Builder $match) use ($search, $term): void {
-                $match->whereRaw("lower(name) like ? escape '!'", [$term])
-                    ->orWhereRaw("lower(email) like ? escape '!'", [$term]);
+                $match->whereRaw("lower(name) like lower(?) escape '!'", [$term])
+                    ->orWhereRaw("lower(email) like lower(?) escape '!'", [$term]);
                 if (ProviderSubjects::valid($search)) {
                     $match->orWhere(fn (Builder $subject) => $subject->whereProviderSubject($search));
                 }

@@ -103,12 +103,20 @@ function DirectoryAdminPage() {
   }, [searchText, query.search, updateQuery]);
 
   const listRequest = listQueryString(query, PER_PAGE);
+  // Only the newest list request may update the page: an older one that answers late is dropped.
+  const listGeneration = useRef(0);
   const loadList = useCallback(async (): Promise<void> => {
+    const generation = ++listGeneration.current;
     setLoading(true);
     try {
-      setData(await fetchWrapper.get(appPath(`/api/admin/users${listRequest}`)) as DirectoryResponse);
+      const response = await fetchWrapper.get(appPath(`/api/admin/users${listRequest}`)) as DirectoryResponse;
+      if (generation === listGeneration.current) {
+        setData(response);
+      }
     } finally {
-      setLoading(false);
+      if (generation === listGeneration.current) {
+        setLoading(false);
+      }
     }
   }, [listRequest]);
 
@@ -239,8 +247,10 @@ function DirectoryAdminPage() {
       <div role="tabpanel" id="panel-groups" aria-labelledby="tab-groups" hidden={tab !== 'groups'}>
         <GroupsPanel groups={groups} clients={data.clients} onChanged={changed} onError={reportError}
           onShowMembers={(group) => {
+            // Close any open person, or a narrow screen keeps showing them instead of the members.
+            setSelected(null);
             setSearchText('');
-            updateQuery({ group: group.id, search: '', status: '', page: 1 });
+            updateQuery({ group: group.id, search: '', status: '', page: 1, subject: null });
             setTab('people');
           }} />
       </div>
