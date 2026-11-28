@@ -18,6 +18,18 @@ class RelyingApplications
      */
     public function forSubject(string $subject): array
     {
+        return $this->applications($subject, (bool) config('application-registry.launch_enabled', false));
+    }
+
+    /** @return list<array{key: string, name: string, url: string}> */
+    public function registeredForSubject(string $subject): array
+    {
+        return $this->applications($subject, true);
+    }
+
+    /** @return list<array{key: string, name: string, url: string}> */
+    private function applications(string $subject, bool $useRegistry): array
+    {
         $staticClients = new StaticApplicationClients;
         $grantedClientIds = DB::table('oauth_client_grants')->where('subject', $subject)->pluck('oauth_client_id');
         $clients = PassportClient::query()
@@ -28,7 +40,7 @@ class RelyingApplications
             ->get()
             ->filter(fn (PassportClient $client): bool => $staticClients->eligible($client));
 
-        if (config('application-registry.launch_enabled', false)) {
+        if ($useRegistry) {
             return RegisteredApplication::query()
                 ->where('enabled', true)
                 ->whereHas('clients', fn ($query) => $query->whereIn('oauth_clients.id', $clients->modelKeys()))

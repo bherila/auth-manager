@@ -10,6 +10,7 @@ use BWH\AuthManager\Http\Controllers\ApplicationSignInReturnController;
 use BWH\AuthManager\Http\Controllers\ConfirmApplicationAccessController;
 use BWH\AuthManager\Http\Controllers\ConfirmProviderAdministrationController;
 use BWH\AuthManager\Http\Controllers\DirectoryAdminController;
+use BWH\AuthManager\Http\Controllers\HomeController;
 use BWH\AuthManager\Http\Controllers\IdentityLifecycleController;
 use BWH\AuthManager\Http\Controllers\InvitationAcceptanceController;
 use BWH\AuthManager\Http\Controllers\LoginController;
@@ -24,9 +25,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
-})->name('home');
+Route::get('/', HomeController::class)->name('home');
 
 Route::get('/login', [LoginController::class, 'show'])->name('login');
 Route::post('/login', [LoginController::class, 'login']);
