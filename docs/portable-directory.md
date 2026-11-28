@@ -45,10 +45,12 @@ first-party. `historical_client_owners` reports these preserved references.
 
 ## Protect the material
 
-Archive version 3 carries each account's `subject` and each tombstone's
-`provider_subject` ([provider subjects](identity-subjects.md)); import refuses an archive
-that would issue a subject twice or reissue one a deleted identity held. Version 2
-(access groups and each grant's `direct` flag) still imports, with every subject
+Archive version 4 carries [default access](default-access.md): each group's `auto_join`
+flag and the opt-outs administrators recorded. Version 3 carries each account's `subject`
+and each tombstone's `provider_subject` ([provider subjects](identity-subjects.md)); import
+refuses an archive that would issue a subject twice or reissue one a deleted identity
+held. A version 3 archive still imports, with no default groups and no opt-outs. Version 2
+(access groups and each grant's `direct` flag) still imports too, with every subject
 taken to be its account id as it was then. A version 1 archive is refused as an
 unsupported format; make a new archive with the current provider version on the source.
 

@@ -119,7 +119,7 @@ confirmation before a group becomes a default.
 
 ## Limits
 
-- The [portable directory archive](portable-directory.md) does not carry `auto_join` or opt-outs
-  yet. After copying a directory, mark the default groups again. Recreate any opt-outs by taking
-  those people out again before running a backfill.
+- The [portable directory archive](portable-directory.md) carries `auto_join` and opt-outs from
+  version 4. Importing an older archive gives no default groups and no opt-outs: mark the
+  defaults again after such a copy.
 - Membership is per account. There is no rule-based membership, for example by email domain.
