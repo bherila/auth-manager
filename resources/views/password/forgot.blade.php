@@ -27,6 +27,9 @@
 
                 <form method="POST" action="{{ route('auth-manager.password.email') }}" class="space-y-4">
                     @csrf
+                    @if ($clientId !== null)
+                        <input type="hidden" name="client_id" value="{{ $clientId }}" />
+                    @endif
                     <div class="space-y-2">
                         <x-ui.label for="email">Email</x-ui.label>
                         <x-ui.input
@@ -45,7 +48,7 @@
                 </form>
             </div>
 
-            <a href="{{ route('auth-manager.login') }}" class="mt-4 inline-block text-sm underline">Back to sign in</a>
+            <a href="{{ $clientId === null ? route('auth-manager.login') : route('auth-manager.sign-in-return', ['client_id' => $clientId]) }}" class="mt-4 inline-block text-sm underline">Back to sign in</a>
         </div>
     </main>
 @endsection

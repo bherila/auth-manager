@@ -46,6 +46,20 @@ changes, self-deletion and new recovery factors are not implied by the account
 hub. A failed or throttled email-code
 request must not reveal whether an email belongs to an active account.
 
+Application-originated recovery links may include `client_id` for an active static
+client mapped to an enabled registered application. The reset form and email
+carry only that identifier, including when the email opens in a new browser.
+Recovery reached from an existing authorization request also captures its client
+only when the callback is registered and the intended URL is this provider's
+authorization endpoint. Completing the reset still creates no session and requires
+ordinary sign-in with its configured second factor. After sign-in,
+`GET /sign-in-return?client_id=...` rechecks the current client, application and
+user grant, then opens the registry's trusted launch URL. Configure that URL as
+the application's SSO entry point so it starts fresh state/PKCE and establishes
+its own session. It must not be an OAuth callback URL. Arbitrary browser return
+URLs are ignored. Direct provider sign-in/recovery without application context
+continues to the provider normally; settings and administration are unchanged.
+
 Bound consumers link to provider credential controls and reject local credential
 mutations. Keep a tested, explicitly designated, unbound local emergency
 administrator before restricting local sign-in. Passkey credentials remain bound
