@@ -61,8 +61,12 @@ These never join automatically:
 - existing accounts, until a backfill.
 
 Joining locks each default group row before adding the member. That serializes it with a change
-to the group's applications (`addClient` and `removeClient` lock the same row), so a new member
-always ends up with every application the group grants. Each join is audited as
+to the group's applications (`addClient` and `removeClient` lock the same row). It then reads the
+group's applications, the opt-out and each grant's group sources with locking reads, so it sees
+the latest commit even when the creating transaction took its repeatable-read snapshot earlier
+(registration checks the address first). A new member therefore always ends up with exactly the
+applications the group grants when it commits. `DefaultAccessMariaDbTest` reproduces that
+ordering on MariaDB. Each join is audited as
 `access_group_member_added`, with `auth_method` `default_access` and `joined_by` naming the path
 (`directory_admin`, `invitation`, `application_registration` or `backfill`).
 

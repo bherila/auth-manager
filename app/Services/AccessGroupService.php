@@ -271,7 +271,7 @@ class AccessGroupService
                 ->flip();
             $eligible = $users->filter(static fn (User $user): bool => ! $user->trashed() && ! $user->isTestLogin()
                 && ! $excluded->has((int) $user->getKey()))->values();
-            $clientIds = $this->clientIds($locked);
+            $clientIds = $this->clientIds($locked, current: true);
             $held = DB::table('oauth_client_grants')
                 ->whereIn('subject', $eligible->map(static fn (User $user): int => (int) $user->getKey())->all())
                 ->whereIn('oauth_client_id', $clientIds)
@@ -298,9 +298,13 @@ class AccessGroupService
     /** Add one person to a default group they have not been taken out of, grant its applications and audit it. */
     private function join(AccessGroup $group, User $person, string $via): bool
     {
+        // Locking reads throughout: the creating transaction may have taken its repeatable-read
+        // snapshot (for example its email check) before this group's lock, and must still see
+        // the group's applications and opt-outs as they are now.
         $optedOut = DB::table('access_group_opt_outs')
             ->where('access_group_id', $group->getKey())
             ->where('subject', $person->getKey())
+            ->sharedLock()
             ->exists();
         if ($optedOut) {
             return false;
@@ -316,7 +320,7 @@ class AccessGroupService
         }
 
         $granted = [];
-        foreach ($this->clientIds($group) as $clientId) {
+        foreach ($this->clientIds($group, current: true) as $clientId) {
             if ($this->grants->reconcile((string) $person->getKey(), $clientId) === 'granted') {
                 $granted[] = $clientId;
             }
@@ -420,12 +424,18 @@ class AccessGroupService
         return $query->pluck('subject')->map(static fn (mixed $subject): string => (string) $subject)->all();
     }
 
-    /** @return list<string> */
-    public function clientIds(AccessGroup $group): array
+    /**
+     * The group's applications. $current makes it a locking read, which sees the latest commit
+     * rather than a repeatable-read snapshot the transaction may have taken before its locks.
+     *
+     * @return list<string>
+     */
+    public function clientIds(AccessGroup $group, bool $current = false): array
     {
         return DB::table('access_group_clients')
             ->where('access_group_id', $group->getKey())
             ->orderBy('oauth_client_id')
+            ->when($current, static fn ($query) => $query->sharedLock())
             ->pluck('oauth_client_id')
             ->map(static fn (mixed $id): string => (string) $id)
             ->all();

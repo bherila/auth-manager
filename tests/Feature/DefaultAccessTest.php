@@ -82,8 +82,7 @@ final class DefaultAccessTest extends TestCase
     public function test_a_test_login_never_joins_a_default_group(): void
     {
         $default = $this->group('Everyone', true, $this->defaultClient);
-        $synthetic = User::factory()->create();
-        $synthetic->forceFill(['is_test_login' => true, 'test_login_expires_at' => now()->addHour()])->save();
+        $synthetic = $this->syntheticTestLogin();
 
         $this->assertSame([], app(AccessGroupService::class)->joinDefaultGroups($synthetic->fresh(), AccessGroupService::JOINED_BY_DIRECTORY_ADMIN));
         $this->assertFalse($this->member($default, $synthetic));
@@ -132,8 +131,7 @@ final class DefaultAccessTest extends TestCase
         DB::table('access_group_members')->insert(['access_group_id' => $default->id, 'subject' => $member->id, 'created_at' => now(), 'updated_at' => now()]);
         $optedOut = User::factory()->create();
         DB::table('access_group_opt_outs')->insert(['access_group_id' => $default->id, 'subject' => $optedOut->id, 'created_at' => now(), 'updated_at' => now()]);
-        $testLogin = User::factory()->create();
-        $testLogin->forceFill(['is_test_login' => true, 'test_login_expires_at' => now()->addHour()])->save();
+        $testLogin = $this->syntheticTestLogin();
         $deleted = User::factory()->create();
         $deleted->delete();
 
@@ -184,6 +182,15 @@ final class DefaultAccessTest extends TestCase
         DB::table('access_group_clients')->insert(['access_group_id' => $group->id, 'oauth_client_id' => $clientId, 'created_at' => now(), 'updated_at' => now()]);
 
         return $group;
+    }
+
+    /** A test login is one from creation: an existing identity can never be converted into one. */
+    private function syntheticTestLogin(): User
+    {
+        $synthetic = User::factory()->make(['email' => 'synthetic@example.test', 'user_role' => 'user']);
+        $synthetic->forceFill(['is_test_login' => true, 'test_login_expires_at' => now()->addHour()])->save();
+
+        return $synthetic;
     }
 
     private function member(AccessGroup $group, User $person): bool
