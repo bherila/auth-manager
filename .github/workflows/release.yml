@@ -81,6 +81,9 @@ jobs:
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
+      actions: read
+    outputs:
+      evidence: ${{ steps.approval.outputs.evidence }}
 
     steps:
       - name: Checkout the tagged commit
@@ -88,6 +91,20 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.commit }}
           persist-credentials: false
+
+      - name: Check recent exact-source main CI
+        id: approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.resolve.outputs.commit }}
+        run: |
+          if [ -f scripts/release/verified-main.py ]; then
+            python3 scripts/release/verified-main.py
+          else
+            # Manual releases of older tags retain their full verification path.
+            echo 'reuse=false' >>"$GITHUB_OUTPUT"
+            echo 'evidence=Full verification on the tagged commit' >>"$GITHUB_OUTPUT"
+          fi
 
       - name: Setup PHP
         uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
@@ -97,23 +114,33 @@ jobs:
           coverage: none
 
       - name: Setup Node
+        if: steps.approval.outputs.reuse != 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
       - name: Enable pnpm
+        if: steps.approval.outputs.reuse != 'true'
         run: |
           corepack enable
           corepack prepare pnpm@12.23.0 --activate
 
       - name: Setup application
+        if: steps.approval.outputs.reuse != 'true'
         run: composer setup
 
       - name: Run CI checks
+        if: steps.approval.outputs.reuse != 'true'
         run: composer ci:check
 
       - name: Test deployment hooks
+        if: steps.approval.outputs.reuse != 'true'
         run: bash tests/deployment/test-deploy-hooks.sh
+
+      # Security advisories can change after main CI, even for locked dependencies.
+      - name: Audit locked dependencies again
+        if: steps.approval.outputs.reuse == 'true'
+        run: composer audit --locked
 
   build:
     name: Build and attest the release artifact
@@ -177,7 +204,7 @@ jobs:
 
   publish:
     name: Publish the GitHub release
-    needs: [resolve, build]
+    needs: [resolve, verify, build]
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -216,6 +243,7 @@ jobs:
           TAG: ${{ needs.resolve.outputs.tag }}
           COMMIT: ${{ needs.resolve.outputs.commit }}
           SHA256: ${{ steps.checksum.outputs.sha256 }}
+          VERIFICATION: ${{ needs.verify.outputs.evidence }}
         working-directory: release
         run: |
           set -euo pipefail
@@ -252,6 +280,8 @@ jobs:
 
           {
             echo "Commit: \`$COMMIT\`"
+            echo
+            echo "Verification: $VERIFICATION"
             echo
             echo "\`$name\` SHA-256: \`$SHA256\`"
             echo
