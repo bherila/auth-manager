@@ -7,6 +7,7 @@ use BWH\AuthManager\Models\AccessInvitation;
 use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\RegisteredApplication;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\AccessGroupService;
 use BWH\AuthManager\Services\OAuthClientGrantService;
 use BWH\AuthManager\Support\ApplicationInvitations;
 use BWH\AuthManager\Support\StaticApplicationClients;
@@ -374,6 +375,9 @@ final class AccessInvitationService
                 if ($this->grants->grant((string) $person->getKey(), $clientId)) {
                     $granted[] = $clientId;
                 }
+            }
+            if ($created) {
+                app(AccessGroupService::class)->joinDefaultGroups($person, AccessGroupService::JOINED_BY_INVITATION);
             }
             $this->audit->record(InvitationAudit::ACCEPTED, $locked, $request, $person, $person, metadata: [
                 'account_created' => $created, 'oauth_client_ids' => $granted, 'link_handed_over' => $locked->link_handed_over,

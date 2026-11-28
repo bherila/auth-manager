@@ -76,6 +76,7 @@ class DirectoryAdminService
                 'enabled' => $attributes['enabled'],
                 'oauth_client_ids' => $clientIds,
             ]);
+            app(AccessGroupService::class)->joinDefaultGroups($user, AccessGroupService::JOINED_BY_DIRECTORY_ADMIN);
 
             return $user;
         }, 3);

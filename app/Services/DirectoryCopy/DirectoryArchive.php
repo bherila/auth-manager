@@ -9,11 +9,18 @@ final class DirectoryArchive
 {
     public const FORMAT = 'auth-manager.directory-copy';
 
-    /** 2: access groups and the direct-grant flag. 3: `users.subject` and `identity_tombstones.provider_subject`. */
-    public const VERSION = 3;
+    /**
+     * 2: access groups and the direct-grant flag. 3: `users.subject` and
+     * `identity_tombstones.provider_subject`. 4: default access, `access_groups.auto_join` and
+     * `access_group_opt_outs`.
+     */
+    public const VERSION = 4;
 
-    /** Versions still read. A version 2 archive's subjects were its account ids. */
-    public const READABLE = [2, 3];
+    /**
+     * Versions still read. A version 2 archive's subjects were its account ids; an archive
+     * older than 4 had no default groups and no opt-outs.
+     */
+    public const READABLE = [2, 3, 4];
 
     public const MAX_BYTES = 67108864;
 
@@ -55,7 +62,14 @@ final class DirectoryArchive
             throw new InvalidArgumentException('Directory archive is not valid JSON.');
         }
 
-        return ['checksum' => $envelope['sha256'], 'payload' => $envelope['version'] === 2 ? self::fromVersion2($payload) : $payload];
+        if ($envelope['version'] === 2) {
+            $payload = self::fromVersion2($payload);
+        }
+        if ($envelope['version'] < 4) {
+            $payload = self::fromVersion3($payload);
+        }
+
+        return ['checksum' => $envelope['sha256'], 'payload' => $payload];
     }
 
     /**
@@ -98,6 +112,64 @@ final class DirectoryArchive
         }
 
         return $payload;
+    }
+
+    /**
+     * Version 3 predates default access: no group joined new accounts and nobody had opted out.
+     * Add `auto_join` as false after each group's description, and an empty opt-out table with
+     * its identifier floor, each in its version 4 position. Anything malformed is left for the
+     * import's validation to refuse.
+     *
+     * @param  array<mixed>  $payload
+     * @return array<mixed>
+     */
+    private static function fromVersion3(array $payload): array
+    {
+        if (! isset($payload['tables']) || ! is_array($payload['tables'])) {
+            return $payload;
+        }
+        if (isset($payload['tables']['access_groups']) && is_array($payload['tables']['access_groups'])) {
+            $payload['tables']['access_groups'] = array_map(static function (mixed $row): mixed {
+                if (! is_array($row) || ! array_key_exists('description', $row) || array_key_exists('auto_join', $row)) {
+                    return $row;
+                }
+                $upgraded = [];
+                foreach ($row as $key => $value) {
+                    $upgraded[$key] = $value;
+                    if ($key === 'description') {
+                        $upgraded['auto_join'] = base64_encode('0');
+                    }
+                }
+
+                return $upgraded;
+            }, $payload['tables']['access_groups']);
+        }
+        $payload['tables'] = self::insertAfter($payload['tables'], 'access_group_clients', 'access_group_opt_outs', []);
+        if (isset($payload['sequence_floors']) && is_array($payload['sequence_floors'])) {
+            $payload['sequence_floors'] = self::insertAfter($payload['sequence_floors'], 'access_group_clients', 'access_group_opt_outs', 1);
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param  array<mixed>  $items
+     * @return array<mixed>
+     */
+    private static function insertAfter(array $items, string $after, string $key, mixed $value): array
+    {
+        if (array_key_exists($key, $items) || ! array_key_exists($after, $items)) {
+            return $items;
+        }
+        $result = [];
+        foreach ($items as $name => $item) {
+            $result[$name] = $item;
+            if ($name === $after) {
+                $result[$key] = $value;
+            }
+        }
+
+        return $result;
     }
 
     /** @param array<string, mixed> $row @return array<string, string|null> */

@@ -395,7 +395,7 @@ class DirectoryCopyTest extends TestCase
         User::factory()->create(['id' => 32]);
         DB::table('identity_tombstones')->insert(['id' => 6, 'public_id' => (string) Str::uuid(), 'subject' => 40, 'provider_subject' => 'SyntheticGone01', 'tombstoned_at' => now(), 'purge_after' => now()->addMonth(), 'created_at' => now(), 'updated_at' => now()]);
         $archive = $this->archive();
-        $this->assertSame(3, json_decode(DirectoryArchive::encode(app(DirectoryTransfer::class)->snapshot()), true)['version']);
+        $this->assertSame(DirectoryArchive::VERSION, json_decode(DirectoryArchive::encode(app(DirectoryTransfer::class)->snapshot()), true)['version']);
         $this->target();
 
         app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
@@ -463,6 +463,75 @@ class DirectoryCopyTest extends TestCase
         $this->assertSame('42', DB::table('identity_tombstones')->value('provider_subject'));
         $this->expectException(\InvalidArgumentException::class);
         DirectoryArchive::decode(str_replace('"version":2', '"version":1', $version2));
+    }
+
+    public function test_version_4_carries_default_groups_and_opt_outs(): void
+    {
+        [$default, $ordinary, $member, $optedOut] = $this->defaultAccessFixture();
+        $archive = $this->archive();
+        $this->target();
+
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
+
+        $this->assertTrue((bool) DB::table('access_groups')->where('id', $default)->value('auto_join'));
+        $this->assertFalse((bool) DB::table('access_groups')->where('id', $ordinary)->value('auto_join'));
+        $this->assertTrue(DB::table('access_group_members')->where('access_group_id', $default)->where('subject', $member)->exists());
+        $this->assertTrue(DB::table('access_group_opt_outs')->where('access_group_id', $default)->where('subject', $optedOut)->exists());
+    }
+
+    public function test_a_version_3_archive_imports_with_no_default_groups_or_opt_outs(): void
+    {
+        [$default, , $member] = $this->defaultAccessFixture();
+        $payload = app(DirectoryTransfer::class)->snapshot();
+        foreach ($payload['tables']['access_groups'] as &$row) {
+            unset($row['auto_join']);
+        }
+        unset($row);
+        unset($payload['tables']['access_group_opt_outs'], $payload['sequence_floors']['access_group_opt_outs']);
+        $bytes = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        $version3 = json_encode(['format' => DirectoryArchive::FORMAT, 'version' => 3, 'sha256' => hash('sha256', $bytes), 'payload' => base64_encode($bytes)], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        $archive = DirectoryArchive::decode($version3);
+        $this->target();
+
+        app(DirectoryTransfer::class)->import($archive['checksum'], $archive['payload'], true);
+
+        $this->assertFalse((bool) DB::table('access_groups')->where('id', $default)->value('auto_join'));
+        $this->assertTrue(DB::table('access_group_members')->where('access_group_id', $default)->where('subject', $member)->exists());
+        $this->assertSame(0, DB::table('access_group_opt_outs')->count());
+    }
+
+    public function test_an_invalid_default_access_flag_or_opt_out_reference_is_refused(): void
+    {
+        $this->defaultAccessFixture();
+        $snapshot = app(DirectoryTransfer::class)->snapshot();
+        $this->target();
+
+        $flag = $snapshot;
+        $flag['tables']['access_groups'][0]['auto_join'] = base64_encode('yes');
+        $orphan = $snapshot;
+        $orphan['tables']['access_group_opt_outs'][0]['subject'] = base64_encode('999');
+        foreach (['an invalid group default-access flag' => $flag, 'a missing referenced identity' => $orphan] as $message => $payload) {
+            try {
+                app(DirectoryTransfer::class)->import(hash('sha256', $message), $payload, false);
+                $this->fail("An archive with {$message} was accepted.");
+            } catch (\InvalidArgumentException $refusal) {
+                $this->assertStringContainsString($message, $refusal->getMessage());
+            }
+        }
+        $this->assertSame(0, DB::table('access_groups')->count());
+    }
+
+    /** @return array{int, int, int, int} default group, ordinary group, a member, an opted-out person */
+    private function defaultAccessFixture(): array
+    {
+        $member = User::factory()->create()->id;
+        $optedOut = User::factory()->create()->id;
+        $default = DB::table('access_groups')->insertGetId(['name' => 'Everyone', 'auto_join' => true, 'created_at' => now(), 'updated_at' => now()]);
+        $ordinary = DB::table('access_groups')->insertGetId(['name' => 'Specialists', 'auto_join' => false, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('access_group_members')->insert(['access_group_id' => $default, 'subject' => $member, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('access_group_opt_outs')->insert(['access_group_id' => $default, 'subject' => $optedOut, 'created_at' => now(), 'updated_at' => now()]);
+
+        return [$default, $ordinary, $member, $optedOut];
     }
 
     /** @return array{checksum: string, payload: array<string, mixed>} */

@@ -21,9 +21,10 @@ final class DirectoryTransfer
         'oauth_clients' => ['id', 'owner_type', 'owner_id', 'name', 'secret', 'provider', 'redirect_uris', 'grant_types', 'revoked', 'dynamically_registered_at', 'last_used_at', 'scopes', 'created_at', 'updated_at'],
         'passkeys' => ['id', 'user_id', 'credential_id', 'credential_id_hash', 'public_key', 'counter', 'aaguid', 'name', 'transports', 'last_used_at', 'rp_id', 'backup_eligible', 'created_at', 'updated_at'],
         'oauth_client_grants' => ['oauth_client_id', 'subject', 'direct', 'created_at', 'updated_at'],
-        'access_groups' => ['id', 'name', 'description', 'created_at', 'updated_at'],
+        'access_groups' => ['id', 'name', 'description', 'auto_join', 'created_at', 'updated_at'],
         'access_group_members' => ['id', 'access_group_id', 'subject', 'created_at', 'updated_at'],
         'access_group_clients' => ['id', 'access_group_id', 'oauth_client_id', 'created_at', 'updated_at'],
+        'access_group_opt_outs' => ['id', 'access_group_id', 'subject', 'created_at', 'updated_at'],
         'registered_applications' => ['id', 'key', 'name', 'launch_url', 'enabled', 'created_at', 'updated_at'],
         'registered_application_clients' => ['id', 'registered_application_id', 'oauth_client_id'],
         'access_invitations' => ['id', 'application', 'email', 'email_normalized', 'token_hash', 'pending_key', 'inviter_id', 'inviter_credential_version', 'access', 'expires_at', 'last_sent_at', 'link_handed_over', 'send_count', 'revoked_at', 'revoked_by', 'accepted_at', 'accepted_user_id', 'roles_status', 'roles_outcome', 'roles_request_id', 'roles_operation_id', 'roles_checked_at', 'requesting_client_id', 'created_at', 'updated_at'],
@@ -73,6 +74,13 @@ final class DirectoryTransfer
                 if ($name === 'identity_tombstones') {
                     foreach ($rows as &$row) {
                         $row['provider_subject'] ??= (string) $row['subject'];
+                    }
+                    unset($row);
+                }
+                if ($name === 'access_groups') {
+                    foreach ($rows as &$row) {
+                        // Drivers return a boolean column as bool, int or string; carry one form.
+                        $row['auto_join'] = (bool) $row['auto_join'] ? '1' : '0';
                     }
                     unset($row);
                 }
@@ -226,6 +234,9 @@ final class DirectoryTransfer
                 $row = DirectoryArchive::unpackRow($packed);
                 if ($name === 'oauth_clients') {
                     $row = $this->normalizeClient($row, true);
+                }
+                if ($name === 'access_groups' && ! in_array($row['auto_join'], ['0', '1'], true)) {
+                    throw new InvalidArgumentException('Directory archive has an invalid group default-access flag.');
                 }
                 if ($name === 'users' && (! ctype_digit((string) $row['credential_version'])
                     || strlen((string) $row['credential_version']) > strlen((string) PHP_INT_MAX)
@@ -381,6 +392,7 @@ final class DirectoryTransfer
             'oauth_client_grants' => ['subject' => 'users', 'oauth_client_id' => 'oauth_clients'],
             'access_group_members' => ['access_group_id' => 'access_groups', 'subject' => 'users'],
             'access_group_clients' => ['access_group_id' => 'access_groups', 'oauth_client_id' => 'oauth_clients'],
+            'access_group_opt_outs' => ['access_group_id' => 'access_groups', 'subject' => 'users'],
             'registered_application_clients' => ['registered_application_id' => 'registered_applications', 'oauth_client_id' => 'oauth_clients'],
             'access_invitations' => ['inviter_id' => 'users', 'revoked_by' => 'users', 'accepted_user_id' => 'users', 'requesting_client_id' => 'oauth_clients'],
             'identity_tombstone_clients' => ['identity_tombstone_id' => 'identity_tombstones'],

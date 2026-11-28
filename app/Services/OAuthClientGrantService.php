@@ -159,10 +159,13 @@ class OAuthClientGrantService
 
     public function grantedByGroup(string $subject, string $clientId): bool
     {
+        // A locking read: it sees the latest committed memberships and group applications, not
+        // a repeatable-read snapshot the caller's transaction took before it acquired its locks.
         return DB::table('access_group_members')
             ->join('access_group_clients', 'access_group_clients.access_group_id', '=', 'access_group_members.access_group_id')
             ->where('access_group_members.subject', $subject)
             ->where('access_group_clients.oauth_client_id', $clientId)
+            ->sharedLock()
             ->exists();
     }
 

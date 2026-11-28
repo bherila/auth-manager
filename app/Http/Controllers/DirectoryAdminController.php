@@ -324,7 +324,8 @@ class DirectoryAdminController extends Controller
      *     passkey_count:int,
      *     client_ids:list<string>,
      *     direct_client_ids:list<string>,
-     *     group_ids:list<int>
+     *     group_ids:list<int>,
+     *     opted_out_group_ids:list<int>
      * }
      */
     private function userPayload(User $user): array
@@ -333,7 +334,7 @@ class DirectoryAdminController extends Controller
     }
 
     /**
-     * Payloads for a page of people, from three queries in all rather than three per person.
+     * Payloads for a page of people, from four queries in all rather than four per person.
      *
      * @param  list<User>  $users
      * @return list<array{
@@ -349,7 +350,8 @@ class DirectoryAdminController extends Controller
      *     passkey_count:int,
      *     client_ids:list<string>,
      *     direct_client_ids:list<string>,
-     *     group_ids:list<int>
+     *     group_ids:list<int>,
+     *     opted_out_group_ids:list<int>
      * }>
      */
     private function userPayloads(array $users): array
@@ -371,6 +373,11 @@ class DirectoryAdminController extends Controller
             ->orderBy('access_group_id')
             ->get(['subject', 'access_group_id'])
             ->groupBy(static fn (object $member): int => (int) $member->subject);
+        $optOuts = DB::table('access_group_opt_outs')
+            ->whereIn('subject', $ids)
+            ->orderBy('access_group_id')
+            ->get(['subject', 'access_group_id'])
+            ->groupBy(static fn (object $optOut): int => (int) $optOut->subject);
         $passkeys = PasskeyCredential::query()
             ->whereIn('user_id', $ids)
             ->groupBy('user_id')
@@ -378,7 +385,7 @@ class DirectoryAdminController extends Controller
             ->pluck('aggregate', 'user_id');
         $administrators = app(ProviderAdministrators::class);
 
-        return array_map(static function (User $user) use ($grants, $groups, $passkeys, $administrators): array {
+        return array_map(static function (User $user) use ($grants, $groups, $optOuts, $passkeys, $administrators): array {
             $id = (int) $user->getKey();
             $own = $grants->get($id, collect());
 
@@ -400,6 +407,10 @@ class DirectoryAdminController extends Controller
                     ->all(),
                 'group_ids' => $groups->get($id, collect())
                     ->map(static fn (object $member): int => (int) $member->access_group_id)
+                    ->values()
+                    ->all(),
+                'opted_out_group_ids' => $optOuts->get($id, collect())
+                    ->map(static fn (object $optOut): int => (int) $optOut->access_group_id)
                     ->values()
                     ->all(),
             ];

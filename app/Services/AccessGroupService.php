@@ -39,6 +39,17 @@ class AccessGroupService
 
     public const EVENT_CLIENT_REMOVED = 'access_group_client_removed';
 
+    public const EVENT_AUTO_JOIN_CHANGED = 'access_group_auto_join_changed';
+
+    /** How a person came to join a default group, recorded on the membership audit row. */
+    public const JOINED_BY_DIRECTORY_ADMIN = 'directory_admin';
+
+    public const JOINED_BY_INVITATION = 'invitation';
+
+    public const JOINED_BY_APPLICATION_REGISTRATION = 'application_registration';
+
+    public const JOINED_BY_BACKFILL = 'backfill';
+
     public function __construct(
         private readonly OAuthClientGrantService $grants,
         private readonly ProviderAdministrators $administrators,
@@ -125,6 +136,11 @@ class AccessGroupService
                 'created_at' => now(),
                 'updated_at' => now(),
             ]) === 1;
+            // Adding a person back undoes an opt-out, whether or not they were already a member.
+            DB::table('access_group_opt_outs')
+                ->where('access_group_id', $locked->getKey())
+                ->where('subject', $person->getKey())
+                ->delete();
             if (! $added) {
                 return $locked;
             }
@@ -159,6 +175,16 @@ class AccessGroupService
             if (! $removed) {
                 return $locked;
             }
+            // Taking someone out of a default group is a decision about them: a backfill must
+            // never put them back. Adding them again clears it.
+            if ($locked->auto_join) {
+                DB::table('access_group_opt_outs')->insertOrIgnore([
+                    'access_group_id' => $locked->getKey(),
+                    'subject' => $person->getKey(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
 
             $revoked = [];
             foreach ($this->clientIds($locked) as $clientId) {
@@ -170,10 +196,150 @@ class AccessGroupService
                 'access_group_id' => $locked->getKey(),
                 'access_group_name' => $locked->name,
                 'revoked_oauth_client_ids' => $revoked,
+                'opted_out_of_default' => (bool) $locked->auto_join,
             ]);
 
             return $locked;
         }, 3);
+    }
+
+    /**
+     * Mark a group as default access, or stop. Turning it on adds nobody who already has an
+     * account: an operator brings existing people in deliberately with backfill().
+     */
+    public function setAutoJoin(Request $request, User $actor, AccessGroup $group, bool $autoJoin): AccessGroup
+    {
+        return DB::transaction(function () use ($request, $actor, $group, $autoJoin): AccessGroup {
+            $this->administrators->actor($this->administrators->lockDirectory(), $actor, $request);
+            $locked = $this->lockGroup($group);
+            if ((bool) $locked->auto_join === $autoJoin) {
+                return $locked;
+            }
+            $locked->forceFill(['auto_join' => $autoJoin])->save();
+            $this->recordGroup($request, $actor, self::EVENT_AUTO_JOIN_CHANGED, $locked, ['auto_join' => $autoJoin]);
+
+            return $locked;
+        }, 3);
+    }
+
+    /**
+     * Join a newly created account to every default group, inside the transaction that created
+     * it. Locking each default group first serializes this with a change to that group's
+     * applications, so the new member holds every application the group grants when the
+     * transaction commits. Test logins never join groups.
+     *
+     * @param  self::JOINED_BY_*  $via
+     * @return list<int> the groups joined
+     */
+    public function joinDefaultGroups(User $person, string $via): array
+    {
+        if ($person->isTestLogin()) {
+            return [];
+        }
+
+        return DB::transaction(function () use ($person, $via): array {
+            $joined = [];
+            foreach (AccessGroup::query()->where('auto_join', true)->orderBy('id')->lockForUpdate()->get() as $group) {
+                if ($this->join($group, $person, $via)) {
+                    $joined[] = (int) $group->getKey();
+                }
+            }
+
+            return $joined;
+        });
+    }
+
+    /**
+     * Bring every existing account into a default group, except deleted accounts, test logins,
+     * current members and anyone an administrator took out of it. Without $apply nothing is
+     * written: the result says how many people would join and how many would gain each
+     * application they do not already hold.
+     *
+     * @return array{people:int, applications:array<string,int>}
+     */
+    public function backfill(AccessGroup $group, bool $apply): array
+    {
+        return DB::transaction(function () use ($group, $apply): array {
+            $users = $this->administrators->lockDirectory();
+            $locked = $this->lockGroup($group);
+            if (! $locked->auto_join) {
+                throw ValidationException::withMessages(['group' => 'Only a group that new accounts join automatically can be backfilled.']);
+            }
+            $excluded = DB::table('access_group_members')->where('access_group_id', $locked->getKey())->pluck('subject')
+                ->merge(DB::table('access_group_opt_outs')->where('access_group_id', $locked->getKey())->pluck('subject'))
+                ->map(static fn (mixed $subject): int => (int) $subject)
+                ->flip();
+            $eligible = $users->filter(static fn (User $user): bool => ! $user->trashed() && ! $user->isTestLogin()
+                && ! $excluded->has((int) $user->getKey()))->values();
+            $clientIds = $this->clientIds($locked, current: true);
+            $held = DB::table('oauth_client_grants')
+                ->whereIn('subject', $eligible->map(static fn (User $user): int => (int) $user->getKey())->all())
+                ->whereIn('oauth_client_id', $clientIds)
+                ->get(['subject', 'oauth_client_id'])
+                ->map(static fn (object $grant): string => $grant->subject.'|'.$grant->oauth_client_id)
+                ->flip();
+
+            $applications = array_fill_keys($clientIds, 0);
+            foreach ($eligible as $user) {
+                foreach ($clientIds as $clientId) {
+                    if (! $held->has($user->getKey().'|'.$clientId)) {
+                        $applications[$clientId]++;
+                    }
+                }
+                if ($apply) {
+                    $this->join($locked, $user, self::JOINED_BY_BACKFILL);
+                }
+            }
+
+            return ['people' => $eligible->count(), 'applications' => $applications];
+        }, 3);
+    }
+
+    /** Add one person to a default group they have not been taken out of, grant its applications and audit it. */
+    private function join(AccessGroup $group, User $person, string $via): bool
+    {
+        // Locking reads throughout: the creating transaction may have taken its repeatable-read
+        // snapshot (for example its email check) before this group's lock, and must still see
+        // the group's applications and opt-outs as they are now.
+        $optedOut = DB::table('access_group_opt_outs')
+            ->where('access_group_id', $group->getKey())
+            ->where('subject', $person->getKey())
+            ->sharedLock()
+            ->exists();
+        if ($optedOut) {
+            return false;
+        }
+        $added = DB::table('access_group_members')->insertOrIgnore([
+            'access_group_id' => $group->getKey(),
+            'subject' => $person->getKey(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]) === 1;
+        if (! $added) {
+            return false;
+        }
+
+        $granted = [];
+        foreach ($this->clientIds($group, current: true) as $clientId) {
+            if ($this->grants->reconcile((string) $person->getKey(), $clientId) === 'granted') {
+                $granted[] = $clientId;
+            }
+        }
+        AuthAuditLog::create([
+            'user_id' => $person->getKey(),
+            'email' => $person->email,
+            'event' => self::EVENT_MEMBER_ADDED,
+            'auth_method' => 'default_access',
+            'succeeded' => true,
+            'metadata' => [
+                'access_group_id' => $group->getKey(),
+                'access_group_name' => $group->name,
+                'granted_oauth_client_ids' => $granted,
+                'joined_by' => $via,
+            ],
+        ]);
+
+        return true;
     }
 
     public function addClient(Request $request, User $actor, AccessGroup $group, PassportClient $client): AccessGroup
@@ -258,12 +424,18 @@ class AccessGroupService
         return $query->pluck('subject')->map(static fn (mixed $subject): string => (string) $subject)->all();
     }
 
-    /** @return list<string> */
-    public function clientIds(AccessGroup $group): array
+    /**
+     * The group's applications. $current makes it a locking read, which sees the latest commit
+     * rather than a repeatable-read snapshot the transaction may have taken before its locks.
+     *
+     * @return list<string>
+     */
+    public function clientIds(AccessGroup $group, bool $current = false): array
     {
         return DB::table('access_group_clients')
             ->where('access_group_id', $group->getKey())
             ->orderBy('oauth_client_id')
+            ->when($current, static fn ($query) => $query->sharedLock())
             ->pluck('oauth_client_id')
             ->map(static fn (mixed $id): string => (string) $id)
             ->all();
