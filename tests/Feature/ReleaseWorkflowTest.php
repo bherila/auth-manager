@@ -43,7 +43,7 @@ class ReleaseWorkflowTest extends TestCase
         $needs = [
             'verify' => 'needs: resolve',
             'build' => 'needs: [resolve, verify]',
-            'publish' => 'needs: [resolve, build]',
+            'publish' => 'needs: [resolve, verify, build]',
             'notify' => 'needs: [resolve, publish]',
         ];
         foreach ($needs as $job => $dependency) {
@@ -64,7 +64,7 @@ class ReleaseWorkflowTest extends TestCase
 
         $expected = [
             'resolve' => "    permissions:\n      contents: read\n",
-            'verify' => "    permissions:\n      contents: read\n",
+            'verify' => "    permissions:\n      contents: read\n      actions: read\n",
             'build' => "    permissions:\n      contents: read\n      id-token: write\n      attestations: write\n",
             'publish' => "    permissions:\n      contents: write\n",
             'notify' => "    permissions: {}\n",
