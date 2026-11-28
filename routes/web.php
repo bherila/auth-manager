@@ -71,6 +71,7 @@ Route::middleware([Authenticate::class, RequireProviderAdmin::class])->group(fun
         Route::put('/applications/{application}', [ApplicationRegistryController::class, 'update'])->name('admin.applications.update');
         Route::get('/identity-lifecycle', [IdentityLifecycleController::class, 'index']);
         Route::get('/users', [DirectoryAdminController::class, 'index']);
+        Route::get('/users/{user}', [DirectoryAdminController::class, 'show'])->whereNumber('user');
         Route::post('/users', [DirectoryAdminController::class, 'store']);
         Route::patch('/users/{user}/name', [DirectoryAdminController::class, 'updateName']);
         Route::patch('/users/{user}/email', [DirectoryAdminController::class, 'updateEmail']);
