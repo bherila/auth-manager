@@ -19,6 +19,8 @@ export interface DirectoryUser {
   client_ids: string[];
   direct_client_ids: string[];
   group_ids: number[];
+  /** Default groups an administrator took this person out of; a backfill never re-adds them. */
+  opted_out_group_ids: number[];
 }
 
 export interface DirectoryResponse {
@@ -32,6 +34,8 @@ export interface AccessGroup {
   id: number;
   name: string;
   description: string | null;
+  /** New accounts join this group automatically: the instance's default access. */
+  auto_join: boolean;
   member_count: number;
   client_ids: string[];
 }

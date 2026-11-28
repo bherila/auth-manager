@@ -32,6 +32,12 @@ group.
 
 Existing grants were all made directly and are marked `direct = true` by the migration.
 
+## Default access
+
+A group can be marked so that every account created from then on joins it automatically. Existing
+people join only through a previewed backfill, and taking someone out of such a group records an
+opt-out that a backfill respects. See [default access](default-access.md).
+
 ## Who can be a member
 
 Any provider account except a test login: test logins are granted applications individually (see
@@ -67,6 +73,7 @@ All routes require an active provider administrator and use the provider session
 | `DELETE /api/admin/groups/{group}` | Delete; members lose what only this group granted |
 | `PUT` / `DELETE /api/admin/groups/{group}/members/{user}` | Add or remove a member |
 | `PUT` / `DELETE /api/admin/groups/{group}/clients/{client}` | Add or remove an application |
+| `PUT /api/admin/groups/{group}/auto-join` | Make the group default access for new accounts, or stop ([default access](default-access.md)) |
 
 `GET /api/admin/users` also reports each person's `direct_client_ids` and `group_ids` beside the
 effective `client_ids`, and takes `group=<id>` to list one group's members. Each group reports its

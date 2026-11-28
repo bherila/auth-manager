@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use BWH\Auth\Models\AuthAuditLog;
 use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\RegisteredApplication;
 use BWH\AuthManager\Models\User;
+use BWH\AuthManager\Services\AccessGroupService;
 use BWH\AuthManager\Services\OAuthClientGrantService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -55,6 +57,26 @@ class ApplicationIdentityRegistrationTest extends TestCase
         $this->assertFalse($grants->allows((string) $person->id, (string) $other->id));
         $this->assertStringNotContainsString($person->password, $response->getContent());
         $this->assertStringNotContainsString($person->password, DB::table('application_identity_registrations')->sole()->request_digest);
+    }
+
+    public function test_a_registered_identity_joins_the_default_groups_only(): void
+    {
+        $default = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Default Application', ['https://default.example.test/callback']);
+        $other = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Other Application', ['https://other.example.test/callback']);
+        $defaultGroup = $this->group('Everyone', true, (string) $default->id);
+        $ordinaryGroup = $this->group('Specialists', false, (string) $other->id);
+
+        $this->postJson(self::ENDPOINT, $this->payload)->assertCreated();
+
+        $person = User::query()->where('email', $this->payload['email'])->sole();
+        $grants = app(OAuthClientGrantService::class);
+        $this->assertTrue($grants->allows((string) $person->id, (string) $default->id));
+        $this->assertFalse($grants->allows((string) $person->id, (string) $other->id));
+        $this->assertTrue(DB::table('access_group_members')->where('access_group_id', $defaultGroup)->where('subject', $person->id)->exists());
+        $this->assertFalse(DB::table('access_group_members')->where('access_group_id', $ordinaryGroup)->where('subject', $person->id)->exists());
+        $audit = AuthAuditLog::query()->where('event', AccessGroupService::EVENT_MEMBER_ADDED)->where('user_id', $person->id)->sole();
+        $this->assertSame(AccessGroupService::JOINED_BY_APPLICATION_REGISTRATION, $audit->metadata['joined_by']);
+        $this->assertSame([(string) $default->id], $audit->metadata['granted_oauth_client_ids']);
     }
 
     public function test_an_identical_retry_has_one_identity_and_one_receipt(): void
@@ -164,5 +186,13 @@ class ApplicationIdentityRegistrationTest extends TestCase
         RegisteredApplication::query()->sole()->clients()->attach($other->id);
         $this->withBasicAuth((string) $other->id, $other->plainSecret)->postJson(self::ENDPOINT, $this->payload)->assertConflict();
         $this->assertFalse(app(OAuthClientGrantService::class)->allows((string) User::query()->sole()->id, (string) $other->id));
+    }
+
+    private function group(string $name, bool $autoJoin, string $clientId): int
+    {
+        $group = DB::table('access_groups')->insertGetId(['name' => $name, 'auto_join' => $autoJoin, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('access_group_clients')->insert(['access_group_id' => $group, 'oauth_client_id' => $clientId, 'created_at' => now(), 'updated_at' => now()]);
+
+        return $group;
     }
 }

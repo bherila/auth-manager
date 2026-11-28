@@ -46,7 +46,8 @@ connected application.
 [Access groups](docs/access-groups.md) grant applications to every member, so an
 administrator can give a set of people sign-in to the same applications at once. A
 group grants sign-in only; a person keeps an application while a direct grant or any
-of their groups still grants it.
+of their groups still grants it. A group can also be [default access](docs/default-access.md):
+every new account joins it automatically, and taking someone out of it is remembered.
 
 The relying-application contract for deletion feeds, acknowledgements, and the
 30-day provider retention rule is documented in

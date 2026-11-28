@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $id
  * @property string $name
  * @property string|null $description
+ * @property bool $auto_join Every account created from now on joins this group (docs/default-access.md).
  */
 class AccessGroup extends Model
 {
@@ -20,5 +21,11 @@ class AccessGroup extends Model
 
     public const DESCRIPTION_MAX_LENGTH = 500;
 
-    protected $fillable = ['name', 'description'];
+    protected $fillable = ['name', 'description', 'auto_join'];
+
+    /** @return array<string, string> */
+    protected function casts(): array
+    {
+        return ['auto_join' => 'boolean'];
+    }
 }

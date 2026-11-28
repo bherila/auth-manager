@@ -162,10 +162,47 @@ export function PersonDetail({ user, clients, groups, passwordResetAvailable, on
         </form>
       </Section>
 
+      <Section id={`${key}-groups`} title="Groups" description="Groups are the usual way to give access: a group grants its applications to every member. Default groups take in every new account.">
+        {groups.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No groups exist.</p>
+        ) : (
+          <ul className="grid gap-1 sm:grid-cols-2">
+            {groups.map((group) => {
+              const member = user.group_ids.includes(group.id);
+              const optedOut = user.opted_out_group_ids.includes(group.id);
+
+              return (
+                <li key={group.id}>
+                  <label className="hover:bg-accent flex items-start gap-2 rounded-md p-2 text-sm">
+                    <input type="checkbox" className="mt-0.5" checked={member} disabled={busy}
+                      onChange={() => {
+                        if (member && group.auto_join && !window.confirm(`${group.name} is a default group. Take ${user.name} out of it? They will not be added back automatically.`)) {
+                          return;
+                        }
+                        void run(
+                          () => member
+                            ? fetchWrapper.delete(appPath(`/api/admin/groups/${group.id}/members/${user.id}`), {})
+                            : fetchWrapper.put(appPath(`/api/admin/groups/${group.id}/members/${user.id}`), {}),
+                          member ? `${user.name} left ${group.name}.` : `${user.name} joined ${group.name} and can sign in to its applications.`,
+                        );
+                      }} />
+                    <span>
+                      {group.name}
+                      {group.auto_join ? <span className="text-muted-foreground"> · default</span> : null}
+                      {optedOut && !member ? <span className="text-muted-foreground block text-xs">Taken out of this default group</span> : null}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Section>
+
       <Section
         id={`${key}-applications`}
         title="Applications"
-        description="A grant allows this person to request a token. It does not create their account or permissions in that application. A checked box is a direct grant; access through a group is shown beside it."
+        description="What this person can sign in to, and why. A checked box is a direct grant: an exception for this person alone. Access through a group is shown beside it and is changed in Groups. A grant never creates their account or permissions in that application."
       >
         {clients.length === 0 ? (
           <p className="text-muted-foreground text-sm">No active OAuth applications are registered.</p>
@@ -192,33 +229,6 @@ export function PersonDetail({ user, clients, groups, passwordResetAvailable, on
                       {client.name}
                       {throughGroups.length > 0 ? <span className="text-muted-foreground block text-xs">Through {throughGroups.join(', ')}</span> : null}
                     </span>
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Section>
-
-      <Section id={`${key}-groups`} title="Groups" description="A group grants its applications to every member.">
-        {groups.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No groups exist.</p>
-        ) : (
-          <ul className="grid gap-1 sm:grid-cols-2">
-            {groups.map((group) => {
-              const member = user.group_ids.includes(group.id);
-
-              return (
-                <li key={group.id}>
-                  <label className="hover:bg-accent flex items-center gap-2 rounded-md p-2 text-sm">
-                    <input type="checkbox" checked={member} disabled={busy}
-                      onChange={() => void run(
-                        () => member
-                          ? fetchWrapper.delete(appPath(`/api/admin/groups/${group.id}/members/${user.id}`), {})
-                          : fetchWrapper.put(appPath(`/api/admin/groups/${group.id}/members/${user.id}`), {}),
-                        member ? `${user.name} left ${group.name}.` : `${user.name} joined ${group.name} and can sign in to its applications.`,
-                      )} />
-                    {group.name}
                   </label>
                 </li>
               );

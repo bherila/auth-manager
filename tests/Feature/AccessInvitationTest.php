@@ -451,6 +451,26 @@ class AccessInvitationTest extends TestCase
         $this->get($link)->assertNotFound();
     }
 
+    public function test_a_new_person_joins_the_default_groups_but_an_existing_account_accepting_does_not(): void
+    {
+        $default = DB::table('access_groups')->insertGetId(['name' => 'Everyone', 'auto_join' => true, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('access_group_clients')->insert(['access_group_id' => $default, 'oauth_client_id' => $this->clients['other-app']->id, 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->confirm();
+        $person = $this->acceptAsNewPerson($this->inviteAndGetLink('Default.Person@example.test'));
+
+        $this->assertTrue(DB::table('access_group_members')->where('access_group_id', $default)->where('subject', $person->id)->exists());
+        $this->assertTrue(DB::table('oauth_client_grants')->where('subject', $person->id)->where('oauth_client_id', $this->clients['other-app']->id)->exists());
+
+        $existing = User::factory()->create(['email' => 'already@example.test', 'user_role' => 'user']);
+        $this->accounts[(string) $existing->id] = ['application_admin' => false, 'revision' => 'revision-1', 'workspaces' => []];
+        $link = $this->inviteAndGetLinkAs($this->inviter, 'already@example.test');
+        $this->signIn($existing);
+        $this->post($link.'/accept')->assertRedirect('/invitations/accepted');
+
+        $this->assertFalse(DB::table('access_group_members')->where('access_group_id', $default)->where('subject', $existing->id)->exists());
+    }
+
     public function test_an_existing_account_signs_in_as_itself_and_gains_only_the_missing_memberships(): void
     {
         $person = User::factory()->create(['email' => 'existing@example.test', 'user_role' => 'user']);

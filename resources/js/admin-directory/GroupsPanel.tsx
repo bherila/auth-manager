@@ -49,7 +49,10 @@ function GroupRow({ group, clients, onShowMembers, onChanged, onError }: Omit<Gr
     <details className="border-border group rounded-md border" data-test="admin-group">
       <summary className="hover:bg-accent flex cursor-pointer items-center justify-between gap-3 px-4 py-3">
         <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">{group.name}</span>
+          <span className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium">{group.name}</span>
+            {group.auto_join ? <span className="border-border shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium">Default</span> : null}
+          </span>
           <span className="text-muted-foreground block truncate text-xs">
             {group.member_count} {group.member_count === 1 ? 'member' : 'members'} · {group.client_ids.length} {group.client_ids.length === 1 ? 'application' : 'applications'}
           </span>
@@ -71,6 +74,30 @@ function GroupRow({ group, clients, onShowMembers, onChanged, onError }: Omit<Gr
             Save group
           </Button>
         </form>
+
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">Default access</legend>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={group.auto_join} disabled={busy} data-test="admin-group-auto-join"
+              onChange={() => {
+                const next = !group.auto_join;
+                if (next && !window.confirm(`Every account created from now on will join ${group.name} and can sign in to its applications at once, including accounts people create for themselves. Continue?`)) {
+                  return;
+                }
+                void run(
+                  () => fetchWrapper.put(appPath(`/api/admin/groups/${group.id}/auto-join`), { auto_join: next }),
+                  next ? `New accounts now join ${group.name} automatically.` : `New accounts no longer join ${group.name}.`,
+                );
+              }} />
+            <span>
+              New accounts join this group automatically
+              <span className="text-muted-foreground block text-xs">
+                Existing people are not added. An operator adds them with <code>php artisan auth-manager:access-group-backfill</code>, which previews first.
+                Only put applications here that every new account should reach.
+              </span>
+            </span>
+          </label>
+        </fieldset>
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Applications</legend>

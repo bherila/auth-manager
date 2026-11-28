@@ -40,6 +40,7 @@ final class ApplicationIdentityRegistrationService
                 foreach ($grantClients as $grantClient) {
                     app(OAuthClientGrantService::class)->grant((string) $user->getKey(), $grantClient);
                 }
+                app(AccessGroupService::class)->joinDefaultGroups($user, AccessGroupService::JOINED_BY_APPLICATION_REGISTRATION);
                 ApplicationIdentityRegistration::create(['client_id' => $client->getKey(), 'external_id' => $data['external_id'],
                     'subject' => $user->providerSubject(), 'request_digest' => $digest]);
                 AuthAuditLog::create(['user_id' => $user->getKey(), 'event' => 'identity_registered_by_application',

@@ -67,6 +67,14 @@ class AccessGroupAdminController extends Controller
         return response()->json(['group' => $this->payload($this->groups->removeClient($request, $this->actor($request), $group, $client))]);
     }
 
+    /** New accounts join a default group automatically; existing people are added by backfill. */
+    public function setAutoJoin(Request $request, AccessGroup $group): JsonResponse
+    {
+        $input = $request->validate(['auto_join' => ['required', 'boolean']]);
+
+        return response()->json(['group' => $this->payload($this->groups->setAutoJoin($request, $this->actor($request), $group, (bool) $input['auto_join']))]);
+    }
+
     /** @return array{name:string, description:?string} */
     private function validated(Request $request): array
     {
@@ -91,7 +99,7 @@ class AccessGroupAdminController extends Controller
     }
 
     /**
-     * @return array{id:int, name:string, description:?string, member_ids:list<int>, member_count:int, client_ids:list<string>}
+     * @return array{id:int, name:string, description:?string, auto_join:bool, member_ids:list<int>, member_count:int, client_ids:list<string>}
      */
     private function payload(AccessGroup $group): array
     {
@@ -101,6 +109,7 @@ class AccessGroupAdminController extends Controller
             'id' => (int) $group->getKey(),
             'name' => $group->name,
             'description' => $group->description,
+            'auto_join' => (bool) $group->auto_join,
             'member_ids' => $members,
             'member_count' => count($members),
             'client_ids' => $this->groups->clientIds($group),

@@ -90,6 +90,7 @@ Route::middleware([Authenticate::class, RequireProviderAdmin::class])->group(fun
         Route::delete('/groups/{group}', [AccessGroupAdminController::class, 'destroy'])->whereNumber('group');
         Route::put('/groups/{group}/members/{user}', [AccessGroupAdminController::class, 'addMember'])->whereNumber('group');
         Route::delete('/groups/{group}/members/{user}', [AccessGroupAdminController::class, 'removeMember'])->whereNumber('group');
+        Route::put('/groups/{group}/auto-join', [AccessGroupAdminController::class, 'setAutoJoin'])->whereNumber('group');
         Route::put('/groups/{group}/clients/{client}', [AccessGroupAdminController::class, 'addClient'])->whereNumber('group');
         Route::delete('/groups/{group}/clients/{client}', [AccessGroupAdminController::class, 'removeClient'])->whereNumber('group');
     });
