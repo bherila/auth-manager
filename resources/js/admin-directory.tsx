@@ -126,6 +126,8 @@ function DirectoryAdminPage() {
 
   const selectedRef = useRef<DirectoryUser | null>(null);
   selectedRef.current = selected;
+  // Bumped whenever the open person changes, so a read started for someone else is dropped.
+  const selectionGeneration = useRef(0);
 
   /** Opening a person by address: a row click already holds them; a link or reload asks by subject. */
   const loadSelected = useCallback(async (subject: string | null): Promise<void> => {
@@ -136,8 +138,12 @@ function DirectoryAdminPage() {
     if (selectedRef.current?.subject === subject) {
       return;
     }
+    const generation = ++selectionGeneration.current;
     const params = new URLSearchParams({ subject, per_page: '1' });
     const response = await fetchWrapper.get(appPath(`/api/admin/users?${params.toString()}`)) as DirectoryResponse;
+    if (generation !== selectionGeneration.current) {
+      return;
+    }
     setSelected(response.users[0] ?? null);
     if (response.users.length === 0) {
       setError('No provider account has that subject.');
@@ -157,6 +163,8 @@ function DirectoryAdminPage() {
   }, [query.subject, loadSelected]);
 
   function open(person: DirectoryUser | null): void {
+    selectionGeneration.current++;
+    selectedRef.current = person;
     setSelected(person);
     updateQuery({ subject: person?.subject ?? null });
   }
@@ -168,11 +176,17 @@ function DirectoryAdminPage() {
       await Promise.all([loadList(), loadGroups()]);
       const current = selectedRef.current;
       if (current !== null) {
+        const generation = selectionGeneration.current;
         try {
-          setSelected(((await fetchWrapper.get(appPath(`/api/admin/users/${current.id}`))) as { user: DirectoryUser }).user);
+          const refreshed = ((await fetchWrapper.get(appPath(`/api/admin/users/${current.id}`))) as { user: DirectoryUser }).user;
+          if (generation === selectionGeneration.current) {
+            setSelected(refreshed);
+          }
         } catch {
-          // Deleted: there is nobody left to show.
-          open(null);
+          // Deleted: there is nobody left to show, unless another person was opened meanwhile.
+          if (generation === selectionGeneration.current) {
+            open(null);
+          }
         }
       }
     } catch (caught) {
@@ -248,6 +262,8 @@ function DirectoryAdminPage() {
         <GroupsPanel groups={groups} clients={data.clients} onChanged={changed} onError={reportError}
           onShowMembers={(group) => {
             // Close any open person, or a narrow screen keeps showing them instead of the members.
+            selectionGeneration.current++;
+            selectedRef.current = null;
             setSelected(null);
             setSearchText('');
             updateQuery({ group: group.id, search: '', status: '', page: 1, subject: null });
