@@ -16,10 +16,10 @@ final class HomeController
         $key = config('application-registry.default_application');
 
         if ($user instanceof User && $user->canLogin() && ! $user->hasRole('admin')
-            && config('application-registry.launch_enabled') && is_string($key) && $key !== '') {
+            && is_string($key) && $key !== '') {
             // Reuse launch discovery so the default never supplies a grant or bypasses
             // disabled applications, revoked clients or static-client eligibility.
-            foreach ($applications->forSubject((string) $user->getKey()) as $application) {
+            foreach ($applications->registeredForSubject((string) $user->getKey()) as $application) {
                 if ($application['key'] === $key) {
                     return redirect()->away($application['url']);
                 }

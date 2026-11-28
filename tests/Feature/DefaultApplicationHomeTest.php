@@ -7,6 +7,7 @@ use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\RegisteredApplication;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\OAuthClientGrantService;
+use BWH\AuthManager\Support\RelyingApplications;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -56,6 +57,17 @@ final class DefaultApplicationHomeTest extends TestCase
         $this->get('/')->assertOk()->assertViewIs('welcome')->assertSee('Sign in');
     }
 
+    public function test_default_launch_is_independent_of_legacy_navigation_mode(): void
+    {
+        config(['application-registry.launch_enabled' => false]);
+        $applications = app(RelyingApplications::class);
+        $before = $applications->forSubject((string) $this->user->id);
+        $this->assertSame('https://app.example.test', $before[0]['url']);
+        $this->actingAs($this->user)->get('/')->assertRedirect($this->application->launch_url);
+        $this->assertSame($before, $applications->forSubject((string) $this->user->id));
+        $this->assertFalse(config('application-registry.launch_enabled'));
+    }
+
     #[DataProvider('administratorRoles')]
     public function test_provider_administrators_keep_the_provider_home(string $roles): void
     {
@@ -74,7 +86,6 @@ final class DefaultApplicationHomeTest extends TestCase
         match ($state) {
             'unset' => config(['application-registry.default_application' => null]),
             'unknown' => config(['application-registry.default_application' => 'missing']),
-            'launches-off' => config(['application-registry.launch_enabled' => false]),
             'ungranted' => DB::table('oauth_client_grants')->where('subject', (string) $this->user->id)->delete(),
             'disabled-app' => $this->application->update(['enabled' => false]),
             'unmapped' => $this->application->clients()->detach(),
@@ -91,7 +102,7 @@ final class DefaultApplicationHomeTest extends TestCase
     public static function unavailableDestinations(): array
     {
         return array_map(static fn (string $state): array => [$state], [
-            'unset', 'unknown', 'launches-off', 'ungranted', 'disabled-app', 'unmapped',
+            'unset', 'unknown', 'ungranted', 'disabled-app', 'unmapped',
             'revoked-client', 'dynamic-client', 'wrong-grant-type', 'disabled-user',
         ]);
     }

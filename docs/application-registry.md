@@ -22,7 +22,7 @@ Application keys come from the registry and survive display-name changes.
 ## Default destination after sign-in
 
 An instance may set `AUTH_MANAGER_DEFAULT_APPLICATION` to a registry key, such as
-`example-app`. With registry launches enabled, an active non-administrator visiting
+`example-app`. An active non-administrator visiting
 the provider home is redirected to that application's trusted launch URL only if
 their existing grant and an eligible mapped client make it visible. Missing access,
 disabled applications, revoked clients, and an unset or unknown key keep the provider
@@ -33,7 +33,9 @@ session and OAuth state before opening the logged-in home. Explicit OAuth reques
 invitations, and account/security destinations keep their existing sign-in return;
 provider administrators retain the provider home. Direct Settings links remain usable
 by everyone with the required access. Leave the setting empty for shared instances
-without a single default application.
+without a single default application. The default always uses the trusted registry;
+it is independent of `AUTH_MANAGER_APP_REGISTRY_LAUNCH_ENABLED`, which continues to
+control other application-link discovery.
 
 ## Rollout
 
