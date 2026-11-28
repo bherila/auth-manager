@@ -2,6 +2,7 @@
 
 namespace BWH\AuthManager\Http\Controllers;
 
+use BWH\Auth\Models\PasskeyCredential;
 use BWH\AuthManager\Models\PassportClient;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\DirectoryAdminService;
@@ -39,6 +40,7 @@ class DirectoryAdminController extends Controller
         return response()->json([
             'users' => $users,
             'clients' => $clients,
+            'password_reset_available' => (bool) config('auth-manager.sign_in.password_reset'),
         ]);
     }
 
@@ -150,6 +152,20 @@ class DirectoryAdminController extends Controller
         return response()->json(['user' => $this->userPayload($updated)]);
     }
 
+    public function removePasskeys(Request $request, User $user): JsonResponse
+    {
+        $updated = $this->directory->removePasskeys($request, $this->actor($request), $user, $this->expectedRevision($request));
+
+        return response()->json(['user' => $this->userPayload($updated)]);
+    }
+
+    public function sendRecovery(Request $request, User $user): JsonResponse
+    {
+        $updated = $this->directory->sendRecovery($request, $this->actor($request), $user);
+
+        return response()->json(['user' => $this->userPayload($updated)]);
+    }
+
     public function destroy(Request $request, User $user): JsonResponse
     {
         $tombstone = $this->directory->tombstone($request, $this->actor($request), $user, $this->expectedRevision($request));
@@ -205,6 +221,7 @@ class DirectoryAdminController extends Controller
     /**
      * @return array{
      *     id:int,
+     *     subject:string,
      *     name:string,
      *     email:string,
      *     status:'active'|'disabled',
@@ -212,6 +229,7 @@ class DirectoryAdminController extends Controller
      *     administration_revision:string,
      *     disabled_at:?string,
      *     last_login_date:?string,
+     *     passkey_count:int,
      *     client_ids:list<string>,
      *     direct_client_ids:list<string>,
      *     group_ids:list<int>
@@ -239,6 +257,7 @@ class DirectoryAdminController extends Controller
 
         return [
             'id' => (int) $user->getKey(),
+            'subject' => $user->providerSubject(),
             'name' => $user->name,
             'email' => $user->email,
             'status' => $user->canLogin() ? 'active' : 'disabled',
@@ -246,6 +265,7 @@ class DirectoryAdminController extends Controller
             'administration_revision' => app(ProviderAdministrators::class)->revision($user),
             'disabled_at' => $user->disabled_at?->toISOString(),
             'last_login_date' => $user->last_login_date?->toISOString(),
+            'passkey_count' => PasskeyCredential::query()->where('user_id', $user->getKey())->count(),
             'client_ids' => $clientIds,
             'direct_client_ids' => $directClientIds,
             'group_ids' => $groupIds,

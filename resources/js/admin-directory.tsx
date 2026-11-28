@@ -17,6 +17,7 @@ interface OAuthClient {
 
 interface DirectoryUser {
   id: number;
+  subject: string;
   name: string;
   email: string;
   status: 'active' | 'disabled';
@@ -24,6 +25,7 @@ interface DirectoryUser {
   administration_revision: string;
   disabled_at: string | null;
   last_login_date: string | null;
+  passkey_count: number;
   client_ids: string[];
   direct_client_ids: string[];
   group_ids: number[];
@@ -32,7 +34,11 @@ interface DirectoryUser {
 interface DirectoryResponse {
   users: DirectoryUser[];
   clients: OAuthClient[];
+  password_reset_available: boolean;
 }
+
+/** A relying application links to one person as /admin/users?subject=<subject>. */
+const requestedSubject = new URLSearchParams(window.location.search).get('subject');
 
 interface AccessGroup {
   id: number;
@@ -54,12 +60,14 @@ function UserCard({
   user,
   clients,
   groups,
+  passwordResetAvailable,
   onChanged,
   onError,
 }: {
   user: DirectoryUser;
   clients: OAuthClient[];
   groups: AccessGroup[];
+  passwordResetAvailable: boolean;
   onChanged: (message: string) => Promise<void>;
   onError: (message: string) => void;
 }) {
@@ -142,6 +150,23 @@ function UserCard({
     );
   }
 
+  async function removePasskeys(): Promise<void> {
+    if (!window.confirm(
+      `Remove all ${user.passkey_count} of ${user.name}'s passkeys? Their sessions in every application end, and they sign in next with their password or a recovery link.`,
+    )) return;
+    await run(
+      () => fetchWrapper.delete(appPath(`/api/admin/users/${user.id}/passkeys`), { expected_revision: user.administration_revision }),
+      `${user.name}'s passkeys were removed and existing sessions and tokens were revoked.`,
+    );
+  }
+
+  async function sendRecovery(): Promise<void> {
+    await run(
+      () => fetchWrapper.post(appPath(`/api/admin/users/${user.id}/recovery`), {}),
+      `A password reset link was emailed to ${user.email}.`,
+    );
+  }
+
   async function changeAdministrator(): Promise<void> {
     const administrator = !user.roles.includes('admin');
     if (!window.confirm(
@@ -162,7 +187,7 @@ function UserCard({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle>{user.name}</CardTitle>
-            <CardDescription>Directory subject {user.id} · Provider roles: {user.roles.join(', ') || 'no sign-in role'}</CardDescription>
+            <CardDescription>{user.email} · Subject {user.subject} · Provider roles: {user.roles.join(', ') || 'no sign-in role'}</CardDescription>
           </div>
           <span
             className={
@@ -254,6 +279,32 @@ function UserCard({
               })}
             </div>
           )}
+        </fieldset>
+
+        <fieldset className="border-border space-y-3 rounded-md border p-4" data-test="admin-user-sign-in-methods">
+          <legend className="px-1 text-sm font-medium">Getting back in</legend>
+          <p className="text-muted-foreground text-xs">
+            {user.passkey_count === 0
+              ? 'No passkeys.'
+              : `${user.passkey_count} ${user.passkey_count === 1 ? 'passkey' : 'passkeys'}.`}{' '}
+            Removing passkeys needs a credential confirmed in the last five minutes, and ends this person's sessions everywhere.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Button type="button" variant="destructive" disabled={busy || user.passkey_count === 0}
+              onClick={() => void removePasskeys()} data-test="admin-user-remove-passkeys">
+              Remove passkeys
+            </Button>
+            {passwordResetAvailable ? (
+              <Button type="button" variant="outline" disabled={busy || user.status !== 'active'}
+                onClick={() => void sendRecovery()} data-test="admin-user-send-recovery">
+                Email a password reset link
+              </Button>
+            ) : (
+              <p className="text-muted-foreground self-center text-xs">
+                Self-service password reset is off here, so set a temporary password below instead.
+              </p>
+            )}
+          </div>
         </fieldset>
 
         <form className="grid gap-3 sm:grid-cols-2" onSubmit={(event) => void resetPassword(event)}>
@@ -497,7 +548,7 @@ function GroupCard({
 }
 
 function DirectoryAdminPage() {
-  const [data, setData] = useState<DirectoryResponse>({ users: [], clients: [] });
+  const [data, setData] = useState<DirectoryResponse>({ users: [], clients: [], password_reset_available: false });
   const [groups, setGroups] = useState<AccessGroup[]>([]);
   const [groupName, setGroupName] = useState('');
   const [groupDescription, setGroupDescription] = useState('');
@@ -608,6 +659,8 @@ function DirectoryAdminPage() {
     setError(nextError);
   };
 
+  const shownUsers = requestedSubject === null ? data.users : data.users.filter((user) => user.subject === requestedSubject);
+
   if (loading) {
     return <main className="mx-auto max-w-6xl px-4 py-10">Loading directory…</main>;
   }
@@ -628,7 +681,7 @@ function DirectoryAdminPage() {
       <Card>
         <CardHeader>
           <CardTitle>Confirm provider administration</CardTitle>
-          <CardDescription>Changing provider administrators needs a credential confirmed in the last five minutes. Sign in again with a passkey or confirm your current password here.</CardDescription>
+          <CardDescription>Changing provider administrators or removing someone's passkeys needs a credential confirmed in the last five minutes. Sign in again with a passkey or confirm your current password here.</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="flex flex-wrap items-end gap-3" onSubmit={(event) => void confirmAdministration(event)}>
@@ -748,14 +801,21 @@ function DirectoryAdminPage() {
 
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold">People</h2>
+        {requestedSubject !== null ? (
+          <p className="text-muted-foreground text-sm" data-test="admin-directory-one-person">
+            {shownUsers.length === 0 ? 'No provider account has that subject. ' : 'Showing the person you opened. '}
+            <a className="text-foreground underline underline-offset-4" href={appPath('/admin/users')}>Show everyone</a>
+          </p>
+        ) : null}
         {data.users.length === 0 ? (
           <p className="text-muted-foreground">No provider accounts exist.</p>
-        ) : data.users.map((user) => (
+        ) : shownUsers.map((user) => (
           <UserCard
             key={user.id}
             user={user}
             clients={data.clients}
             groups={groups}
+            passwordResetAvailable={data.password_reset_available}
             onChanged={changed}
             onError={reportError}
           />

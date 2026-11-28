@@ -156,7 +156,7 @@ class ProviderAdministratorsTest extends TestCase
         $request = Request::create('/api/admin/users');
         DB::table('users')->where('id', $actor->id)->update(['user_role' => 'user', 'credential_version' => 1]);
         $client = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Example', ['https://app.example.test/oauth/callback']);
-        foreach (['disable', 'tombstone', 'changeAdministrator', 'changeName', 'changeEmail', 'enable', 'resetPassword', 'grantClient', 'revokeClient', 'create'] as $method) {
+        foreach (['disable', 'tombstone', 'changeAdministrator', 'changeName', 'changeEmail', 'enable', 'resetPassword', 'removePasskeys', 'sendRecovery', 'grantClient', 'revokeClient', 'create'] as $method) {
             try {
                 if ($method === 'changeAdministrator') {
                     app(DirectoryAdminService::class)->changeAdministrator($request, $actor, $target, true, app(ProviderAdministrators::class)->revision($target));
