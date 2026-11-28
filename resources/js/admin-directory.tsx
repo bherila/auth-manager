@@ -103,14 +103,19 @@ function DirectoryAdminPage() {
   }, [searchText, query.search, updateQuery]);
 
   const listRequest = listQueryString(query, PER_PAGE);
-  // Only the newest list request may update the page: an older one that answers late is dropped.
+  // A refresh after a change runs from an older render, so the loader reads the view that is
+  // on screen now, and only the newest request for that view may update the page.
+  const currentListRequest = useRef(listRequest);
+  currentListRequest.current = listRequest;
   const listGeneration = useRef(0);
   const loadList = useCallback(async (): Promise<void> => {
+    const request = currentListRequest.current;
     const generation = ++listGeneration.current;
+    const current = (): boolean => generation === listGeneration.current && request === currentListRequest.current;
     setLoading(true);
     try {
-      const response = await fetchWrapper.get(appPath(`/api/admin/users${listRequest}`)) as DirectoryResponse;
-      if (generation === listGeneration.current) {
+      const response = await fetchWrapper.get(appPath(`/api/admin/users${request}`)) as DirectoryResponse;
+      if (current()) {
         setData(response);
       }
     } finally {
@@ -118,7 +123,11 @@ function DirectoryAdminPage() {
         setLoading(false);
       }
     }
-  }, [listRequest]);
+  }, []);
+
+  useEffect(() => {
+    void loadList().catch((caught) => setError(errorText(caught)));
+  }, [listRequest, loadList]);
 
   const loadGroups = useCallback(async (): Promise<void> => {
     setGroups(((await fetchWrapper.get(appPath('/api/admin/groups'))) as GroupsResponse).groups);
@@ -150,9 +159,6 @@ function DirectoryAdminPage() {
     }
   }, []);
 
-  useEffect(() => {
-    void loadList().catch((caught) => setError(errorText(caught)));
-  }, [loadList]);
 
   useEffect(() => {
     void loadGroups().catch((caught) => setError(errorText(caught)));
