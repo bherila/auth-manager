@@ -91,15 +91,18 @@ class AccessGroupAdminController extends Controller
     }
 
     /**
-     * @return array{id:int, name:string, description:?string, member_ids:list<int>, client_ids:list<string>}
+     * @return array{id:int, name:string, description:?string, member_ids:list<int>, member_count:int, client_ids:list<string>}
      */
     private function payload(AccessGroup $group): array
     {
+        $members = array_map(static fn (string $subject): int => (int) $subject, $this->groups->memberSubjects($group, activeOnly: true));
+
         return [
             'id' => (int) $group->getKey(),
             'name' => $group->name,
             'description' => $group->description,
-            'member_ids' => array_map(static fn (string $subject): int => (int) $subject, $this->groups->memberSubjects($group, activeOnly: true)),
+            'member_ids' => $members,
+            'member_count' => count($members),
             'client_ids' => $this->groups->clientIds($group),
         ];
     }

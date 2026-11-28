@@ -89,6 +89,16 @@ A relying application can link an administrator straight to one person with
 `/admin/users?subject=<subject>`: the provider subject it already stores, never
 an email address. The page shows only that person, with a link back to everyone.
 
+## Listing the directory
+
+`GET /api/admin/users` returns one page of people in name order, with `pagination`
+(`page`, `per_page`, `total`, `last_page`). It takes `page`, `per_page` (default 50, at most
+100), `search` (a name or email fragment, matched literally, or an exact subject), `status`
+(`active`, `disabled` or `administrators`), `group` and `subject`. A page loads in a fixed
+number of queries however large the directory is. `GET /api/admin/users/{user}` returns one
+person. The page shows a searchable, paginated list beside the selected person's details, and
+keeps the search, filters, page and open person in its address.
+
 ## Provider administrator management
 
 The directory's **Provider administrator authority** control grants or removes the

@@ -69,7 +69,9 @@ All routes require an active provider administrator and use the provider session
 | `PUT` / `DELETE /api/admin/groups/{group}/clients/{client}` | Add or remove an application |
 
 `GET /api/admin/users` also reports each person's `direct_client_ids` and `group_ids` beside the
-effective `client_ids`.
+effective `client_ids`, and takes `group=<id>` to list one group's members. Each group reports its
+`member_count`. Membership is changed from a person's Groups section in Directory administration, or
+through the member routes above.
 
 ## Directory copies
 
