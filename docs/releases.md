@@ -31,7 +31,9 @@ be released this way.
 The jobs run in order, and each one starts only when the previous one succeeded:
 
 1. **resolve** validates the tag name and resolves it to a commit on `main`.
-2. **verify** runs the same `composer setup`, `composer ci:check` and deployment
+2. **verify** reuses a recent successful main CI run for that exact commit when
+   the proof below is available, and runs a fresh `composer audit --locked`.
+   Otherwise it runs the same `composer setup`, `composer ci:check` and deployment
    hook tests that CI runs, on that commit.
 3. **build** produces the standalone tarball and Composer source ZIP, with
    `SHA256SUMS` and `SHA256SUMS-source`, then attests both archives with
@@ -46,6 +48,29 @@ The workflow runs only in the canonical repository, from a tag push or from a
 manual run of the workflow on `main`. It never runs for pull requests. Its
 top-level token has no permissions; only **build** can request an OIDC token and
 write attestations, and only **publish** can write repository contents.
+
+### Reusing exact-source CI approval
+
+Release verification can reuse only the canonical repository's
+`.github/workflows/ci.yml` run, identified by its API workflow ID and path, for a
+`push` to `main` at the exact tagged source SHA. The run must have started within
+24 hours and completed successfully. Its `ci`, `MariaDB engine tests` and
+`Reproducible release artifact` jobs must each occur exactly once and succeed in
+the current run attempt. Skipped, missing, failed or inherited validation jobs,
+pull-request/manual/scheduled runs, another repository or SHA, and a rerun begun
+while reading the proof do not qualify.
+
+The lookup makes at most five API calls with ten-second deadlines. Truncated
+results, unavailable APIs and malformed evidence select full tag verification;
+it never waits for unfinished main CI. The run ID, attempt, workflow ID and
+source SHA are recorded in the workflow summary and new release notes.
+
+This approval covers the same source, lockfiles and declared CI runtime, not an
+identical hosted machine or a new test run at release time. A fresh locked
+Composer vulnerability audit still runs before reuse is accepted. Release builds
+and their provenance attestations remain fresh and unchanged; no PR artifacts,
+main build artifacts or caches are trusted as release payloads. Old tags without
+this verifier retain full verification, including manual releases from main.
 
 **Re-running.** `workflow_dispatch` with a `tag` input rebuilds and republishes
 an existing tag, for example after a failed upload. A draft left by an
