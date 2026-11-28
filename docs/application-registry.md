@@ -19,6 +19,22 @@ entries for which the subject holds an existing grant to an eligible mapped clie
 Revoked, deleted or dynamically registered clients cannot make an entry visible.
 Application keys come from the registry and survive display-name changes.
 
+## Default destination after sign-in
+
+An instance may set `AUTH_MANAGER_DEFAULT_APPLICATION` to a registry key, such as
+`example-app`. With registry launches enabled, an active non-administrator visiting
+the provider home is redirected to that application's trusted launch URL only if
+their existing grant and an eligible mapped client make it visible. Missing access,
+disabled applications, revoked clients, and an unset or unknown key keep the provider
+home. This setting creates no grants or application accounts.
+
+Set the launch URL to the application's SSO entry point so it establishes its own
+session and OAuth state before opening the logged-in home. Explicit OAuth requests,
+invitations, and account/security destinations keep their existing sign-in return;
+provider administrators retain the provider home. Direct Settings links remain usable
+by everyone with the required access. Leave the setting empty for shared instances
+without a single default application.
+
 ## Rollout
 
 1. Deploy the additive tables and administration surface. Both deployment profiles
