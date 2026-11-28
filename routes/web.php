@@ -6,6 +6,7 @@ use BWH\AuthManager\Http\Controllers\AccessInvitationController;
 use BWH\AuthManager\Http\Controllers\AccountSettingsController;
 use BWH\AuthManager\Http\Controllers\ApplicationAccessController;
 use BWH\AuthManager\Http\Controllers\ApplicationRegistryController;
+use BWH\AuthManager\Http\Controllers\ApplicationSignInReturnController;
 use BWH\AuthManager\Http\Controllers\ConfirmApplicationAccessController;
 use BWH\AuthManager\Http\Controllers\ConfirmProviderAdministrationController;
 use BWH\AuthManager\Http\Controllers\DirectoryAdminController;
@@ -48,6 +49,7 @@ Route::post('/logout', function (Request $request) {
 })->name('logout');
 
 Route::middleware([Authenticate::class, RequireActiveUser::class])->group(function (): void {
+    Route::get('/sign-in-return', ApplicationSignInReturnController::class)->name('sign-in-return');
     Route::get('/settings', [AccountSettingsController::class, 'show'])->name('settings.account');
     Route::put('/settings/password', [AccountSettingsController::class, 'changePassword'])->middleware('throttle:5,1')->name('settings.password');
     Route::delete('/settings/trusted-devices', [AccountSettingsController::class, 'revokeTrustedDevices'])->name('settings.trusted-devices.destroy-all');

@@ -10,6 +10,7 @@ use BWH\Auth\Models\TwoFactorAttempt;
 use BWH\AuthManager\Models\User;
 use BWH\AuthManager\Services\EmailProof;
 use BWH\AuthManager\Services\OAuthTokenRevocationService;
+use BWH\AuthManager\Support\ApplicationSignInReturn;
 use BWH\AuthManager\Support\Mount;
 use Closure;
 use Illuminate\Auth\Events\PasswordReset;
@@ -23,6 +24,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Support\Timebox;
+use Illuminate\Support\Uri;
 use Illuminate\Validation\Rules\Password as PasswordRule;
 use Illuminate\View\View;
 use Throwable;
@@ -48,13 +50,14 @@ final class PasswordResetController
         private readonly LocalCredentialPolicy $localCredentials,
         private readonly OAuthTokenRevocationService $tokens,
         private readonly EmailProof $emailProof,
+        private readonly ApplicationSignInReturn $returns,
     ) {}
 
-    public function request(): View
+    public function request(Request $request): View
     {
         $this->ensureEnabled();
 
-        return view('password.forgot');
+        return view('password.forgot', ['clientId' => $this->returns->clientId($request, fromIntended: true)]);
     }
 
     public function email(Request $request, Timebox $timebox): RedirectResponse
@@ -74,6 +77,10 @@ final class PasswordResetController
                     '{token}' => rawurlencode($token),
                     '{email}' => rawurlencode($user->email),
                 ]);
+                $clientId = $this->returns->clientId($request);
+                if ($clientId !== null) {
+                    $url = (string) Uri::of($url)->withQuery(['client_id' => $clientId]);
+                }
 
                 // A failed send must look like every other answer.
                 $this->sendQuietly($user, new PasswordResetConfirmationMail($user, $url, (string) config('app.name')));
@@ -90,7 +97,8 @@ final class PasswordResetController
     {
         $this->ensureEnabled();
 
-        return view('password.reset', ['token' => $token, 'email' => (string) $request->query('email', '')]);
+        return view('password.reset', ['token' => $token, 'email' => (string) $request->query('email', ''),
+            'clientId' => $this->returns->clientId($request)]);
     }
 
     public function update(Request $request): RedirectResponse
@@ -152,9 +160,13 @@ final class PasswordResetController
         event(new PasswordReset($resetUser));
 
         // This browser may hold a session too, and saving it would write the row back.
+        $clientId = $this->returns->clientId($request);
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+        if ($clientId !== null) {
+            $request->session()->put('url.intended', route('auth-manager.sign-in-return', ['client_id' => $clientId]));
+        }
 
         return redirect()->route('auth-manager.login')
             ->with('status', 'Your password has been reset. Sign in with your new password.');
