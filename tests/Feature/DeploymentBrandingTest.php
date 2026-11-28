@@ -73,6 +73,31 @@ class DeploymentBrandingTest extends TestCase
         $this->assertSame(2, substr_count($this->get('/login')->getContent(), 'src="/branding/logo-light.svg"'));
     }
 
+    public function test_a_wordmark_logo_carries_the_name_instead_of_repeating_it_beside_the_logo(): void
+    {
+        $this->branding();
+        $printedName = '<span class="font-semibold">Example Identity</span>';
+
+        // By default the logo is decorative and the name is printed beside it.
+        $default = $this->get('/login')->assertOk()->getContent();
+        $this->assertStringContainsString($printedName, $default);
+        $this->assertSame(0, substr_count($default, 'alt="Example Identity"'));
+
+        // A wordmark: both logo images carry the name, and it is not printed a second time.
+        config(['branding.logo_includes_name' => true]);
+        $wordmark = $this->get('/login')->assertOk()->getContent();
+        $this->assertStringNotContainsString($printedName, $wordmark);
+        $this->assertSame(2, substr_count($wordmark, 'alt="Example Identity"'));
+
+        // The name is escaped once in the alt text.
+        config(['app.name' => 'Rock & Roll <Identity>']);
+        $this->get('/login')->assertOk()->assertSee('alt="Rock &amp; Roll &lt;Identity&gt;"', false);
+
+        // Without a usable logo the setting changes nothing: the name stays visible.
+        config(['app.name' => 'Example Identity', 'branding.logo_light' => 'https://untrusted.example.test/logo.svg', 'branding.logo_dark' => null]);
+        $this->get('/login')->assertOk()->assertSee($printedName, false)->assertDontSee('untrusted.example.test');
+    }
+
     public function test_assets_reject_remote_encoded_traversal_and_executable_paths_and_escape_name(): void
     {
         $this->branding();
